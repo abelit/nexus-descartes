@@ -207,7 +207,7 @@ pub(super) fn ensure_audit_schema_sync(conn: &rusqlite::Connection) -> Result<()
 
 impl Storage {
     pub async fn insert_audit_event(&self, event: AuditEventInsert) -> Result<AuditEvent, String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let tx =
                 conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
             let inserted = insert_in_tx(&tx, &event)?;
@@ -218,7 +218,7 @@ impl Storage {
     }
 
     pub async fn insert_audit_events_batch(&self, events: Vec<AuditEventInsert>) -> Result<Vec<AuditEvent>, String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let tx =
                 conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
             let mut inserted = Vec::with_capacity(events.len());
@@ -232,7 +232,7 @@ impl Storage {
     }
 
     pub async fn query_audit_events(&self, query: AuditQuery) -> Result<AuditPage, String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let limit = query.limit.unwrap_or(DEFAULT_QUERY_LIMIT).clamp(1, MAX_QUERY_LIMIT);
             let mut sql = format!("SELECT {EVENT_COLUMNS} FROM audit_events WHERE 1=1");
             let mut values: Vec<Value> = Vec::new();
@@ -290,7 +290,7 @@ impl Storage {
     }
 
     pub async fn audit_event_by_id(&self, event_id: String) -> Result<Option<AuditEvent>, String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             conn.query_row(
                 &format!("SELECT {EVENT_COLUMNS} FROM audit_events WHERE event_id = ?1"),
                 [event_id],
@@ -305,7 +305,7 @@ impl Storage {
     /// Events after `after_seq`, oldest first, for the export worker.
     pub async fn audit_events_after(&self, after_seq: i64, limit: usize) -> Result<Vec<AuditEvent>, String> {
         let limit = limit.clamp(1, 1000) as i64;
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let mut stmt = conn
                 .prepare(&format!("SELECT {EVENT_COLUMNS} FROM audit_events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2"))
                 .map_err(|error| error.to_string())?;
@@ -316,7 +316,7 @@ impl Storage {
     }
 
     pub async fn audit_export_state(&self, sink_name: String) -> Result<Option<i64>, String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             conn.query_row(
                 "SELECT last_exported_seq FROM audit_export_state WHERE sink_name = ?1",
                 [sink_name],
@@ -329,7 +329,7 @@ impl Storage {
     }
 
     pub async fn set_audit_export_state(&self, sink_name: String, last_seq: i64) -> Result<(), String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             conn.execute(
                 "INSERT INTO audit_export_state (sink_name, last_exported_seq, updated_at_ms) \
                  VALUES (?1, ?2, ?3) \
@@ -346,7 +346,7 @@ impl Storage {
     /// Aggregates over an optional time window. The audit UI shows these so an
     /// operator can see spikes without exporting the whole log.
     pub async fn audit_stats(&self, from_ms: Option<i64>, to_ms: Option<i64>) -> Result<AuditStats, String> {
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let mut where_sql = String::from(" WHERE 1=1");
             let mut values: Vec<Value> = Vec::new();
             if let Some(from_ms) = from_ms {
@@ -390,11 +390,8 @@ impl Storage {
     }
 
     pub async fn audit_chain_head(&self) -> Result<AuditChainHead, String> {
-        self.with_conn(|conn| read_head_sync(conn)).await.map(|(last_seq, last_hash, event_count)| AuditChainHead {
-            chain_id: CHAIN_ID.to_string(),
-            last_seq,
-            last_hash,
-            event_count,
+        self.with_audit_conn(|conn| read_head_sync(conn)).await.map(|(last_seq, last_hash, event_count)| {
+            AuditChainHead { chain_id: CHAIN_ID.to_string(), last_seq, last_hash, event_count }
         })
     }
 
@@ -406,7 +403,7 @@ impl Storage {
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let (last_seq, last_hash, _) = read_head_sync(conn)?;
             if last_seq == 0 {
                 return Err("AUDIT_CHAIN_EMPTY".to_string());
@@ -433,7 +430,7 @@ impl Storage {
     /// deletion is not enabled: a segment may only be removed after a copy is
     /// anchored outside the database.
     pub async fn audit_oldest_event_ms(&self) -> Result<Option<i64>, String> {
-        self.with_conn(|conn| {
+        self.with_audit_conn(|conn| {
             conn.query_row("SELECT MIN(occurred_at_ms) FROM audit_events", [], |row| row.get::<_, Option<i64>>(0))
                 .map_err(|error| error.to_string())
         })
@@ -442,7 +439,7 @@ impl Storage {
 
     pub async fn audit_checkpoints(&self, limit: usize) -> Result<Vec<AuditCheckpoint>, String> {
         let limit = limit.clamp(1, 1000) as i64;
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let mut stmt = conn
                 .prepare(
                     "SELECT seq, event_hash, signed_at, signature, exported_at FROM audit_checkpoints \
@@ -460,7 +457,7 @@ impl Storage {
     /// A missing checkpoint means "verify from genesis" — the caller still gets
     /// a full report, just without the off-host anchor.
     pub async fn verify_audit_chain_from_checkpoint(&self) -> Result<AuditCheckpointReport, String> {
-        self.with_conn(|conn| {
+        self.with_audit_conn(|conn| {
             let checkpoint = conn
                 .query_row(
                     "SELECT seq, event_hash, signed_at, signature, exported_at FROM audit_checkpoints \
@@ -499,7 +496,7 @@ impl Storage {
         from_seq: Option<i64>,
         to_seq: Option<i64>,
     ) -> Result<AuditChainReport, String> {
-        self.with_conn(move |conn| verify_chain_sync(conn, from_seq, to_seq)).await
+        self.with_audit_conn(move |conn| verify_chain_sync(conn, from_seq, to_seq)).await
     }
 
     /// Only used by migration tests that need to write a legacy-scheme row.
@@ -510,7 +507,7 @@ impl Storage {
         hash_scheme: &str,
     ) -> Result<AuditEvent, String> {
         let scheme = hash_scheme.to_string();
-        self.with_conn(move |conn| {
+        self.with_audit_conn(move |conn| {
             let tx =
                 conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
             let inserted = insert_in_tx_with_scheme(&tx, &event, &scheme)?;
@@ -1352,6 +1349,24 @@ mod tests {
         assert!(report.checkpoint.is_none());
         assert_eq!(report.report.checked, 1);
         assert_eq!(report.report.first_broken_seq, None);
+    }
+
+    #[tokio::test]
+    async fn an_attached_audit_database_is_used_instead_of_the_business_db() {
+        let (storage, business_path) = storage().await;
+        let audit_path = business_path.with_file_name("audit-dedicated.db");
+        storage.attach_audit_database(&audit_path).await.unwrap();
+        storage.insert_audit_event(event("e1", "SELECT 1")).await.unwrap();
+        assert_eq!(storage.verify_audit_chain(None, None).await.unwrap().checked, 1);
+
+        let business = rusqlite::Connection::open(&business_path).unwrap();
+        let business_rows: i64 = business.query_row("SELECT COUNT(*) FROM audit_events", [], |row| row.get(0)).unwrap();
+        assert_eq!(business_rows, 0, "audit rows must not land in the business database");
+
+        let dedicated = rusqlite::Connection::open(&audit_path).unwrap();
+        let dedicated_rows: i64 =
+            dedicated.query_row("SELECT COUNT(*) FROM audit_events", [], |row| row.get(0)).unwrap();
+        assert_eq!(dedicated_rows, 1);
     }
 
     #[tokio::test]

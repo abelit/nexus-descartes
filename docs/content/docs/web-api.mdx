@@ -643,6 +643,12 @@ Server-side audit records every SQL execution and the authentication/config
 events around it. Events are append-only and hash-chained; every response here
 is read from the chain itself, not from a mutable history table.
 
+In the Web server the log lives in its own SQLite file (`<data_dir>/audit.db`,
+override with `DBX_AUDIT_DB_PATH`), so audit I/O never contends with the UI's
+storage lock. Desktop, CLI, and local MCP keep the log in their existing
+database file. Moving a pre-`audit.db` deployment means migrating the
+`audit_*` tables together with their chain head; do not copy rows between chains.
+
 <Callout type="warn">In this phase the audit API is not yet gated by roles. It requires the `X-DBX-Audit-Token` header to match `DBX_AUDIT_BOOTSTRAP_TOKEN`, or a direct loopback connection when no token is configured. Deployments behind a reverse proxy on the same host see loopback peers, so they must set `DBX_AUDIT_BOOTSTRAP_TOKEN`. Role-based access (`audit:read`) arrives with local users.</Callout>
 
 ```http
@@ -704,6 +710,7 @@ failed delivery leaves the cursor unchanged and retries on the next tick.
 | `DBX_AUDIT_BOOTSTRAP_TOKEN` | unset | Token required by the audit API when set; otherwise loopback only |
 | `DBX_AUDIT_CHECKPOINT_KEY` | unset | HMAC key for checkpoint signatures |
 | `DBX_AUDIT_RETENTION_DAYS` | `180` | Warn when the oldest event is older than this; `0` disables the warning. Deletion is always manual |
+| `DBX_AUDIT_DB_PATH` | `<data_dir>/audit.db` | Dedicated audit database file |
 | `DBX_AUDIT_EXPORT_URL` | unset | Push signed JSONL batches to this endpoint every 10s |
 | `DBX_AUDIT_EXPORT_HMAC_KEY` | unset | HMAC key for the `x-dbx-audit-signature` header (`sha256=<hex>`) |
 | `DBX_TRUSTED_PROXIES` | unset | Comma-separated proxy IPs allowed to supply `X-Forwarded-For` |

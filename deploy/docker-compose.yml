@@ -28,6 +28,8 @@ services:
       # Signs hourly checkpoints. Copy checkpoints off-host and keep this key
       # out of the database volume.
       # - DBX_AUDIT_CHECKPOINT_KEY=replace-with-a-long-random-secret
+      # Dedicated audit database (default /app/data/audit.db).
+      # - DBX_AUDIT_DB_PATH=/app/data/audit.db
       # `enforce` rejects API calls whose permission is missing (and restricts
       # unclassified routes to administrators). Default `observe` logs only.
       # - DBX_GOVERNANCE_MODE=enforce

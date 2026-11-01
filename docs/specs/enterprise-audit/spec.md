@@ -30,6 +30,9 @@ identity, `full` SQL retention by default, and delivery of the full phase set.
 - Statement retention is `full` by default with credential literals masked;
   `redacted` and `digest` are available. The digest used for approval binding is
   always computed from the raw statement.
+- The Web server writes the log to a dedicated SQLite database
+  (`DBX_AUDIT_DB_PATH`, default `<data_dir>/audit.db`); desktop/CLI/MCP keep it
+  in their existing database.
 - Hourly checkpoints anchor the head. Signing uses `DBX_AUDIT_CHECKPOINT_KEY`
   (HMAC-SHA256); verification can start from the newest checkpoint.
 - Until roles exist, the audit API is gated by `DBX_AUDIT_BOOTSTRAP_TOKEN` or

@@ -615,9 +615,21 @@ async fn serve() -> Result<(), String> {
 
     #[cfg(feature = "enterprise-audit")]
     if audit_enabled_from_env() {
+        // The audit log lives in its own SQLite file so writes and reads do
+        // not contend with the UI's business-storage lock. `DBX_AUDIT_DB_PATH`
+        // overrides the default `<data_dir>/audit.db`.
+        let audit_path = std::env::var("DBX_AUDIT_DB_PATH")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| data_dir.join("audit.db"));
+        if let Err(error) = app_state.storage.attach_audit_database(&audit_path).await {
+            return Err(format!("AUDIT_DB_ATTACH_FAILED: {error}"));
+        }
         let sink = dbx_core::audit::SqliteAuditSink::spawn(app_state.storage.clone(), 8192);
         app_state.install_audit_sink(Arc::new(sink));
-        log::info!("Server-side audit writer enabled");
+        log::info!("Server-side audit writer enabled ({})", audit_path.display());
     }
 
     // Password hash: env var takes priority, then database

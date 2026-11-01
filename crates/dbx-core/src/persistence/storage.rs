@@ -282,6 +282,10 @@ pub struct Storage {
     /// Without this, each consumer can prompt a locked Secret Service again.
     secret_key_error_cache: Arc<Mutex<Option<CachedSecretKeyError>>>,
     migration_failure: Arc<Mutex<Option<MigrationFailure>>>,
+    /// Optional dedicated audit database (`audit.db`). When attached, every
+    /// audit write and read uses this connection instead of the business
+    /// database, so audit I/O cannot contend with the UI's storage lock.
+    audit_db: Arc<std::sync::RwLock<Option<SqliteHandle>>>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1574,6 +1578,7 @@ impl Storage {
             secret_codec_cache: Arc::new(Mutex::new(None)),
             secret_key_error_cache: Arc::new(Mutex::new(None)),
             migration_failure: Arc::new(Mutex::new(None)),
+            audit_db: Arc::new(std::sync::RwLock::new(None)),
         };
         // Best-effort: switching journal mode is itself a lock-sensitive
         // operation, so a transient failure here (e.g. another process
@@ -2726,6 +2731,42 @@ impl Storage {
     {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || db.with_connection(f)).await.map_err(|e| e.to_string())?
+    }
+
+    /// Runs a closure against the audit database when one is attached,
+    /// otherwise against the business database (desktop/CLI/tests).
+    async fn with_audit_conn<T, F>(&self, f: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<T, String> + Send + 'static,
+    {
+        let audit_db = self.audit_db.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        match audit_db {
+            Some(db) => tokio::task::spawn_blocking(move || db.with_connection(f)).await.map_err(|e| e.to_string())?,
+            None => self.with_conn(f).await,
+        }
+    }
+
+    /// Opens (or creates) the dedicated audit database and switches audit I/O
+    /// to it. Safe to call once at startup; later calls are refused.
+    pub async fn attach_audit_database(&self, path: &Path) -> Result<(), String> {
+        if self.audit_db.read().unwrap_or_else(|poisoned| poisoned.into_inner()).is_some() {
+            return Err("AUDIT_DB_ALREADY_ATTACHED".to_string());
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| format!("AUDIT_DB_DIR: {error}"))?;
+        }
+        let db_path = path.to_string_lossy().to_string();
+        let db = connect_path_create_if_missing(&db_path).await?;
+        db.with_connection(|conn| {
+            // WAL is best-effort here: a transient lock must not stop startup.
+            let _ = conn.pragma_update(None, "journal_mode", "WAL");
+            #[cfg(feature = "enterprise-audit")]
+            audit_log::ensure_audit_schema_sync(conn)?;
+            Ok(())
+        })?;
+        *self.audit_db.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(db);
+        Ok(())
     }
 }
 
