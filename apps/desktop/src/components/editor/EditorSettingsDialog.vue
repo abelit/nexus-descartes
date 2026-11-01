@@ -347,6 +347,9 @@ import { DEFAULT_SQL_SNIPPETS } from "@/lib/sql/sqlCompletion";
 import AiProviderLogo from "@/components/icons/AiProviderLogo.vue";
 import AppLogo from "@/components/icons/AppLogo.vue";
 import ChangelogPanel from "@/components/settings/ChangelogPanel.vue";
+import AuditLog from "@/components/security/AuditLog.vue";
+import UsersRoles from "@/components/security/UsersRoles.vue";
+import ApprovalCenter from "@/components/security/ApprovalCenter.vue";
 import SettingsTransferPanel from "@/components/settings/SettingsTransferPanel.vue";
 import McpCapabilityBrowser from "@/components/settings/McpCapabilityBrowser.vue";
 import McpPluginToolsModeSetting from "@/components/settings/McpPluginToolsModeSetting.vue";
@@ -13687,6 +13690,18 @@ LIMIT 100;</pre>
                     {{ t("auth.logout") }}
                   </Button>
                 </div>
+              </div>
+
+              <div class="border-t border-border/60 pt-5">
+                <AuditLog />
+              </div>
+
+              <div class="border-t border-border/60 pt-5">
+                <UsersRoles />
+              </div>
+
+              <div class="border-t border-border/60 pt-5">
+                <ApprovalCenter />
               </div>
             </section>
 
