@@ -490,6 +490,9 @@ pub struct AppState {
     pub session_credentials: SessionCredentialStore,
     /// In-memory, never-persisted 1/5 minute write overrides for read-only connections.
     pub write_unlock_windows: crate::write_unlock::WriteUnlockWindows,
+    /// Server-side audit sink. Base builds use a no-op; Web replaces it with
+    /// the SQLite writer at startup.
+    pub audit_sink: std::sync::RwLock<Arc<dyn crate::audit::AuditSink>>,
     pub native_jobs: crate::schema::native_jobs::NativeJobRegistry,
     metadata_gates: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     /// Backend-confirmed liveness losses plus resync requests (#4339). The keepalive task
@@ -2121,6 +2124,9 @@ impl AppState {
             sqlserver_transaction_ends: Arc::new(std::sync::Mutex::new(Default::default())),
             session_credentials: SessionCredentialStore::new(),
             write_unlock_windows: crate::write_unlock::WriteUnlockWindows::default(),
+            audit_sink: std::sync::RwLock::new(
+                Arc::new(crate::audit::NoopAuditSink) as Arc<dyn crate::audit::AuditSink>
+            ),
             native_jobs: crate::schema::native_jobs::NativeJobRegistry::default(),
             metadata_gates: Arc::new(Mutex::new(HashMap::new())),
             // Bounded so a shell that stops draining cannot grow memory without bound. A
@@ -2135,6 +2141,41 @@ impl AppState {
             #[cfg(feature = "mq-admin")]
             mq_registry: crate::mq::MqAdminRegistry::new(),
         }
+    }
+
+    /// Replaces the audit sink. Called once by each production entry point
+    /// after the Tokio runtime exists; tests may inject a memory sink.
+    pub fn install_audit_sink(&self, sink: Arc<dyn crate::audit::AuditSink>) {
+        *self.audit_sink.write().unwrap_or_else(|error| error.into_inner()) = sink;
+    }
+
+    pub fn audit_sink(&self) -> Arc<dyn crate::audit::AuditSink> {
+        self.audit_sink.read().unwrap_or_else(|error| error.into_inner()).clone()
+    }
+
+    /// Best-effort audit recording. Callers that need a hard durability gate
+    /// use `record_audit_durable`; this helper only keeps the call sites small.
+    pub fn record_audit(&self, event: crate::audit::AuditEventInsert) {
+        let sink = self.audit_sink();
+        if let Err(error) = sink.record(event) {
+            log::warn!("[audit] event was not recorded: {error}");
+        }
+    }
+
+    /// Fail-closed audit recording: returns only after the event is durable.
+    /// A no-op or non-durable sink is an error, never a silent success.
+    pub async fn record_audit_durable(&self, event: crate::audit::AuditEventInsert) -> Result<(), String> {
+        let sink = self.audit_sink();
+        if !sink.is_durable() {
+            return Err("AUDIT_SINK_NOT_DURABLE".to_string());
+        }
+        sink.append_durable(event).await
+    }
+
+    /// Drains the audit queue. Every process exit path must await this:
+    /// `record` only enqueues, so exiting without it loses buffered events.
+    pub async fn flush_audit(&self) -> Result<(), String> {
+        self.audit_sink().flush_durable().await
     }
 
     pub fn set_mongo_oidc_browser_opener(&self, opener: MongoOidcBrowserOpener) {

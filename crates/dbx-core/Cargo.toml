@@ -19,6 +19,9 @@ sqlite-multiple-ciphers = ["dbx-drivers/sqlite-multiple-ciphers"]
 # Keeps bundled SQLite for consumers that enable no other sqlite source
 # (dbx-cli, dbx-mcp); do not combine with the cipher features.
 sqlite-bundled = ["rusqlite/bundled", "dbx-drivers/sqlite-bundled"]
+# Server-side operation audit, hash chain, and policy enforcement. Off by
+# default so desktop/CLI builds that do not need the control plane stay small.
+enterprise-audit = []
 openapi = ["dbx-types/openapi", "dbx-sql/openapi"]
 # OS keyring storage for the secret-store key material: macOS/Windows
 # keychain via the keyring crate, Linux Secret Service via the pure-Rust

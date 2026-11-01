@@ -3,6 +3,10 @@ pub use dbx_drivers::runtime_config::{
     DUCKDB_WORKER_MAX_PROCESSES_MIN,
 };
 
+mod approval;
+#[cfg(feature = "enterprise-audit")]
+mod audit_log;
+mod identity;
 mod type_execution_receipts;
 pub use type_execution_receipts::{TypeExecutionBinding, TypeRecoveryContext};
 
@@ -159,6 +163,10 @@ const USER_DATA_TABLES: &[&str] = &[
     "ai_configs",
     "state_store",
     "prompt_templates",
+    "audit_events",
+    "audit_outbox",
+    "audit_chain_head",
+    "approval_requests",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2668,6 +2676,10 @@ impl Storage {
             for statement in SCHEMA_STATEMENTS {
                 conn.execute(statement, []).map_err(|e| e.to_string())?;
             }
+            #[cfg(feature = "enterprise-audit")]
+            audit_log::ensure_audit_schema_sync(conn)?;
+            identity::ensure_identity_schema_sync(conn)?;
+            approval::ensure_approval_schema_sync(conn)?;
             ensure_history_columns_sync(conn)?;
             ensure_connection_secret_columns_sync(conn)?;
             if migrate_legacy {

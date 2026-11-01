@@ -1321,6 +1321,9 @@ pub enum QueryExecutionMode {
 #[derive(Clone, Debug, Default)]
 pub struct QueryExecutionOptions {
     pub defer_lobs: bool,
+    /// One-time approval token for a statement the rules marked
+    /// `require_approval` (header `X-DBX-Approval-Token`).
+    pub approval_token: Option<String>,
     pub max_rows: Option<usize>,
     pub fetch_size: Option<usize>,
     pub page_size: Option<usize>,
@@ -1362,6 +1365,10 @@ pub struct QueryExecutionOptions {
     /// `false` keeps the historical cleanup that stops a leftover transaction
     /// from pinning the tab's read view (#9479).
     pub preserve_explicit_transaction: bool,
+    /// Server-side audit context for this execution. Web handlers pass it
+    /// explicitly because the execution task is spawned; MCP/CLI/Tauri may
+    /// also rely on the task-local set by their entry point.
+    pub audit: Option<crate::audit::AuditContext>,
 }
 
 fn validate_query_execution_mode(
@@ -3001,6 +3008,64 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
 ) -> Result<(db::QueryResult, Option<MysqlAutoCommitTransaction>), QueryExecutionError> {
     let db_type = connection_database_type(state, connection_id).await;
     let invalidate = crate::object_cache::sql_may_change_object_metadata(sql, db_type);
+    let audit_context = options.audit.clone();
+    let (connection_name, connection_config) = {
+        let configs = state.configs.read().await;
+        match configs.get(connection_id) {
+            Some(config) => (Some(config.name.clone()), Some(config.clone())),
+            None => (None, None),
+        }
+    };
+    // High-risk rules run before the statement reaches a driver. `observe`
+    // (the default) keeps execution unchanged; `enforce` turns a `block` or
+    // `require_approval` decision into a typed failure.
+    if crate::governance::enforcement_enabled() {
+        if let (Some(config), Some(db_type)) = (connection_config.as_ref(), db_type) {
+            let decision = crate::governance::decide(connection_id, config, database, db_type, sql);
+            match decision.effect {
+                crate::governance::PolicyEffect::Block => {
+                    return Err(format!(
+                        "POLICY_DENIED: {} (rule {})",
+                        decision.reason,
+                        decision.rule_id.as_deref().unwrap_or("unknown")
+                    )
+                    .into());
+                }
+                crate::governance::PolicyEffect::RequireApproval => {
+                    // An approved request can downgrade exactly this decision:
+                    // the token is bound to the statement, connection, and rule
+                    // set, and is consumed once.
+                    let approval = match (options.approval_token.as_deref(), audit_context.as_ref()) {
+                        (Some(raw), Some(context)) => {
+                            crate::governance::consume_approval_for_sql(
+                                state,
+                                config,
+                                connection_id,
+                                database,
+                                schema,
+                                sql,
+                                &decision,
+                                raw,
+                                &context.actor.id,
+                            )
+                            .await
+                        }
+                        _ => Err(String::new()),
+                    };
+                    if let Err(error) = approval {
+                        let detail = if error.is_empty() { String::new() } else { format!(" ({error})") };
+                        return Err(format!(
+                            "POLICY_APPROVAL_REQUIRED: {} (rule {}){detail}",
+                            decision.reason,
+                            decision.rule_id.as_deref().unwrap_or("unknown")
+                        )
+                        .into());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     let mut transaction = None;
     // Same contract as the multi-statement entry point: a single statement is
     // reported with the duration of the whole request, including creating or
@@ -3020,10 +3085,55 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
     if invalidate {
         crate::object_cache::invalidate_connection_object_cache(&state.storage, connection_id).await;
     }
-    result.map(|mut result| {
-        result.execution_time_ms = result.execution_time_ms.max(request_start.elapsed().as_millis());
-        (result, transaction)
-    })
+    let duration_ms = i64::try_from(request_start.elapsed().as_millis()).unwrap_or(i64::MAX);
+    match result {
+        Ok(mut result) => {
+            result.execution_time_ms = result.execution_time_ms.max(request_start.elapsed().as_millis());
+            if let Some(event) = crate::audit::execution::build_sql_event(
+                audit_context.as_ref(),
+                crate::audit::execution::SqlAuditOutcome {
+                    connection_id,
+                    connection_name: connection_name.as_deref(),
+                    database,
+                    schema,
+                    sql,
+                    db_type,
+                    outcome: crate::audit::AuditOutcome::Success,
+                    error: None,
+                    affected_rows: i64::try_from(result.affected_rows).ok(),
+                    duration_ms,
+                },
+            ) {
+                state.record_audit(event);
+            }
+            Ok((result, transaction))
+        }
+        Err(error) => {
+            let outcome = if matches!(&error, QueryExecutionError::Canceled { .. }) {
+                crate::audit::AuditOutcome::Canceled
+            } else {
+                crate::audit::AuditOutcome::Error
+            };
+            if let Some(event) = crate::audit::execution::build_sql_event(
+                audit_context.as_ref(),
+                crate::audit::execution::SqlAuditOutcome {
+                    connection_id,
+                    connection_name: connection_name.as_deref(),
+                    database,
+                    schema,
+                    sql,
+                    db_type,
+                    outcome,
+                    error: Some(error.clone().into_legacy_string()),
+                    affected_rows: None,
+                    duration_ms,
+                },
+            ) {
+                state.record_audit(event);
+            }
+            Err(error)
+        }
+    }
 }
 
 async fn recover_postgres_create_table_after_connection_error(
@@ -3977,6 +4087,111 @@ pub async fn execute_multi_core_with_options_for_client_and_progress_typed(
     })
 }
 
+struct BatchAuditPlan<'a> {
+    connection_id: &'a str,
+    connection_name: Option<String>,
+    database: &'a str,
+    schema: Option<&'a str>,
+    statements: &'a [String],
+    db_type: Option<DatabaseType>,
+}
+
+async fn batch_audit_plan<'a>(
+    state: &AppState,
+    connection_id: &'a str,
+    database: &'a str,
+    schema: Option<&'a str>,
+    statements: &'a [String],
+    db_type: Option<DatabaseType>,
+) -> BatchAuditPlan<'a> {
+    let connection_name = {
+        let configs = state.configs.read().await;
+        configs.get(connection_id).map(|config| config.name.clone())
+    };
+    BatchAuditPlan { connection_id, connection_name, database, schema, statements, db_type }
+}
+
+/// Emits audit events for a driver-level batch path. The per-statement entry
+/// point records its own event, so only the fast paths call this.
+fn record_batch_audit(
+    state: &AppState,
+    context: Option<&crate::audit::AuditContext>,
+    plan: BatchAuditPlan<'_>,
+    outcome: Result<&Vec<ExecuteMultiResult>, String>,
+    started: std::time::Instant,
+) {
+    if context.is_none() && crate::audit::current_audit_context().is_none() {
+        return;
+    }
+    let duration_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    let (results, error) = match outcome {
+        Ok(results) => {
+            let mapped = results
+                .iter()
+                .enumerate()
+                .map(|(position, result)| {
+                    let failed = result.execution_error || result.error.is_some();
+                    crate::audit::execution::BatchStatementOutcome {
+                        index: result.statement_index.unwrap_or(position),
+                        outcome: if failed {
+                            crate::audit::AuditOutcome::Error
+                        } else {
+                            crate::audit::AuditOutcome::Success
+                        },
+                        affected_rows: i64::try_from(result.result.affected_rows).ok(),
+                        error: result.error.as_ref().map(|error| error.code().to_string()),
+                    }
+                })
+                .collect::<Vec<_>>();
+            (Some(mapped), None)
+        }
+        Err(error) => (None, Some(error)),
+    };
+    let audit = crate::audit::execution::BatchAudit {
+        connection_id: plan.connection_id,
+        connection_name: plan.connection_name.as_deref(),
+        database: plan.database,
+        schema: plan.schema,
+        statements: plan.statements,
+        db_type: plan.db_type,
+        duration_ms,
+    };
+    for event in crate::audit::execution::build_batch_events(context, audit, results.as_deref(), error.as_deref()) {
+        state.record_audit(event);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_script_batch_audit(
+    state: &AppState,
+    context: Option<&crate::audit::AuditContext>,
+    connection_id: &str,
+    connection_name: Option<&str>,
+    database: &str,
+    schema: Option<&str>,
+    statements: &[String],
+    db_type: Option<DatabaseType>,
+    error: Option<&str>,
+    started: std::time::Instant,
+) {
+    if context.is_none() && crate::audit::current_audit_context().is_none() {
+        return;
+    }
+    let duration_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    let audit = crate::audit::execution::BatchAudit {
+        connection_id,
+        connection_name,
+        database,
+        schema,
+        statements,
+        db_type,
+        duration_ms,
+    };
+    for event in crate::audit::execution::build_batch_events(context, audit, None, error) {
+        state.record_audit(event);
+    }
+}
+
 async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     state: &AppState,
     connection_id: &str,
@@ -4031,6 +4246,8 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     if statements.is_empty() {
         return Ok(vec![empty_query_result(0).into()]);
     }
+    // Batch/fast paths never reach the single-statement funnel.
+    crate::governance::enforce_statements_for_connection(state, connection_id, database, &statements).await?;
 
     // Check the transaction request before database-specific fast paths. Otherwise
     // a backend such as SQL Server or HTTP SQLite can return successful
@@ -4062,7 +4279,18 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     }
 
     if is_sqlserver {
-        return execute_multi_sqlserver(state, &pool_key, sql, schema, cancel_token, options).await.map_err(Into::into);
+        let audit = batch_audit_plan(state, connection_id, database, schema, &statements, db_type).await;
+        let audit_context = options.audit.clone();
+        let started = std::time::Instant::now();
+        let outcome = execute_multi_sqlserver(state, &pool_key, sql, schema, cancel_token, options).await;
+        record_batch_audit(
+            state,
+            audit_context.as_ref(),
+            audit,
+            outcome.as_ref().map_err(|error| error.to_string()),
+            started,
+        );
+        return outcome.map_err(Into::into);
     }
 
     let is_http_sqlite = {
@@ -4138,7 +4366,10 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
         check_read_only_for_connection_multi(state, &pool_key, &statements).await?;
         let mysql_dialect = connection_mysql_query_dialect(state, connection_id).await;
         let mysql_catalog_dialect = connection_mysql_catalog_dialect(state, connection_id).await;
-        return execute_multi_mysql(
+        let audit = batch_audit_plan(state, connection_id, database, schema, &statements, db_type).await;
+        let audit_context = options.audit.clone();
+        let started = std::time::Instant::now();
+        let outcome = execute_multi_mysql(
             state,
             &pool_key,
             db_type,
@@ -4152,8 +4383,15 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
             options,
             progress.as_ref(),
         )
-        .await
-        .map_err(Into::into);
+        .await;
+        record_batch_audit(
+            state,
+            audit_context.as_ref(),
+            audit,
+            outcome.as_ref().map_err(|error| error.to_string()),
+            started,
+        );
+        return outcome.map_err(Into::into);
     }
 
     // Some Agent drivers cannot execute another statement while a paged result
@@ -5286,6 +5524,13 @@ pub async fn execute_blob_bound_statements(
     };
     let sql = bound.iter().map(|statement| statement.sql.clone()).collect::<Vec<_>>();
     check_read_only_for_connection_multi(state, &pool_key, &sql).await?;
+    let audit_context = crate::audit::current_audit_context();
+    let audit_connection_name = {
+        let configs = state.configs.read().await;
+        configs.get(connection_id).map(|config| config.name.clone())
+    };
+    let audit_db_type = connection_database_type(state, connection_id).await;
+    let audit_started = std::time::Instant::now();
     let pool = state.pool_handle(&pool_key).await;
     let Some(PoolKind::Agent(source_client)) = pool.as_ref() else {
         return Err("Bound BLOB saves require an updated JDBC Agent.".into());
@@ -5303,11 +5548,38 @@ pub async fn execute_blob_bound_statements(
         .await;
     drop(client);
     match result {
-        Ok(result) => Ok(result),
+        Ok(result) => {
+            record_script_batch_audit(
+                state,
+                audit_context.as_ref(),
+                connection_id,
+                audit_connection_name.as_deref(),
+                database,
+                schema,
+                &sql,
+                audit_db_type,
+                None,
+                audit_started,
+            );
+            Ok(result)
+        }
         Err(error) => {
             discard_agent_pool_after_typed_error(state, &pool_key, source_client, &error, RecoveryScope::UserOperation)
                 .await;
-            Err(error.into_legacy_string())
+            let legacy = error.into_legacy_string();
+            record_script_batch_audit(
+                state,
+                audit_context.as_ref(),
+                connection_id,
+                audit_connection_name.as_deref(),
+                database,
+                schema,
+                &sql,
+                audit_db_type,
+                Some(&legacy),
+                audit_started,
+            );
+            Err(legacy)
         }
     }
 }
@@ -5330,9 +5602,16 @@ async fn execute_statements_inner(
             .map_err(|e| query_error_with_omitted_sql_context(&e, sql_ctx))?
     };
 
+    crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
     let mut total_affected: u64 = 0;
     let start = std::time::Instant::now();
     let mysql_dialect = connection_mysql_query_dialect(state, connection_id).await;
+    let audit_context = crate::audit::current_audit_context();
+    let audit_connection_name = {
+        let configs = state.configs.read().await;
+        configs.get(connection_id).map(|config| config.name.clone())
+    };
+    let audit_db_type = connection_database_type(state, connection_id).await;
 
     let agent_client = {
         let pool_handle = state.pool_handle(&pool_key).await;
@@ -5363,7 +5642,21 @@ async fn execute_statements_inner(
         let result = execute_multi_agent(&mut client, database, statements, execution_schema, timeout_secs).await;
         drop(client);
         match result {
-            Ok(result) => return Ok(db::QueryResult { execution_time_ms: start.elapsed().as_millis(), ..result }),
+            Ok(result) => {
+                record_script_batch_audit(
+                    state,
+                    audit_context.as_ref(),
+                    connection_id,
+                    audit_connection_name.as_deref(),
+                    database.unwrap_or_default(),
+                    schema,
+                    statements,
+                    audit_db_type,
+                    None,
+                    start,
+                );
+                return Ok(db::QueryResult { execution_time_ms: start.elapsed().as_millis(), ..result });
+            }
             Err(err) => {
                 if is_agent_execute_batch_unsupported(&err.to_string()) {
                     log::warn!(
@@ -5399,6 +5692,24 @@ async fn execute_statements_inner(
         {
             Ok(result) => {
                 total_affected += result.affected_rows;
+                if let Some(mut event) = crate::audit::execution::build_sql_event(
+                    audit_context.as_ref(),
+                    crate::audit::execution::SqlAuditOutcome {
+                        connection_id,
+                        connection_name: audit_connection_name.as_deref(),
+                        database,
+                        schema,
+                        sql,
+                        db_type: audit_db_type,
+                        outcome: crate::audit::AuditOutcome::Success,
+                        error: None,
+                        affected_rows: i64::try_from(result.affected_rows).ok(),
+                        duration_ms: i64::try_from(result.execution_time_ms).unwrap_or(i64::MAX),
+                    },
+                ) {
+                    event.statement_index = Some(i as i64);
+                    state.record_audit(event);
+                }
             }
             Err(e) => {
                 let db_type = connection_database_type(state, connection_id).await;
@@ -5418,6 +5729,24 @@ async fn execute_statements_inner(
                     &e,
                     &format!("Statement {} failed; previous {} statement(s) may have been committed.", i + 1, i),
                 );
+                if let Some(mut event) = crate::audit::execution::build_sql_event(
+                    audit_context.as_ref(),
+                    crate::audit::execution::SqlAuditOutcome {
+                        connection_id,
+                        connection_name: audit_connection_name.as_deref(),
+                        database,
+                        schema,
+                        sql,
+                        db_type: audit_db_type,
+                        outcome: crate::audit::AuditOutcome::Error,
+                        error: Some(error.clone()),
+                        affected_rows: None,
+                        duration_ms: i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX),
+                    },
+                ) {
+                    event.statement_index = Some(i as i64);
+                    state.record_audit(event);
+                }
                 return Err(query_error_with_omitted_sql_context(&error, sql));
             }
         }
@@ -5849,6 +6178,7 @@ pub async fn execute_statements_in_transaction_on_pool_typed(
 
     // Read-only check: intercept all transaction paths before dispatching
     check_read_only_for_connection_multi(state, pool_key, statements).await?;
+    crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
 
     let start = std::time::Instant::now();
     let mysql_catalog_dialect = connection_mysql_catalog_dialect(state, connection_id).await;
@@ -5917,6 +6247,44 @@ pub async fn execute_statements_in_transaction_on_pool_typed(
 
     if let Err(err) = result.as_ref() {
         discard_pool_after_error(state, pool_key, db_type, &err.to_string()).await;
+    }
+
+    // The transaction kernels return one combined result; record the whole
+    // transaction here rather than pretending each statement was observed.
+    {
+        let audit_context = crate::audit::current_audit_context();
+        let connection_name = {
+            let configs = state.configs.read().await;
+            configs.get(connection_id).map(|config| config.name.clone())
+        };
+        let duration_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
+        let (outcome, error) = match &result {
+            Ok(_) => (crate::audit::AuditOutcome::Success, None),
+            Err(error) => {
+                let outcome = if matches!(error, QueryExecutionError::Canceled { .. }) {
+                    crate::audit::AuditOutcome::Canceled
+                } else {
+                    crate::audit::AuditOutcome::Error
+                };
+                (outcome, Some(error.to_string()))
+            }
+        };
+        if let Some(event) = crate::audit::execution::build_transaction_event(
+            audit_context.as_ref(),
+            crate::audit::execution::TransactionAudit {
+                connection_id,
+                connection_name: connection_name.as_deref(),
+                database,
+                schema,
+                statements,
+                db_type,
+                outcome,
+                error,
+                duration_ms,
+            },
+        ) {
+            state.record_audit(event);
+        }
     }
 
     result
@@ -6919,6 +7287,61 @@ pub struct ManualTransactionExecutionOptions {
 }
 
 pub async fn execute_in_manual_transaction_with_options(
+    state: &AppState,
+    txn_session_id: &str,
+    sql: &str,
+    database: &str,
+    schema: Option<&str>,
+    options: ManualTransactionExecutionOptions,
+) -> Result<Vec<ExecuteMultiResult>, String> {
+    // Manual transactions have their own split/execute path, so the statement
+    // instrumentation never sees them. Record one event for what the user
+    // submitted, after the outcome is known.
+    let audit_context = crate::audit::current_audit_context();
+    let audit_connection_id = {
+        let sessions = state.transaction_sessions.read().await;
+        sessions.get(txn_session_id).map(|session| session.connection_id.clone())
+    };
+    let started = std::time::Instant::now();
+    if let Some(connection_id) = audit_connection_id.as_ref() {
+        crate::governance::enforce_statements_for_connection(state, connection_id, database, &[sql.to_string()])
+            .await?;
+    }
+    let result =
+        execute_in_manual_transaction_with_options_inner(state, txn_session_id, sql, database, schema, options).await;
+    if let Some(connection_id) = audit_connection_id {
+        let connection_name = {
+            let configs = state.configs.read().await;
+            configs.get(&connection_id).map(|config| config.name.clone())
+        };
+        let db_type = connection_database_type(state, &connection_id).await;
+        let duration_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+        let (outcome, error) = match &result {
+            Ok(_) => (crate::audit::AuditOutcome::Success, None),
+            Err(error) => (crate::audit::AuditOutcome::Error, Some(error.clone())),
+        };
+        let statements = vec![sql.to_string()];
+        if let Some(event) = crate::audit::execution::build_transaction_event(
+            audit_context.as_ref(),
+            crate::audit::execution::TransactionAudit {
+                connection_id: &connection_id,
+                connection_name: connection_name.as_deref(),
+                database,
+                schema,
+                statements: &statements,
+                db_type,
+                outcome,
+                error,
+                duration_ms,
+            },
+        ) {
+            state.record_audit(event);
+        }
+    }
+    result
+}
+
+async fn execute_in_manual_transaction_with_options_inner(
     state: &AppState,
     txn_session_id: &str,
     sql: &str,

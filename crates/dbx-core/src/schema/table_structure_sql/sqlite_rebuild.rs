@@ -75,7 +75,20 @@ pub async fn apply_sqlite_table_structure_change(
 ) -> Result<db::QueryResult, String> {
     let (pool_key, pool) = native_sqlite_pool(state, connection_id, database).await?;
     crate::query::check_read_only_for_connection(state, &pool_key, "ALTER TABLE").await?;
-    apply_sqlite_table_structure_change_with_pool(pool, options, schema_revision).await
+    // The rebuild statements are generated while running, so the audit event
+    // records the operation and its purpose rather than per-statement text.
+    crate::governance::execute_generated_sql(
+        state,
+        crate::governance::GeneratedSql {
+            connection_id,
+            database,
+            schema: None,
+            purpose: "schema.sqlite_table_structure",
+            statements: &[],
+        },
+        || apply_sqlite_table_structure_change_with_pool(pool, options, schema_revision),
+    )
+    .await
 }
 
 async fn native_sqlite_pool(
