@@ -34,7 +34,8 @@ Covered:
 
 ## Known gaps
 
-- Approval tokens are consumed by the single-statement funnel only; batch and
-  manual-transaction paths still stop at `APPROVAL_REQUIRED`.
+- Approval tokens are consumed by the single-statement funnel and by
+  script/batch execution; explicit `use_transaction` batches and manual
+  transactions still stop at `APPROVAL_REQUIRED`.
 - No notification, multi-step or countersign flows; the UI is a flat list.
 - `policy_bundle_hash` is not populated until stored policies exist.

@@ -12,6 +12,7 @@ use std::future::Future;
 use std::time::Instant;
 
 pub mod approval;
+pub mod notification;
 pub mod policy;
 pub mod rules;
 
@@ -192,6 +193,100 @@ pub async fn enforce_statements_for_connection(
         return Ok(());
     };
     enforce_statement_list(&config, connection_id, database, config.db_type, statements)
+}
+
+/// Authorizes a whole batch: every statement is evaluated with the compiled
+/// policy, a `block` anywhere stops the batch, and `require_approval` rules are
+/// satisfied by one token bound to the complete statement list.
+///
+/// Returns `true` when the token was consumed, so the caller can prevent the
+/// per-statement funnel from asking for it again.
+#[allow(clippy::too_many_arguments)]
+pub async fn authorize_batch(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    schema: Option<&str>,
+    statements: &[String],
+    approval_token: Option<&str>,
+    actor_id: Option<&str>,
+) -> Result<bool, String> {
+    if !enforcement_enabled() || statements.is_empty() {
+        return Ok(false);
+    }
+    let config = {
+        let configs = state.configs.read().await;
+        configs.get(connection_id).cloned()
+    };
+    let Some(config) = config else {
+        return Ok(false);
+    };
+    let policy = policy::current_policy();
+    let db_type = config.db_type;
+    let is_production = is_production_database(&config, database);
+    let mut required_rule_ids: Vec<String> = Vec::new();
+    for sql in statements {
+        let decision = policy.decide(connection_id, database, db_type, sql, is_production);
+        match decision.effect {
+            PolicyEffect::Block => {
+                return Err(format!(
+                    "POLICY_DENIED: {} (rule {})",
+                    decision.reason,
+                    decision.rule_id.as_deref().unwrap_or("unknown")
+                ));
+            }
+            PolicyEffect::RequireApproval => {
+                required_rule_ids.extend(
+                    decision
+                        .matched
+                        .iter()
+                        .filter(|hit| hit.effect == PolicyEffect::RequireApproval)
+                        .map(|hit| hit.rule_id.clone()),
+                );
+            }
+            _ => {}
+        }
+    }
+    if required_rule_ids.is_empty() {
+        return Ok(false);
+    }
+    required_rule_ids.sort();
+    required_rule_ids.dedup();
+    let (Some(raw_token), Some(actor_id)) = (approval_token, actor_id) else {
+        return Err(format!(
+            "POLICY_APPROVAL_REQUIRED: {} statement(s) require approval (rules {})",
+            statements.len(),
+            required_rule_ids.join(", ")
+        ));
+    };
+
+    let token_hash = approval::sha256_hex(raw_token.as_bytes());
+    let token =
+        state.storage.approval_token_by_hash(token_hash).await?.ok_or_else(|| "APPROVAL_TOKEN_UNKNOWN".to_string())?;
+    let request = state
+        .storage
+        .approval_request_by_id(token.request_id.clone())
+        .await?
+        .ok_or_else(|| "APPROVAL_REQUEST_MISSING".to_string())?;
+    if request.status != approval::ApprovalStatus::Approved {
+        return Err("APPROVAL_NOT_APPROVED".to_string());
+    }
+    let digest = approval::statements_digest(statements);
+    let config_hash = approval::connection_config_hash(&config);
+    let hash = approval::request_hash(&approval::ApprovalBinding {
+        connection_id,
+        connection_config_hash: &config_hash,
+        database,
+        schema,
+        statements_digest: &digest,
+        policy_bundle_hash: Some(policy.bundle_hash()),
+        rule_ids: &required_rule_ids,
+    });
+    approval::token_authorizes(&token, actor_id, &hash, chrono::Utc::now().timestamp_millis())?;
+    if !state.storage.consume_approval_token(token.id.clone(), chrono::Utc::now().timestamp_millis()).await? {
+        return Err("APPROVAL_TOKEN_ALREADY_USED".to_string());
+    }
+    Ok(true)
 }
 
 /// Validates and consumes a one-time approval token for exactly this statement.

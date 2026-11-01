@@ -721,6 +721,7 @@ pub async fn execute_multi(
             preserve_explicit_transaction: req.preserve_explicit_transaction,
             audit: dbx_core::audit::current_audit_context(),
             approval_token: approval_token_from(&headers),
+            policy_approved: false,
         },
     )
     .await;
@@ -985,6 +986,7 @@ fn query_session_database<'a>(database: &'a str, catalog: Option<&str>) -> Optio
 
 pub async fn execute_script(
     State(state): State<Arc<WebState>>,
+    headers: HeaderMap,
     Json(req): Json<ExecuteQueryRequest>,
 ) -> Result<Json<dbx_core::db::QueryResult>, AppError> {
     tracing::debug!(connection_id = %req.connection_id, "execute_script");
@@ -995,13 +997,14 @@ pub async fn execute_script(
     let statements = db_type
         .map(|db_type| dbx_core::sql::split_sql_statements_for_database(&req.sql, db_type))
         .unwrap_or_else(|| dbx_core::sql::split_sql_statements(&req.sql));
-    let result = dbx_core::query::execute_statements(
+    let result = dbx_core::query::execute_statements_with_approval(
         &state.app,
         &req.connection_id,
         &req.database,
         &statements,
         req.schema.as_deref(),
         None,
+        approval_token_from(&headers),
     )
     .await
     .map_err(AppError::from)?;

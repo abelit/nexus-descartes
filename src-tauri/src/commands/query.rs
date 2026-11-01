@@ -318,6 +318,7 @@ pub async fn execute_multi(
                     preserve_explicit_transaction: preserve_explicit_transaction.unwrap_or(false),
                     defer_lobs: defer_lobs.unwrap_or(false),
                     approval_token: None,
+                    policy_approved: false,
                     // Desktop audit is best-effort: there is no authenticated
                     // identity, so the event names the desktop user explicitly.
                     audit: Some(dbx_core::audit::AuditContext {

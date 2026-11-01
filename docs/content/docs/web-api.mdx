@@ -94,6 +94,7 @@ Cookie: dbx_session=...
 | `DBX_SETUP_TOKEN` | Required by `/api/auth/setup` when set |
 | `DBX_SESSION_IDLE_SECS` | Idle timeout for a session; default 1800 |
 | `DBX_SESSION_TTL_SECS` | Absolute session lifetime; default 86400 |
+| `DBX_APPROVAL_WEBHOOK_URL` / `DBX_APPROVAL_WEBHOOK_HMAC_KEY` | Optional approval notifications |
 | `DBX_GOVERNANCE_MODE` | `observe` (default) allows unclassified routes; `enforce` denies them and enforces the route permission table |
 | `DBX_HILBERT_ENABLED` | `1` accepts `Authorization: Bearer <hilbert access token>` |
 | `DBX_HILBERT_JWKS_URL` | JWKS endpoint used to verify hilbert tokens (preferred); fetched once at startup |
@@ -580,6 +581,14 @@ POST /api/approvals/{id}/execute-token
 - Only the requester can obtain the execution token, only after approval, and
   only once per token store; the raw token is returned once and expires after 5
   minutes. Execution must present it together with the same binding.
+- When `DBX_APPROVAL_WEBHOOK_URL` is set, `approval.created`,
+  `approval.approved`, and `approval.rejected` events are POSTed to it (signed
+  with `x-dbx-approval-signature` when `DBX_APPROVAL_WEBHOOK_HMAC_KEY` is set).
+  The payload never contains SQL text.
+- For a script/batch, pass `statements` (the server-side split list) when
+  creating the request; the token then binds the complete ordered list and is
+  sent as `X-DBX-Approval-Token` on `/api/query/execute-script` or
+  `/api/query/execute-multi`. A `block` anywhere still stops the batch.
 
 The consume-and-execute wiring in the query path is the next step; until then
 the token API is used by clients that validate before calling execution.

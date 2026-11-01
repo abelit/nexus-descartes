@@ -74,6 +74,10 @@ pub struct CreateApprovalRequest {
     #[serde(default)]
     pub schema_name: Option<String>,
     pub sql: String,
+    /// Optional pre-split statements for a batch; when absent the SQL is a
+    /// single statement.
+    #[serde(default)]
+    pub statements: Option<Vec<String>>,
     #[serde(default)]
     pub justification: String,
 }
@@ -94,16 +98,26 @@ pub async fn create_request(
     }
     .ok_or_else(|| AppError::not_found("connection not found"))?;
 
-    let statements = vec![body.sql.clone()];
+    let statements = match body.statements.clone().filter(|statements| !statements.is_empty()) {
+        Some(statements) => statements,
+        None => vec![body.sql.clone()],
+    };
     let digest = statements_digest(&statements);
-    let decision =
-        dbx_core::governance::decide(&body.connection_id, &config, &body.database, config.db_type, &body.sql);
-    let rule_ids: Vec<String> = decision
-        .matched
-        .iter()
-        .filter(|hit| hit.effect == dbx_core::governance::PolicyEffect::RequireApproval)
-        .map(|hit| hit.rule_id.clone())
-        .collect();
+    let mut rule_ids: Vec<String> = Vec::new();
+    let mut policy_bundle_hash: Option<String> = None;
+    for sql in &statements {
+        let decision = dbx_core::governance::decide(&body.connection_id, &config, &body.database, config.db_type, sql);
+        policy_bundle_hash = Some(decision.policy_bundle_hash.clone());
+        rule_ids.extend(
+            decision
+                .matched
+                .iter()
+                .filter(|hit| hit.effect == dbx_core::governance::PolicyEffect::RequireApproval)
+                .map(|hit| hit.rule_id.clone()),
+        );
+    }
+    rule_ids.sort();
+    rule_ids.dedup();
     if rule_ids.is_empty() {
         return Err(AppError::bad_request(
             "APPROVAL_NOT_REQUIRED: the rules do not require approval for this statement",
@@ -116,7 +130,7 @@ pub async fn create_request(
         database: &body.database,
         schema: body.schema_name.as_deref(),
         statements_digest: &digest,
-        policy_bundle_hash: Some(&decision.policy_bundle_hash),
+        policy_bundle_hash: policy_bundle_hash.as_deref(),
         rule_ids: &rule_ids,
     });
 
@@ -129,12 +143,12 @@ pub async fn create_request(
         connection_id: body.connection_id,
         database: body.database,
         schema_name: body.schema_name,
-        sql_text: body.sql,
+        sql_text: statements.join(";\n"),
         sql_digest: digest,
-        statement_count: 1,
+        statement_count: i64::try_from(statements.len()).unwrap_or(i64::MAX),
         risk_level: None,
         rule_ids,
-        policy_bundle_hash: Some(decision.policy_bundle_hash.clone()),
+        policy_bundle_hash,
         justification: body.justification,
         request_hash: hash,
         expires_at_ms: None,
@@ -143,6 +157,7 @@ pub async fn create_request(
         executed_at_ms: None,
     };
     state.app.storage.create_approval_request(request.clone()).await.map_err(AppError::from)?;
+    notify_approval("approval.created", &request);
     Ok(Json(request.into()))
 }
 
@@ -237,7 +252,37 @@ async fn decide(
         .await
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("approval request not found"))?;
+    notify_approval(
+        match status {
+            ApprovalStatus::Approved => "approval.approved",
+            ApprovalStatus::Rejected => "approval.rejected",
+            _ => "approval.updated",
+        },
+        &refreshed,
+    );
     Ok(refreshed.into())
+}
+
+/// Fire-and-forget webhook. The SQL text is intentionally not sent.
+fn notify_approval(event: &str, request: &ApprovalRequest) {
+    let Some(webhook) = dbx_core::governance::notification::ApprovalWebhook::from_env() else {
+        return;
+    };
+    let payload = dbx_core::governance::notification::approval_payload(
+        &request.id,
+        request.status.as_str(),
+        &request.requester_id,
+        &request.connection_id,
+        &request.database,
+        &request.rule_ids,
+        request.statement_count,
+    );
+    let event = event.to_string();
+    tokio::spawn(async move {
+        if let Err(error) = webhook.send(&event, payload).await {
+            log::warn!("approval notification failed: {error}");
+        }
+    });
 }
 
 pub async fn approve(

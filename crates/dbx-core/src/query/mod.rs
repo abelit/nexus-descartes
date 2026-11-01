@@ -1324,6 +1324,10 @@ pub struct QueryExecutionOptions {
     /// One-time approval token for a statement the rules marked
     /// `require_approval` (header `X-DBX-Approval-Token`).
     pub approval_token: Option<String>,
+    /// Set by a batch entry point that already validated (and consumed) an
+    /// approval for the complete statement list, so the per-statement funnel
+    /// must not ask again. Internal only.
+    pub policy_approved: bool,
     pub max_rows: Option<usize>,
     pub fetch_size: Option<usize>,
     pub page_size: Option<usize>,
@@ -3031,6 +3035,7 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
                     )
                     .into());
                 }
+                crate::governance::PolicyEffect::RequireApproval if options.policy_approved => {}
                 crate::governance::PolicyEffect::RequireApproval => {
                     // An approved request can downgrade exactly this decision:
                     // the token is bound to the statement, connection, and rule
@@ -4246,9 +4251,6 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     if statements.is_empty() {
         return Ok(vec![empty_query_result(0).into()]);
     }
-    // Batch/fast paths never reach the single-statement funnel.
-    crate::governance::enforce_statements_for_connection(state, connection_id, database, &statements).await?;
-
     // Check the transaction request before database-specific fast paths. Otherwise
     // a backend such as SQL Server or HTTP SQLite can return successful
     // auto-commit results while the API has promised a rollbackable batch.
@@ -4277,6 +4279,22 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
         .await?;
         return Ok(vec![result.into()]);
     }
+
+    // Batch/fast paths never reach the single-statement funnel. A batch-level
+    // approval token is bound to the complete statement list and consumed here;
+    // `policy_approved` then stops the per-statement funnel from asking again.
+    let audit_actor_id = crate::audit::current_audit_context().map(|context| context.actor.id);
+    let approval_consumed = crate::governance::authorize_batch(
+        state,
+        connection_id,
+        database,
+        schema,
+        &statements,
+        options.approval_token.as_deref(),
+        audit_actor_id.as_deref(),
+    )
+    .await?;
+    let options = QueryExecutionOptions { approval_token: None, policy_approved: approval_consumed, ..options };
 
     if is_sqlserver {
         let audit = batch_audit_plan(state, connection_id, database, schema, &statements, db_type).await;
@@ -5407,9 +5425,50 @@ pub async fn execute_statements(
     schema: Option<&str>,
     timeout_secs: Option<u64>,
 ) -> Result<db::QueryResult, String> {
+    execute_statements_impl(state, connection_id, database, statements, schema, timeout_secs, false).await
+}
+
+/// Same as [`execute_statements`], but accepts one approval token bound to the
+/// complete statement list. The batch is authorized (and the token consumed)
+/// before anything runs; a `block` anywhere still stops the batch.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_statements_with_approval(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    statements: &[String],
+    schema: Option<&str>,
+    timeout_secs: Option<u64>,
+    approval_token: Option<String>,
+) -> Result<db::QueryResult, String> {
+    let actor_id = crate::audit::current_audit_context().map(|context| context.actor.id);
+    let approved = crate::governance::authorize_batch(
+        state,
+        connection_id,
+        database,
+        schema,
+        statements,
+        approval_token.as_deref(),
+        actor_id.as_deref(),
+    )
+    .await?;
+    execute_statements_impl(state, connection_id, database, statements, schema, timeout_secs, approved).await
+}
+
+async fn execute_statements_impl(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    statements: &[String],
+    schema: Option<&str>,
+    timeout_secs: Option<u64>,
+    policy_approved: bool,
+) -> Result<db::QueryResult, String> {
     let db_type = connection_database_type(state, connection_id).await;
     let invalidate = statements.iter().any(|sql| crate::object_cache::sql_may_change_object_metadata(sql, db_type));
-    let result = execute_statements_inner(state, connection_id, database, statements, schema, timeout_secs).await;
+    let result =
+        execute_statements_inner(state, connection_id, database, statements, schema, timeout_secs, policy_approved)
+            .await;
     if invalidate {
         crate::object_cache::invalidate_connection_object_cache(&state.storage, connection_id).await;
     }
@@ -5591,6 +5650,7 @@ async fn execute_statements_inner(
     statements: &[String],
     schema: Option<&str>,
     timeout_secs: Option<u64>,
+    policy_approved: bool,
 ) -> Result<db::QueryResult, String> {
     let sql_ctx = statements.first().map(|s| s.as_str()).unwrap_or("");
     let pool_key = if database.is_empty() {
@@ -5602,7 +5662,9 @@ async fn execute_statements_inner(
             .map_err(|e| query_error_with_omitted_sql_context(&e, sql_ctx))?
     };
 
-    crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
+    if !policy_approved {
+        crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
+    }
     let mut total_affected: u64 = 0;
     let start = std::time::Instant::now();
     let mysql_dialect = connection_mysql_query_dialect(state, connection_id).await;
