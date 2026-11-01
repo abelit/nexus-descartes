@@ -595,12 +595,19 @@ the token API is used by clients that validate before calling execution.
 
 ### Retention and segment deletion
 
-`DBX_AUDIT_RETENTION_DAYS` only warns. Removing a segment is deliberately not
-automated: an operator must first export it (external sink or
-`GET /api/audit/export`) and keep the exported copy with its checkpoint, then
-delete rows with a maintenance procedure that also records the deletion as an
-audit event. `verify` starts from the newest checkpoint, so keep checkpoints that
-cover every retained segment.
+`DBX_AUDIT_RETENTION_DAYS` only warns. Deleting a retained prefix is explicit:
+
+```http
+POST /api/audit/retention/prune
+{ "up_to_seq": 1000, "reason": "archived to SIEM" }
+```
+
+Pruning requires `audit:verify`, `DBX_AUDIT_ALLOW_PRUNE=1`, a checkpoint at or
+above the cutoff, and an external export covering it; otherwise it fails with
+`AUDIT_PRUNE_CHECKPOINT_REQUIRED` / `AUDIT_PRUNE_EXPORT_REQUIRED`. The last
+deleted hash becomes the chain floor: `/api/audit/verify` starts there, and the
+pruning itself is recorded as a maintenance audit event. The live tail can
+never be deleted.
 
 ## Users and Roles
 
@@ -712,6 +719,7 @@ failed delivery leaves the cursor unchanged and retries on the next tick.
 | `DBX_AUDIT_RETENTION_DAYS` | `180` | Warn when the oldest event is older than this; `0` disables the warning. Deletion is always manual |
 | `DBX_AUDIT_DB_PATH` | `<data_dir>/audit.db` | Dedicated audit database file |
 | `DBX_AUDIT_EXPORT_URL` | unset | Push signed JSONL batches to this endpoint every 10s |
+| `DBX_AUDIT_ALLOW_PRUNE` | unset | `1` enables `POST /api/audit/retention/prune` |
 | `DBX_AUDIT_EXPORT_HMAC_KEY` | unset | HMAC key for the `x-dbx-audit-signature` header (`sha256=<hex>`) |
 | `DBX_TRUSTED_PROXIES` | unset | Comma-separated proxy IPs allowed to supply `X-Forwarded-For` |
 

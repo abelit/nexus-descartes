@@ -56,8 +56,9 @@ long-key case.
   the operation.
 - Local MCP and the CLI install a sink through `LocalBackend` and record with
   `source=mcp` / `source=cli`; the desktop installs a sink and flushes on exit.
-- External export is HTTP JSON only; PostgreSQL/SLS/OSS sinks and automated
-  segment deletion are not implemented.
+- External export is HTTP JSON only; PostgreSQL/SLS/OSS sinks are not
+  implemented. Segment deletion exists as an explicit, dual-gated prune
+  (checkpoint + export), never automatic.
 - Audit access is gated by session roles (`audit:read` / `audit:export` /
   `audit:verify`); the bootstrap token or loopback remains as the automation
   fallback until the first local user logs in.

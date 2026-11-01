@@ -1712,6 +1712,7 @@ async fn serve() -> Result<(), String> {
             .route("/audit/checkpoints", get(routes::audit::checkpoints).post(routes::audit::create_checkpoint))
             .route("/audit/verify", get(routes::audit::verify_chain))
             .route("/audit/verify-checkpoint", get(routes::audit::verify_from_checkpoint))
+            .route("/audit/retention/prune", post(routes::audit::prune_events))
             .route_layer(middleware::from_fn_with_state(web_state.clone(), routes::audit::require_audit_access))
             .layer(middleware::from_fn_with_state(web_state.clone(), migration_gate))
             .layer(middleware::from_fn_with_state(web_state.clone(), demo::demo_mode_gate))

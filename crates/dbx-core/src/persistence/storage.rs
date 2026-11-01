@@ -167,6 +167,7 @@ const USER_DATA_TABLES: &[&str] = &[
     "audit_events",
     "audit_outbox",
     "audit_chain_head",
+    "audit_chain_floor",
     "approval_requests",
 ];
 

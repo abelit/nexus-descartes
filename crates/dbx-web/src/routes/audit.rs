@@ -5,6 +5,7 @@ use axum::extract::{ConnectInfo, Query, Request, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum::Extension;
 use axum::Json;
 use dbx_core::audit::{
     Actor, AuditChainHead, AuditChainReport, AuditContext, AuditDecision, AuditEventInsert, AuditOperation,
@@ -77,6 +78,9 @@ fn required_permission(path: &str, method: &axum::http::Method) -> dbx_core::ide
         return Permission::AuditExport;
     }
     if path.ends_with("/audit/verify") || path.ends_with("/audit/verify-checkpoint") {
+        return Permission::AuditVerify;
+    }
+    if path.ends_with("/audit/retention/prune") {
         return Permission::AuditVerify;
     }
     if path.ends_with("/audit/checkpoints") && *method != axum::http::Method::GET {
@@ -332,6 +336,60 @@ fn csv_line(fields: &[&str]) -> String {
     }
     line.push('\n');
     line
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PruneAuditRequest {
+    pub up_to_seq: i64,
+    #[serde(default)]
+    pub reason: String,
+}
+
+/// Removes a retained prefix of the chain. Requires `DBX_AUDIT_ALLOW_PRUNE=1`
+/// and a checkpoint plus an external export covering the range; the deletion
+/// itself is recorded as a maintenance event.
+pub async fn prune_events(
+    State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
+    Json(body): Json<PruneAuditRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let enabled = matches!(
+        std::env::var("DBX_AUDIT_ALLOW_PRUNE").ok().as_deref().map(str::trim),
+        Some("1") | Some("true") | Some("yes")
+    );
+    if !enabled {
+        return Err(AppError::forbidden("AUDIT_PRUNE_DISABLED: set DBX_AUDIT_ALLOW_PRUNE=1 to allow pruning"));
+    }
+    let deleted = state
+        .app
+        .storage
+        .prune_audit_events(body.up_to_seq, actor.id.clone(), body.reason.clone())
+        .await
+        .map_err(AppError::from)?;
+
+    let context = dbx_core::audit::current_audit_context().unwrap_or_else(|| AuditContext {
+        actor,
+        source: AuditSource::Web,
+        client_ip: None,
+        user_agent: None,
+        request_id: None,
+        execution_id: None,
+    });
+    let mut event =
+        AuditEventInsert::new(&context, AuditOperation::Admin, AuditDecision::Allowed, AuditOutcome::Success);
+    event.resource_type = Some("audit".to_string());
+    event.details_json = Some(
+        serde_json::json!({
+            "maintenance": true,
+            "pruned_up_to": body.up_to_seq,
+            "deleted": deleted,
+            "reason": body.reason,
+        })
+        .to_string(),
+    );
+    state.app.record_audit(event);
+
+    Ok(Json(serde_json::json!({ "deleted": deleted, "up_to_seq": body.up_to_seq })))
 }
 
 pub async fn chain_head(State(state): State<Arc<WebState>>) -> Result<Json<AuditChainHead>, AppError> {

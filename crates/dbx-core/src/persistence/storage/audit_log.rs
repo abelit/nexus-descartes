@@ -137,6 +137,12 @@ pub(super) fn ensure_audit_schema_sync(conn: &rusqlite::Connection) -> Result<()
             UNIQUE(sink_name, event_seq)
         );
         CREATE INDEX IF NOT EXISTS idx_audit_outbox_pending ON audit_outbox(state, next_attempt_at_ms);
+        CREATE TABLE IF NOT EXISTS audit_chain_floor (
+            chain_id TEXT PRIMARY KEY,
+            seq INTEGER NOT NULL,
+            hash TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS audit_export_state (
             sink_name TEXT PRIMARY KEY,
             last_exported_seq INTEGER NOT NULL DEFAULT 0,
@@ -426,6 +432,64 @@ impl Storage {
         .await
     }
 
+    /// Deletes a retained prefix of the chain.
+    ///
+    /// The prefix may only be removed when a checkpoint and an external export
+    /// both cover it, so a local deletion can never be the only copy. The last
+    /// deleted hash becomes the chain floor that verification anchors on.
+    pub async fn prune_audit_events(&self, up_to_seq: i64, actor: String, reason: String) -> Result<i64, String> {
+        self.with_audit_conn(move |conn| {
+            let (head_seq, _, _) = read_head_sync(conn)?;
+            if up_to_seq <= 0 || up_to_seq >= head_seq {
+                return Err("AUDIT_PRUNE_RANGE_INVALID".to_string());
+            }
+            let checkpoint_seq: Option<i64> = conn
+                .query_row("SELECT MAX(seq) FROM audit_checkpoints", [], |row| row.get(0))
+                .map_err(|error| error.to_string())?;
+            if checkpoint_seq.unwrap_or(0) < up_to_seq {
+                return Err("AUDIT_PRUNE_CHECKPOINT_REQUIRED".to_string());
+            }
+            let exported: i64 = conn
+                .query_row("SELECT COALESCE(MAX(last_exported_seq), 0) FROM audit_export_state", [], |row| row.get(0))
+                .map_err(|error| error.to_string())?;
+            if exported < up_to_seq {
+                return Err("AUDIT_PRUNE_EXPORT_REQUIRED".to_string());
+            }
+            if read_floor_sync(conn)?.map(|(seq, _)| seq).unwrap_or(0) >= up_to_seq {
+                return Err("AUDIT_PRUNE_ALREADY_PRUNED".to_string());
+            }
+            let hash: String = conn
+                .query_row("SELECT event_hash FROM audit_events WHERE seq = ?1", [up_to_seq], |row| row.get(0))
+                .optional()
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "AUDIT_PRUNE_ANCHOR_MISSING".to_string())?;
+
+            let tx =
+                conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
+            tx.execute_batch("DROP TRIGGER IF EXISTS audit_events_no_delete;").map_err(|error| error.to_string())?;
+            let deleted = tx
+                .execute("DELETE FROM audit_events WHERE seq <= ?1", [up_to_seq])
+                .map_err(|error| error.to_string())?;
+            tx.execute_batch(
+                "CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+                    BEFORE DELETE ON audit_events
+                    BEGIN SELECT RAISE(ABORT, 'AUDIT_APPEND_ONLY'); END;",
+            )
+            .map_err(|error| error.to_string())?;
+            tx.execute(
+                "INSERT INTO audit_chain_floor (chain_id, seq, hash, updated_at) VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT(chain_id) DO UPDATE SET seq = excluded.seq, hash = excluded.hash, \
+                 updated_at = excluded.updated_at",
+                params![CHAIN_ID, up_to_seq, hash, now_rfc3339()],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
+            let _ = (actor, reason);
+            Ok(i64::try_from(deleted).unwrap_or(i64::MAX))
+        })
+        .await
+    }
+
     /// Oldest retained event, for retention reporting only. Automatic
     /// deletion is not enabled: a segment may only be removed after a copy is
     /// anchored outside the database.
@@ -649,6 +713,14 @@ fn row_to_checkpoint(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditCheckpoin
     })
 }
 
+fn read_floor_sync(conn: &rusqlite::Connection) -> Result<Option<(i64, String)>, String> {
+    conn.query_row("SELECT seq, hash FROM audit_chain_floor WHERE chain_id = ?1", [CHAIN_ID], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })
+    .optional()
+    .map_err(|error| error.to_string())
+}
+
 fn read_head_sync(conn: &rusqlite::Connection) -> Result<(i64, String, i64), String> {
     conn.query_row(
         "SELECT last_seq, last_hash, event_count FROM audit_chain_head WHERE chain_id = ?1",
@@ -678,13 +750,19 @@ fn verify_chain_sync(
         });
     }
 
-    let from = from_seq.unwrap_or(1).max(1);
+    // A pruned deployment verifies from its retained floor; rows below it were
+    // deleted only after a checkpoint and an external copy covered them.
+    let floor = read_floor_sync(conn)?;
+    let floor_seq = floor.as_ref().map(|(seq, _)| *seq).unwrap_or(0);
+    let from = from_seq.unwrap_or(floor_seq.saturating_add(1)).max(floor_seq.saturating_add(1)).max(1);
     let to = to_seq.unwrap_or(head.0).min(head.0);
     if from > to {
         return Ok(AuditChainReport { checked: 0, first_broken_seq: None, head_seq: head.0, head_hash: head.1 });
     }
 
-    let anchor = if from == 1 {
+    let anchor = if let Some((_, floor_hash)) = floor.as_ref().filter(|(seq, _)| from == seq.saturating_add(1)) {
+        Some(floor_hash.clone())
+    } else if from == 1 && floor_seq == 0 {
         Some(genesis_hash(CHAIN_ID))
     } else {
         conn.query_row("SELECT event_hash FROM audit_events WHERE seq = ?1", [from - 1], |row| row.get::<_, String>(0))
@@ -1354,7 +1432,7 @@ mod tests {
     #[tokio::test]
     async fn an_attached_audit_database_is_used_instead_of_the_business_db() {
         let (storage, business_path) = storage().await;
-        let audit_path = business_path.with_file_name("audit-dedicated.db");
+        let audit_path = business_path.with_file_name(format!("audit-{}.db", uuid::Uuid::new_v4()));
         storage.attach_audit_database(&audit_path).await.unwrap();
         storage.insert_audit_event(event("e1", "SELECT 1")).await.unwrap();
         assert_eq!(storage.verify_audit_chain(None, None).await.unwrap().checked, 1);
@@ -1367,6 +1445,54 @@ mod tests {
         let dedicated_rows: i64 =
             dedicated.query_row("SELECT COUNT(*) FROM audit_events", [], |row| row.get(0)).unwrap();
         assert_eq!(dedicated_rows, 1);
+    }
+
+    #[tokio::test]
+    async fn pruning_requires_a_covering_checkpoint_and_export() {
+        let (storage, _) = storage().await;
+        for index in 1..=3 {
+            storage.insert_audit_event(event(&format!("e{index}"), &format!("SELECT {index}"))).await.unwrap();
+        }
+        assert_eq!(
+            storage.prune_audit_events(1, "admin".into(), "test".into()).await.unwrap_err(),
+            "AUDIT_PRUNE_CHECKPOINT_REQUIRED"
+        );
+        storage.create_audit_checkpoint().await.unwrap();
+        assert_eq!(
+            storage.prune_audit_events(1, "admin".into(), "test".into()).await.unwrap_err(),
+            "AUDIT_PRUNE_EXPORT_REQUIRED"
+        );
+        storage.set_audit_export_state("http_jsonl".to_string(), 2).await.unwrap();
+        assert_eq!(storage.prune_audit_events(1, "admin".into(), "test".into()).await.unwrap(), 1);
+
+        // Verification now starts from the retained floor instead of seq 1.
+        let report = storage.verify_audit_chain(None, None).await.unwrap();
+        assert_eq!(report.first_broken_seq, None);
+        assert_eq!(report.checked, 2);
+
+        storage.insert_audit_event(event("e4", "SELECT 4")).await.unwrap();
+        let report = storage.verify_audit_chain(None, None).await.unwrap();
+        assert_eq!(report.checked, 3);
+        assert_eq!(report.first_broken_seq, None);
+    }
+
+    #[tokio::test]
+    async fn pruning_refuses_the_live_tail_and_repeats() {
+        let (storage, _) = storage().await;
+        for index in 1..=2 {
+            storage.insert_audit_event(event(&format!("e{index}"), &format!("SELECT {index}"))).await.unwrap();
+        }
+        storage.create_audit_checkpoint().await.unwrap();
+        storage.set_audit_export_state("http_jsonl".to_string(), 2).await.unwrap();
+        assert_eq!(
+            storage.prune_audit_events(2, "admin".into(), "tail".into()).await.unwrap_err(),
+            "AUDIT_PRUNE_RANGE_INVALID"
+        );
+        storage.prune_audit_events(1, "admin".into(), "ok".into()).await.unwrap();
+        assert_eq!(
+            storage.prune_audit_events(1, "admin".into(), "again".into()).await.unwrap_err(),
+            "AUDIT_PRUNE_ALREADY_PRUNED"
+        );
     }
 
     #[tokio::test]
