@@ -12,9 +12,13 @@ use std::future::Future;
 use std::time::Instant;
 
 pub mod approval;
+pub mod policy;
 pub mod rules;
 
-pub use rules::{builtin_rules, evaluate, PolicyDecision, PolicyEffect, Rule, RuleContext, RuleHit};
+pub use policy::{CompiledPolicy, PolicyDocument, ScopedPolicy, StoredRule};
+pub use rules::{
+    builtin_rules, evaluate, PolicyDecision, PolicyEffect, Rule, RuleContext, RuleHit, RuleMatch, RuleScope,
+};
 
 use crate::models::connection::DatabaseType;
 use crate::production_safety::is_production_database;
@@ -25,7 +29,8 @@ pub fn enforcement_enabled() -> bool {
     matches!(std::env::var("DBX_GOVERNANCE_MODE").ok().as_deref().map(str::trim), Some("enforce"))
 }
 
-/// Evaluates the built-in rules for one statement against a connection.
+/// Evaluates the current compiled policy (built-ins plus published documents)
+/// for one statement against a connection.
 pub fn decide(
     connection_id: &str,
     config: &crate::models::connection::ConnectionConfig,
@@ -33,9 +38,8 @@ pub fn decide(
     db_type: DatabaseType,
     sql: &str,
 ) -> PolicyDecision {
-    let context =
-        RuleContext { connection_id, database, db_type, sql, is_production: is_production_database(config, database) };
-    evaluate(&builtin_rules(), &context)
+    let is_production = is_production_database(config, database);
+    policy::current_policy().decide(connection_id, database, db_type, sql, is_production)
 }
 
 use crate::audit::{

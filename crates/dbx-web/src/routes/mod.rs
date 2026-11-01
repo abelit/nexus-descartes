@@ -30,6 +30,7 @@ pub mod nacos;
 pub mod native_jobs;
 pub mod pl_debug;
 pub mod plugins;
+pub mod policies;
 pub mod prompt_template;
 pub mod query;
 pub mod query_result_export;

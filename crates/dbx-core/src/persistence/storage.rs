@@ -7,6 +7,7 @@ mod approval;
 #[cfg(feature = "enterprise-audit")]
 mod audit_log;
 mod identity;
+mod policy;
 mod type_execution_receipts;
 pub use type_execution_receipts::{TypeExecutionBinding, TypeRecoveryContext};
 
@@ -2680,6 +2681,7 @@ impl Storage {
             audit_log::ensure_audit_schema_sync(conn)?;
             identity::ensure_identity_schema_sync(conn)?;
             approval::ensure_approval_schema_sync(conn)?;
+            policy::ensure_policy_schema_sync(conn)?;
             ensure_history_columns_sync(conn)?;
             ensure_connection_secret_columns_sync(conn)?;
             if migrate_legacy {

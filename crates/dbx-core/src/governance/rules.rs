@@ -1,15 +1,22 @@
-//! Built-in high-risk SQL rules.
+//! High-risk SQL rules and their evaluation.
 //!
-//! This is the first, code-defined rule set. Policy documents stored per scope
-//! (with versions and a bundle hash) will replace it incrementally; the
-//! evaluation contract — strictest effect wins, `block` cannot be overridden —
-//! is what the rest of the gateway relies on.
+//! Two sources feed one compiled rule set: the code-defined built-ins (a safety
+//! floor that cannot be deleted) and published policy documents scoped to
+//! global, connection, or database. Evaluation takes the strictest effect, so a
+//! narrower scope can only tighten a broader one — an explicit `allow` can
+//! never override a parent `block`.
+//!
+//! Every compiled rule set carries a `policy_bundle_hash`; audit events and
+//! approvals bind to it, so a policy change invalidates outstanding approvals.
+
+use serde::{Deserialize, Serialize};
 
 use crate::models::connection::DatabaseType;
 use crate::sql_risk::{classify_sql_risk_for_database, is_dangerous_sql_for_database, SqlRisk};
 
 /// Effects ordered from weakest to strongest: `max()` picks the strictest.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PolicyEffect {
     Allow,
     Warn,
@@ -24,6 +31,16 @@ impl PolicyEffect {
             Self::Warn => "warn",
             Self::RequireApproval => "require_approval",
             Self::Block => "block",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "allow" => Some(Self::Allow),
+            "warn" => Some(Self::Warn),
+            "require_approval" => Some(Self::RequireApproval),
+            "block" => Some(Self::Block),
+            _ => None,
         }
     }
 }
@@ -41,31 +58,61 @@ pub struct PolicyDecision {
     pub rule_id: Option<String>,
     pub reason: String,
     pub matched: Vec<RuleHit>,
+    pub policy_bundle_hash: String,
 }
 
 impl PolicyDecision {
-    pub fn allowed() -> Self {
-        Self { effect: PolicyEffect::Allow, rule_id: None, reason: "no rule matched".to_string(), matched: Vec::new() }
+    pub fn allowed(bundle_hash: &str) -> Self {
+        Self {
+            effect: PolicyEffect::Allow,
+            rule_id: None,
+            reason: "no rule matched".to_string(),
+            matched: Vec::new(),
+            policy_bundle_hash: bundle_hash.to_string(),
+        }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Rule {
-    pub id: &'static str,
-    pub priority: i32,
-    pub effect: PolicyEffect,
-    pub matcher: Matcher,
-    pub message: &'static str,
+/// Where a rule applies. Rules from broader scopes are inherited by narrower
+/// ones; the strictest matched effect wins across all of them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type", content = "id")]
+pub enum RuleScope {
+    Global,
+    Connection(String),
+    Database(String),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Matcher {
-    DdlOnProduction,
-    UnboundedWriteOnProduction,
-    UnboundedWriteAnywhere,
-    TruncateOnProduction,
-    PrivilegeChangeOnProduction,
-    DdlAnywhere,
+/// Match conditions. Empty vectors mean "any".
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleMatch {
+    #[serde(default)]
+    pub statement_types: Vec<String>,
+    #[serde(default)]
+    pub production_only: bool,
+    /// `Some(true)` requires a bounding condition; `Some(false)` requires its
+    /// absence.
+    #[serde(default)]
+    pub requires_where: Option<bool>,
+    #[serde(default)]
+    pub unbounded_only: bool,
+    /// Database-name globs (`*` allowed). Empty means any database.
+    #[serde(default)]
+    pub databases: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rule {
+    pub id: String,
+    pub enabled: bool,
+    pub priority: i32,
+    pub effect: PolicyEffect,
+    pub rule_match: RuleMatch,
+    pub message: String,
+    pub scope: RuleScope,
+    /// Built-in rules cannot be deleted, only overridden by id in a stored
+    /// document.
+    pub builtin: bool,
 }
 
 pub struct RuleContext<'a> {
@@ -80,22 +127,6 @@ fn risk(ctx: &RuleContext<'_>) -> SqlRisk {
     classify_sql_risk_for_database(ctx.sql, ctx.db_type).unwrap_or(SqlRisk::Write)
 }
 
-fn matches(matcher: Matcher, ctx: &RuleContext<'_>) -> bool {
-    let risk = risk(ctx);
-    match matcher {
-        Matcher::DdlOnProduction => ctx.is_production && risk == SqlRisk::Ddl,
-        Matcher::UnboundedWriteOnProduction => {
-            ctx.is_production && risk == SqlRisk::Write && is_dangerous_sql_for_database(ctx.sql, ctx.db_type)
-        }
-        Matcher::UnboundedWriteAnywhere => {
-            risk == SqlRisk::Write && is_dangerous_sql_for_database(ctx.sql, ctx.db_type)
-        }
-        Matcher::TruncateOnProduction => ctx.is_production && is_truncate(ctx.sql),
-        Matcher::PrivilegeChangeOnProduction => ctx.is_production && is_privilege_change(ctx.sql),
-        Matcher::DdlAnywhere => risk == SqlRisk::Ddl,
-    }
-}
-
 fn normalized(sql: &str) -> String {
     sql.to_ascii_uppercase()
 }
@@ -105,73 +136,151 @@ fn is_truncate(sql: &str) -> bool {
 }
 
 fn is_privilege_change(sql: &str) -> bool {
-    let upper = normalized(sql);
-    let trimmed = upper.trim_start();
+    let trimmed = normalized(sql);
+    let trimmed = trimmed.trim_start();
     trimmed.starts_with("GRANT ") || trimmed.starts_with("REVOKE ") || trimmed.starts_with("CREATE USER")
 }
 
-/// Code-defined rules, evaluated before stored policies exist. Ordering here is
-/// documentation only: evaluation sorts by priority, then id.
+fn statement_type(ctx: &RuleContext<'_>) -> &'static str {
+    if is_truncate(ctx.sql) {
+        return "truncate";
+    }
+    if is_privilege_change(ctx.sql) {
+        return "privilege";
+    }
+    match risk(ctx) {
+        SqlRisk::ReadOnly => "select",
+        SqlRisk::Write => "dml",
+        SqlRisk::Ddl => "ddl",
+        SqlRisk::Transaction => "transaction",
+    }
+}
+
+fn like(pattern: &str, value: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        return value.starts_with(prefix);
+    }
+    pattern.eq_ignore_ascii_case(value)
+}
+
+fn scope_applies(rule: &Rule, ctx: &RuleContext<'_>) -> bool {
+    match &rule.scope {
+        RuleScope::Global => true,
+        RuleScope::Connection(connection_id) => connection_id == ctx.connection_id,
+        RuleScope::Database(database) => like(database, ctx.database),
+    }
+}
+
+fn matches(rule: &Rule, ctx: &RuleContext<'_>) -> bool {
+    if !rule.enabled || !scope_applies(rule, ctx) {
+        return false;
+    }
+    let rule_match = &rule.rule_match;
+    if rule_match.production_only && !ctx.is_production {
+        return false;
+    }
+    if !rule_match.statement_types.is_empty()
+        && !rule_match.statement_types.iter().any(|r#type| r#type == statement_type(ctx))
+    {
+        return false;
+    }
+    if !rule_match.databases.is_empty() && !rule_match.databases.iter().any(|pattern| like(pattern, ctx.database)) {
+        return false;
+    }
+    let dangerous = is_dangerous_sql_for_database(ctx.sql, ctx.db_type);
+    if rule_match.unbounded_only && !dangerous {
+        return false;
+    }
+    match rule_match.requires_where {
+        Some(true) if dangerous => return false,
+        Some(false) if !dangerous => return false,
+        _ => {}
+    }
+    true
+}
+
+/// Code-defined safety floor. Each rule is global; stored documents can add
+/// rules or override a built-in by reusing its id in a narrower scope.
 pub fn builtin_rules() -> Vec<Rule> {
+    let rule = |id: &str, priority: i32, effect: PolicyEffect, rule_match: RuleMatch, message: &str| Rule {
+        id: id.to_string(),
+        enabled: true,
+        priority,
+        effect,
+        rule_match,
+        message: message.to_string(),
+        scope: RuleScope::Global,
+        builtin: true,
+    };
     vec![
-        Rule {
-            id: "prod.ddl.approval",
-            priority: 100,
-            effect: PolicyEffect::RequireApproval,
-            matcher: Matcher::DdlOnProduction,
-            message: "DDL on a production connection requires approval",
-        },
-        Rule {
-            id: "prod.dml.no_where.block",
-            priority: 110,
-            effect: PolicyEffect::Block,
-            matcher: Matcher::UnboundedWriteOnProduction,
-            message: "An unbounded write on a production connection is blocked",
-        },
-        Rule {
-            id: "prod.truncate.approval",
-            priority: 105,
-            effect: PolicyEffect::RequireApproval,
-            matcher: Matcher::TruncateOnProduction,
-            message: "TRUNCATE on a production connection requires approval",
-        },
-        Rule {
-            id: "prod.privilege.approval",
-            priority: 105,
-            effect: PolicyEffect::RequireApproval,
-            matcher: Matcher::PrivilegeChangeOnProduction,
-            message: "Privilege changes on a production connection require approval",
-        },
-        Rule {
-            id: "global.no_where.warn",
-            priority: 10,
-            effect: PolicyEffect::Warn,
-            matcher: Matcher::UnboundedWriteAnywhere,
-            message: "This statement has no bounding condition",
-        },
-        Rule {
-            id: "global.ddl.warn",
-            priority: 5,
-            effect: PolicyEffect::Warn,
-            matcher: Matcher::DdlAnywhere,
-            message: "Schema changes cannot be rolled back on every backend",
-        },
+        rule(
+            "prod.ddl.approval",
+            100,
+            PolicyEffect::RequireApproval,
+            RuleMatch { statement_types: vec!["ddl".into()], production_only: true, ..Default::default() },
+            "DDL on a production connection requires approval",
+        ),
+        rule(
+            "prod.dml.no_where.block",
+            110,
+            PolicyEffect::Block,
+            RuleMatch {
+                statement_types: vec!["dml".into()],
+                production_only: true,
+                unbounded_only: true,
+                ..Default::default()
+            },
+            "An unbounded write on a production connection is blocked",
+        ),
+        rule(
+            "prod.truncate.approval",
+            105,
+            PolicyEffect::RequireApproval,
+            RuleMatch { statement_types: vec!["truncate".into()], production_only: true, ..Default::default() },
+            "TRUNCATE on a production connection requires approval",
+        ),
+        rule(
+            "prod.privilege.approval",
+            105,
+            PolicyEffect::RequireApproval,
+            RuleMatch { statement_types: vec!["privilege".into()], production_only: true, ..Default::default() },
+            "Privilege changes on a production connection require approval",
+        ),
+        rule(
+            "global.no_where.warn",
+            10,
+            PolicyEffect::Warn,
+            RuleMatch { statement_types: vec!["dml".into()], unbounded_only: true, ..Default::default() },
+            "This statement has no bounding condition",
+        ),
+        rule(
+            "global.ddl.warn",
+            5,
+            PolicyEffect::Warn,
+            RuleMatch { statement_types: vec!["ddl".into()], ..Default::default() },
+            "Schema changes cannot be rolled back on every backend",
+        ),
     ]
 }
 
 /// Strictest effect wins: `block` > `require_approval` > `warn` > `allow`.
-pub fn evaluate(rules: &[Rule], context: &RuleContext<'_>) -> PolicyDecision {
-    let mut ordered = rules.to_vec();
-    ordered.sort_by(|left, right| right.priority.cmp(&left.priority).then_with(|| left.id.cmp(right.id)));
+pub fn evaluate(rules: &[Rule], context: &RuleContext<'_>, bundle_hash: &str) -> PolicyDecision {
+    let mut ordered: Vec<&Rule> = rules.iter().collect();
+    ordered.sort_by(|left, right| {
+        right
+            .priority
+            .cmp(&left.priority)
+            .then_with(|| left.id.cmp(&right.id))
+            .then_with(|| scope_rank(&left.scope).cmp(&scope_rank(&right.scope)))
+    });
 
     let mut matched = Vec::new();
-    for rule in &ordered {
-        if matches(rule.matcher, context) {
-            matched.push(RuleHit {
-                rule_id: rule.id.to_string(),
-                effect: rule.effect,
-                reason: rule.message.to_string(),
-            });
+    for rule in ordered {
+        if matches(rule, context) {
+            matched.push(RuleHit { rule_id: rule.id.clone(), effect: rule.effect, reason: rule.message.clone() });
         }
     }
 
@@ -179,13 +288,22 @@ pub fn evaluate(rules: &[Rule], context: &RuleContext<'_>) -> PolicyDecision {
         .iter()
         .max_by(|left, right| left.effect.cmp(&right.effect).then_with(|| right.rule_id.cmp(&left.rule_id)))
     else {
-        return PolicyDecision::allowed();
+        return PolicyDecision::allowed(bundle_hash);
     };
     PolicyDecision {
         effect: strictest.effect,
         rule_id: Some(strictest.rule_id.clone()),
         reason: strictest.reason.clone(),
         matched,
+        policy_bundle_hash: bundle_hash.to_string(),
+    }
+}
+
+fn scope_rank(scope: &RuleScope) -> u8 {
+    match scope {
+        RuleScope::Global => 0,
+        RuleScope::Connection(_) => 1,
+        RuleScope::Database(_) => 2,
     }
 }
 
@@ -198,7 +316,7 @@ mod tests {
     }
 
     fn decision(sql: &str, is_production: bool) -> PolicyDecision {
-        evaluate(&builtin_rules(), &context(sql, is_production))
+        evaluate(&builtin_rules(), &context(sql, is_production), "bundle")
     }
 
     #[test]
@@ -211,6 +329,7 @@ mod tests {
         let decision = decision("ALTER TABLE users ADD COLUMN age int", true);
         assert_eq!(decision.effect, PolicyEffect::RequireApproval);
         assert_eq!(decision.rule_id.as_deref(), Some("prod.ddl.approval"));
+        assert_eq!(decision.policy_bundle_hash, "bundle");
     }
 
     #[test]
@@ -233,25 +352,74 @@ mod tests {
     }
 
     #[test]
-    fn truncate_requires_approval_on_production() {
-        let decision = decision("TRUNCATE TABLE users", true);
-        assert_eq!(decision.effect, PolicyEffect::RequireApproval);
-        assert!(decision.matched.iter().any(|hit| hit.rule_id == "prod.truncate.approval"));
+    fn truncate_and_privilege_changes_require_approval_on_production() {
+        assert_eq!(decision("TRUNCATE TABLE users", true).effect, PolicyEffect::RequireApproval);
+        assert_eq!(decision("GRANT SELECT ON users TO app", true).effect, PolicyEffect::RequireApproval);
     }
 
     #[test]
-    fn privilege_changes_require_approval_on_production() {
-        let decision = decision("GRANT SELECT ON users TO app", true);
-        assert_eq!(decision.effect, PolicyEffect::RequireApproval);
-        assert!(decision.matched.iter().any(|hit| hit.rule_id == "prod.privilege.approval"));
-    }
-
-    #[test]
-    fn the_strictest_effect_wins() {
-        // Unbounded write + production: the block rule outranks the warn rule
-        // and approval rules.
+    fn the_strictest_effect_wins_and_every_match_is_reported() {
         let decision = decision("UPDATE users SET name = 'x'", true);
         assert_eq!(decision.effect, PolicyEffect::Block);
-        assert!(decision.matched.len() >= 2, "every matching rule is reported");
+        assert!(decision.matched.len() >= 2);
+    }
+
+    #[test]
+    fn scoped_rules_only_apply_to_their_scope() {
+        let mut rules = builtin_rules();
+        rules.push(Rule {
+            id: "conn.block-delete".into(),
+            enabled: true,
+            priority: 120,
+            effect: PolicyEffect::Block,
+            rule_match: RuleMatch { statement_types: vec!["dml".into()], ..Default::default() },
+            message: "deletes are blocked on this connection".into(),
+            scope: RuleScope::Connection("conn".into()),
+            builtin: false,
+        });
+        let on_conn = evaluate(&rules, &context("DELETE FROM users WHERE id = 1", false), "b");
+        assert_eq!(on_conn.effect, PolicyEffect::Block);
+        let other_conn = evaluate(
+            &rules,
+            &RuleContext { connection_id: "other", ..context("DELETE FROM users WHERE id = 1", false) },
+            "b",
+        );
+        assert_eq!(other_conn.effect, PolicyEffect::Allow);
+    }
+
+    #[test]
+    fn a_disabled_builtin_does_not_fire() {
+        let mut rules = builtin_rules();
+        for rule in &mut rules {
+            if rule.id == "global.ddl.warn" {
+                rule.enabled = false;
+            }
+        }
+        assert_eq!(
+            evaluate(&rules, &context("ALTER TABLE t ADD COLUMN c int", false), "b").effect,
+            PolicyEffect::Allow
+        );
+    }
+
+    #[test]
+    fn database_globs_match_prefixes_and_wildcards() {
+        let rules = vec![Rule {
+            id: "db.block".into(),
+            enabled: true,
+            priority: 1,
+            effect: PolicyEffect::Block,
+            rule_match: RuleMatch { databases: vec!["prod_*".into()], ..Default::default() },
+            message: "blocked".into(),
+            scope: RuleScope::Global,
+            builtin: false,
+        }];
+        assert_eq!(
+            evaluate(&rules, &RuleContext { database: "prod_billing", ..context("SELECT 1", false) }, "b").effect,
+            PolicyEffect::Block
+        );
+        assert_eq!(
+            evaluate(&rules, &RuleContext { database: "staging", ..context("SELECT 1", false) }, "b").effect,
+            PolicyEffect::Allow
+        );
     }
 }

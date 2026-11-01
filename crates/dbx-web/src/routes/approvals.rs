@@ -116,7 +116,7 @@ pub async fn create_request(
         database: &body.database,
         schema: body.schema_name.as_deref(),
         statements_digest: &digest,
-        policy_bundle_hash: None,
+        policy_bundle_hash: Some(&decision.policy_bundle_hash),
         rule_ids: &rule_ids,
     });
 
@@ -134,7 +134,7 @@ pub async fn create_request(
         statement_count: 1,
         risk_level: None,
         rule_ids,
-        policy_bundle_hash: None,
+        policy_bundle_hash: Some(decision.policy_bundle_hash.clone()),
         justification: body.justification,
         request_hash: hash,
         expires_at_ms: None,

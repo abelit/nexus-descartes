@@ -508,6 +508,49 @@ server checks it after authenticating the session:
 `/api/audit/*` has its own gate (permission, bootstrap token, or loopback), and
 `/api/auth/*` is handled by the login endpoints.
 
+## Policy Documents
+
+Rules are compiled from the built-in safety floor plus the latest published
+document of every scope (`global`, `connection:<id>`, `database:<name>`). The
+compiled set carries a `policy_bundle_hash`; audit events and approvals bind to
+it, so publishing a policy invalidates outstanding approvals.
+
+```http
+GET  /api/policies?scope_type=global
+POST /api/policies
+{
+  "scope_type": "connection",
+  "scope_id": "conn-id",
+  "note": "block deletes on this connection",
+  "document": {
+    "rules": [
+      { "id": "conn.deny-deletes", "priority": 200, "action": "block",
+        "message": "deletes are blocked here",
+        "match": { "statement_types": ["dml"] } }
+    ]
+  }
+}
+
+POST /api/policies/rollback
+{ "scope_type": "global", "version": 2, "note": "revert" }
+
+GET /api/policies/effective
+```
+
+- Versions are immutable per scope; rollback publishes a copy of an old
+  version as a new one.
+- A stored rule with the same `id` as a built-in replaces it (use
+  `"enabled": false` to disable a built-in).
+- Evaluation takes the strictest effect across all applicable scopes, so a
+  narrower scope can only tighten a broader one.
+- Publishing is refused if the document does not parse or would produce an
+  invalid rule set; the effective policy is only replaced after a successful
+  publish.
+- Reads require `policy:read`; publish/rollback require `policy:publish`.
+
+`GET /api/governance/simulate` and `GET /api/policies/effective` include the
+`policy_bundle_hash` used for the decision.
+
 ## Approvals
 
 Statements the rules mark `require_approval` cannot run until an approver decides

@@ -38,6 +38,7 @@ pub struct DecisionView {
     pub matched: Vec<RuleHitView>,
     pub production: bool,
     pub enforcement: bool,
+    pub policy_bundle_hash: String,
 }
 
 pub async fn simulate(
@@ -72,5 +73,6 @@ pub async fn simulate(
             .collect(),
         production,
         enforcement: dbx_core::governance::enforcement_enabled(),
+        policy_bundle_hash: decision.policy_bundle_hash,
     }))
 }

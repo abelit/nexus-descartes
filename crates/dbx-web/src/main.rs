@@ -698,6 +698,11 @@ async fn serve() -> Result<(), String> {
         }
     }
     web_state.restore_sessions().await;
+    // Stored policies are compiled at startup; an invalid document must not be
+    // silently replaced by the built-ins.
+    if let Err(error) = routes::policies::reload_policy(&web_state).await {
+        return Err(format!("POLICY_LOAD_FAILED: {}", error.message));
+    }
 
     let backup_root = std::env::var_os("DBX_BACKUP_ROOT")
         .map(std::path::PathBuf::from)
@@ -1650,6 +1655,11 @@ async fn serve() -> Result<(), String> {
 
     // Rule simulation never executes SQL; the handler checks `query:read`.
     let api = api.route("/governance/simulate", post(routes::governance::simulate));
+
+    let api = api
+        .route("/policies", get(routes::policies::list_policies).post(routes::policies::publish_policy))
+        .route("/policies/rollback", post(routes::policies::rollback_policy))
+        .route("/policies/effective", get(routes::policies::effective_policy));
 
     // Approval requests. Reads need `approval:read`; decisions and execution
     // tokens additionally require `approval:act` inside the handlers.
