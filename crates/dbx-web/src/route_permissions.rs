@@ -50,6 +50,12 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("approvals", MethodClass::Any, Permission::ApprovalRead),
     // Policy reads; write/publish are checked in the handlers.
     ("policies", MethodClass::Any, Permission::PolicyRead),
+    // Read-only metadata and UI support endpoints.
+    ("api", MethodClass::Any, Permission::QueryRead),
+    ("changelog", MethodClass::Any, Permission::QueryRead),
+    ("dialect", MethodClass::Any, Permission::QueryRead),
+    ("general", MethodClass::Any, Permission::QueryRead),
+    ("version", MethodClass::Any, Permission::QueryRead),
     // Administration
     ("users", MethodClass::Any, Permission::AdminUsers),
     ("roles", MethodClass::Any, Permission::AdminUsers),
@@ -123,11 +129,18 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("prompt-templates", MethodClass::Any, Permission::QueryRead),
 ];
 
+/// Prefix match that also accepts the bare path (`/history` against a
+/// `history/` rule), so an index route and its children share one rule.
+fn prefix_matches(suffix: &str, prefix: &str) -> bool {
+    let base = prefix.trim_end_matches('/');
+    suffix == base || suffix.starts_with(prefix)
+}
+
 /// Classifies a normalized API suffix (for example `query/execute`).
 pub fn classify(method: &Method, suffix: &str) -> RouteAccess {
     let read = method == Method::GET || method == Method::HEAD;
     for (prefix, class, permission) in RULES {
-        if !suffix.starts_with(prefix) {
+        if !prefix_matches(suffix, prefix) {
             continue;
         }
         let matches = match class {
@@ -252,6 +265,42 @@ mod tests {
     fn unknown_routes_are_unclassified() {
         assert_eq!(classify(&Method::POST, "some-new-feature/do"), RouteAccess::Unclassified);
         assert_eq!(classify(&Method::GET, "capabilities"), RouteAccess::Unclassified);
+    }
+
+    /// Every route registered in `main.rs` / `routes/mq.rs` must be classified,
+    /// otherwise adding a route silently gives it the unclassified fallback.
+    /// (`/audit` and `/auth` have their own gates.)
+    #[test]
+    fn every_registered_route_is_classified() {
+        let sources = [include_str!("main.rs"), include_str!("routes/mq.rs")];
+        let mut unclassified = Vec::new();
+        for source in sources {
+            let production = source.split("#[cfg(test)]\nmod tests").next().unwrap_or(source);
+            for line in production.lines() {
+                let Some(rest) = line.split(".route(\"").nth(1) else {
+                    continue;
+                };
+                let Some(path) = rest.split('"').next() else {
+                    continue;
+                };
+                let suffix = path.trim_start_matches('/');
+                let first = suffix.split('/').next().unwrap_or("");
+                if first == "audit" || first == "auth" {
+                    continue;
+                }
+                if classify(&Method::GET, suffix) == RouteAccess::Unclassified
+                    && classify(&Method::POST, suffix) == RouteAccess::Unclassified
+                {
+                    unclassified.push(path.to_string());
+                }
+            }
+        }
+        unclassified.sort();
+        unclassified.dedup();
+        assert!(
+            unclassified.is_empty(),
+            "routes need a permission classification in route_permissions.rs: {unclassified:?}"
+        );
     }
 
     #[test]
