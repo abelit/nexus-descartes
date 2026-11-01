@@ -1,5 +1,6 @@
 mod audit_http;
 mod auth;
+mod client_ip;
 mod credentials;
 mod demo;
 mod error;
@@ -1693,6 +1694,8 @@ async fn serve() -> Result<(), String> {
         .layer(middleware::from_fn_with_state(web_state.clone(), migration_gate))
         .layer(middleware::from_fn_with_state(web_state.clone(), demo::demo_mode_gate))
         // Inside the auth layer, so the actor extension is already present.
+        .layer(middleware::from_fn(client_ip::origin_guard))
+        .layer(middleware::from_fn_with_state(web_state.clone(), client_ip::client_ip_middleware))
         .layer(middleware::from_fn_with_state(web_state.clone(), route_permissions::enforce_route_permissions))
         // Outside the permission layer, so a denial is still recorded.
         .layer(middleware::from_fn_with_state(web_state.clone(), audit_http::http_audit_middleware))

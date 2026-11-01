@@ -156,6 +156,7 @@ fn record_auth_event(
 
 pub async fn login(
     State(state): State<Arc<WebState>>,
+    client_ip: Option<crate::client_ip::ClientIp>,
     headers: axum::http::HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<Response, StatusCode> {
@@ -172,7 +173,8 @@ pub async fn login(
     // administrator. Throttling is keyed by account, so one person guessing a
     // password cannot lock out everyone else.
     let email = body.email.as_deref().map(str::trim).filter(|value| !value.is_empty()).unwrap_or("admin").to_string();
-    let rate_key = email.to_lowercase();
+    let rate_key =
+        format!("{}|{}", client_ip.map(|ip| ip.0).unwrap_or_else(|| "unknown".to_string()), email.to_lowercase());
     if let Some(lockout) = state.login_locked_for(&rate_key).await {
         let remaining = lockout.as_secs().max(1);
         record_auth_event(
@@ -607,6 +609,11 @@ static TRUSTED_PROXIES: LazyLock<Vec<IpAddr>> = LazyLock::new(|| {
         .map(|value| value.split(',').filter_map(|entry| entry.trim().parse::<IpAddr>().ok()).collect::<Vec<_>>())
         .unwrap_or_default()
 });
+
+/// Shared with the client-IP middleware so both resolve the same value.
+pub(crate) fn client_ip_from_peer(peer: Option<SocketAddr>, headers: &HeaderMap) -> Option<String> {
+    client_ip_from(peer, headers)
+}
 
 fn client_ip_from(peer: Option<SocketAddr>, headers: &HeaderMap) -> Option<String> {
     let peer_ip = peer?.ip();

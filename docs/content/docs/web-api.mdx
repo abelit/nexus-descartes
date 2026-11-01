@@ -75,7 +75,7 @@ Content-Type: application/json
 
 On success, the response sets `Set-Cookie: dbx_session=...`. Reuse that cookie on later requests.
 
-Five consecutive login failures for one account trigger an approximately 60-second lockout; other accounts are unaffected. Sessions are persisted in `dbx.db`, so a restart does not log everyone out; they expire after 30 minutes idle (`DBX_SESSION_IDLE_SECS`) or 24 hours absolute (`DBX_SESSION_TTL_SECS`), and a password change revokes every other session. Only the SHA-256 hash of a session token is stored. The cookie is `HttpOnly`, uses `SameSite=Lax`, and follows `DBX_PUBLIC_BASE_PATH` for its path.
+Five consecutive login failures for one account **from the same client address** trigger an approximately 60-second lockout; other accounts and other clients are unaffected. Cross-origin browser writes are rejected unless the `Origin` host matches the request `Host`; non-browser clients send no `Origin` and are unaffected. Sessions are persisted in `dbx.db`, so a restart does not log everyone out; they expire after 30 minutes idle (`DBX_SESSION_IDLE_SECS`) or 24 hours absolute (`DBX_SESSION_TTL_SECS`), and a password change revokes every other session. Only the SHA-256 hash of a session token is stored. The cookie is `HttpOnly`, uses `SameSite=Lax`, and follows `DBX_PUBLIC_BASE_PATH` for its path.
 
 `GET /api/auth/check` returns the signed-in actor's roles and effective permission codes (`audit:read`, `query:write`, …). The UI uses them to hide actions; the server still enforces each one.
 
