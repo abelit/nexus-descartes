@@ -656,7 +656,7 @@ storage lock. Desktop, CLI, and local MCP keep the log in their existing
 database file. Moving a pre-`audit.db` deployment means migrating the
 `audit_*` tables together with their chain head; do not copy rows between chains.
 
-<Callout type="warn">In this phase the audit API is not yet gated by roles. It requires the `X-DBX-Audit-Token` header to match `DBX_AUDIT_BOOTSTRAP_TOKEN`, or a direct loopback connection when no token is configured. Deployments behind a reverse proxy on the same host see loopback peers, so they must set `DBX_AUDIT_BOOTSTRAP_TOKEN`. Role-based access (`audit:read`) arrives with local users.</Callout>
+<Callout type="warn">A signed-in session holding the required permission (`audit:read`, `audit:export`, or `audit:verify`) is accepted. Otherwise the request must carry `X-DBX-Audit-Token` matching `DBX_AUDIT_BOOTSTRAP_TOKEN`, or arrive over loopback when no token is configured. The bootstrap token works without a session, for automation; those requests are attributed to the `system` actor. Deployments behind a reverse proxy on the same host see loopback peers, so they must set `DBX_AUDIT_BOOTSTRAP_TOKEN`.</Callout>
 
 ```http
 GET /api/audit/events

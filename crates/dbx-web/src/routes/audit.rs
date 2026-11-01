@@ -51,9 +51,8 @@ pub async fn require_audit_access(
         .filter(|value| !value.is_empty());
 
     match expected {
-        Some(expected) => {
-            let provided = req.headers().get(AUDIT_TOKEN_HEADER).and_then(|value| value.to_str().ok()).map(str::trim);
-            if !provided.is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes())) {
+        Some(_) => {
+            if !bootstrap_token_valid(req.headers()) {
                 return denied("audit bootstrap token required");
             }
         }
@@ -87,6 +86,23 @@ fn required_permission(path: &str, method: &axum::http::Method) -> dbx_core::ide
         return Permission::AuditVerify;
     }
     Permission::AuditRead
+}
+
+/// Whether the request carries the configured audit bootstrap token. Shared
+/// with the auth middleware so automation does not need a browser session.
+pub(crate) fn bootstrap_token_valid(headers: &axum::http::HeaderMap) -> bool {
+    let expected = std::env::var(ENV_AUDIT_BOOTSTRAP_TOKEN)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let Some(expected) = expected else {
+        return false;
+    };
+    headers
+        .get(AUDIT_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
 }
 
 fn denied(reason: &str) -> Response {
@@ -360,12 +376,16 @@ pub async fn prune_events(
     if !enabled {
         return Err(AppError::forbidden("AUDIT_PRUNE_DISABLED: set DBX_AUDIT_ALLOW_PRUNE=1 to allow pruning"));
     }
-    let deleted = state
-        .app
-        .storage
-        .prune_audit_events(body.up_to_seq, actor.id.clone(), body.reason.clone())
-        .await
-        .map_err(AppError::from)?;
+    let deleted =
+        state.app.storage.prune_audit_events(body.up_to_seq, actor.id.clone(), body.reason.clone()).await.map_err(
+            |error| {
+                if error.starts_with("AUDIT_PRUNE_") {
+                    AppError::bad_request(error)
+                } else {
+                    AppError::from(error)
+                }
+            },
+        )?;
 
     let context = dbx_core::audit::current_audit_context().unwrap_or_else(|| AuditContext {
         actor,

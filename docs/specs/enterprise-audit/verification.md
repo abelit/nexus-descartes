@@ -49,6 +49,22 @@ long-key case.
 6. `GET /api/audit/export?format=csv` — cells beginning with `=`, `+`, `-`, `@`
    are prefixed with `'`.
 
+## End-to-end smoke (2026-11-02, local binary)
+
+Ran `dbx-web` with `DBX_PASSWORD`, `DBX_AUDIT_BOOTSTRAP_TOKEN`,
+`DBX_GOVERNANCE_MODE=enforce`, `DBX_AUDIT_ALLOW_PRUNE=1` and an empty data dir:
+
+- login → `admin` actor with all permission codes; viewer user shows only
+  `connection:read`/`query:read`;
+- audit API: bootstrap token without a session → 200 (attributed to `system`),
+  wrong token → 401, viewer session → 403;
+- publishing a global `block` rule changed `policy_bundle_hash`;
+- checkpoint creation → 200; `verify-checkpoint` clean;
+- prune without an export → 400 `AUDIT_PRUNE_CHECKPOINT_REQUIRED`/`EXPORT_REQUIRED`;
+  after recording an export cursor → 200 `deleted: 1`, floor = deleted seq,
+  `verify` re-checked the remaining chain with no break;
+- `audit.db` exists with all rows while `dbx.db` has zero `audit_events`.
+
 ## Known gaps
 
 - Direct driver calls in `schema/*`, `data/table_import.rs`, `sql_file_import.rs`

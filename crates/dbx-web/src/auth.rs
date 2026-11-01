@@ -457,6 +457,22 @@ pub async fn auth_middleware(
     let user_agent =
         req.headers().get(axum::http::header::USER_AGENT).and_then(|value| value.to_str().ok()).map(str::to_string);
 
+    // Automation with the audit bootstrap token does not need a browser
+    // session: the audit router performs its own token check and records the
+    // read. Without this, a valid token would be rejected as an unknown
+    // session before reaching that gate.
+    if api_suffix.is_some_and(|suffix| suffix.starts_with("audit/"))
+        && crate::routes::audit::bootstrap_token_valid(req.headers())
+    {
+        // Handlers still expect an actor for attribution; the token is not a
+        // user identity, so automation is recorded as the system actor.
+        let mut req = req;
+        req.extensions_mut().insert(Actor::system());
+        let mut response = next.run(req).await;
+        attach_request_id(&mut response, &request_id);
+        return response;
+    }
+
     // A hilbert/ongrid access token authenticates the request directly. The
     // token is verified on every request (no DB session is created), so a
     // revocation on the identity provider takes effect immediately.
