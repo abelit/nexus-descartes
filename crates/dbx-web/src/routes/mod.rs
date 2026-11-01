@@ -1,6 +1,9 @@
 pub mod agents;
 pub mod ai;
 pub mod app_settings;
+pub mod approvals;
+#[cfg(feature = "enterprise-audit")]
+pub mod audit;
 pub mod cloud_sync;
 pub mod connection;
 pub mod consul;
@@ -11,6 +14,7 @@ pub mod docs;
 pub mod document_store;
 pub mod etcd;
 pub(crate) mod export_download;
+pub mod governance;
 pub mod hbase;
 pub mod history;
 pub mod jdbc;
@@ -47,6 +51,7 @@ pub mod text_export;
 pub mod transfer;
 pub mod tunnel_profiles;
 pub mod update;
+pub mod users;
 pub mod vector;
 pub mod zookeeper;
 

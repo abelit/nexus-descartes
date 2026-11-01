@@ -1,13 +1,15 @@
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::LazyLock;
 
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::SaltString;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use axum::extract::State;
-use axum::http::{Request, StatusCode};
+use axum::extract::{ConnectInfo, State};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use dbx_core::audit::{
+    Actor, ActorKind, AuditContext, AuditDecision, AuditEventInsert, AuditOperation, AuditOutcome, AuditSource,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::state::WebState;
@@ -15,6 +17,39 @@ use crate::state::WebState;
 #[derive(Deserialize)]
 pub struct LoginRequest {
     pub password: String,
+    /// Local user email. Omitted by the single-account login form, which maps
+    /// to the built-in `admin` user.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Required by first-run setup when `DBX_SETUP_TOKEN` is configured.
+    #[serde(default)]
+    pub setup_token: Option<String>,
+    /// Attribution label shown in audit rows. This is not an authentication
+    /// factor; the shared password remains the only credential until hilbert
+    /// SSO lands.
+    #[serde(default)]
+    pub operator: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AuthActorView {
+    pub id: String,
+    pub display_name: String,
+    pub roles: Vec<String>,
+    /// Effective permission codes, so the UI can hide actions it cannot use.
+    /// The server still enforces every one of them.
+    pub permissions: Vec<String>,
+}
+
+impl From<&Actor> for AuthActorView {
+    fn from(actor: &Actor) -> Self {
+        Self {
+            id: actor.id.clone(),
+            display_name: actor.display_name.clone(),
+            roles: actor.roles.clone(),
+            permissions: dbx_core::identity::permissions_for_roles(&actor.roles),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -28,10 +63,9 @@ pub struct AuthCheckResponse {
     pub authenticated: bool,
     pub required: bool,
     pub setup_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<AuthActorView>,
 }
-
-const MAX_ATTEMPTS: u32 = 5;
-const LOCKOUT_SECS: u64 = 60;
 
 fn session_cookie_path(state: &WebState) -> &str {
     state.public_base_path.as_str()
@@ -73,55 +107,139 @@ pub(crate) fn middleware_api_path_suffix<'a>(path: &'a str, public_base_path: &s
     path.strip_prefix('/').filter(|suffix| !suffix.is_empty())
 }
 
-pub async fn login(State(state): State<Arc<WebState>>, Json(body): Json<LoginRequest>) -> Result<Response, StatusCode> {
-    let hash_guard = state.password_hash.read().await;
-    let hash_str = match hash_guard.as_deref() {
-        // No password configured: nothing to authenticate against. Answer
-        // explicitly instead of an ok:true that reads as "authenticated" —
-        // the API remains locked by the middleware until setup completes.
-        Some(h) => h.to_string(),
-        None => {
-            return Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "setup_required"}))).into_response());
-        }
-    };
-    drop(hash_guard);
+fn anonymous_actor() -> Actor {
+    Actor {
+        id: "anonymous:unauthenticated".to_string(),
+        display_name: "Unauthenticated".to_string(),
+        kind: ActorKind::Bootstrap,
+        roles: Vec::new(),
+        tenant_id: None,
+        session_id: None,
+        auth_method: "local_password".to_string(),
+    }
+}
 
-    // Check rate limit
-    {
-        let rl = state.login_rate_limit.lock().await;
-        if let Some(locked_until) = rl.locked_until {
-            if locked_until > std::time::Instant::now() {
-                let remaining = (locked_until - std::time::Instant::now()).as_secs();
-                return Ok((
-                    StatusCode::TOO_MANY_REQUESTS,
-                    Json(serde_json::json!({"error": format!("Please try again in {remaining}s")})),
-                )
-                    .into_response());
-            }
-        }
+/// The optional free-text caller label. It is recorded as `details.hint`; it
+/// never determines who the event belongs to.
+fn hint_label(operator: &Option<String>) -> Option<String> {
+    operator.as_deref().map(str::trim).filter(|label| !label.is_empty()).map(str::to_string)
+}
+
+fn record_auth_event(
+    state: &WebState,
+    actor: Actor,
+    decision: AuditDecision,
+    outcome: AuditOutcome,
+    detail: &str,
+    hint: Option<&str>,
+) {
+    let context = AuditContext {
+        actor,
+        source: AuditSource::Web,
+        client_ip: None,
+        user_agent: None,
+        request_id: None,
+        execution_id: None,
+    };
+    let mut event = AuditEventInsert::new(&context, AuditOperation::Auth, decision, outcome);
+    event.actor_verified = false;
+    event.details_json = Some(
+        serde_json::json!({
+            "event": detail,
+            "hint": hint,
+            "actor_verified": false,
+        })
+        .to_string(),
+    );
+    state.app.record_audit(event);
+}
+
+pub async fn login(
+    State(state): State<Arc<WebState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<LoginRequest>,
+) -> Result<Response, StatusCode> {
+    let hint = hint_label(&body.operator);
+    let user_agent =
+        headers.get(axum::http::header::USER_AGENT).and_then(|value| value.to_str().ok()).map(str::to_string);
+    if state.password_hash.read().await.is_none() {
+        // No password configured: answer explicitly instead of an ok:true that
+        // reads as "authenticated" — the API stays locked until setup.
+        return Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "setup_required"}))).into_response());
     }
 
-    let parsed_hash = PasswordHash::new(&hash_str).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if Argon2::default().verify_password(body.password.as_bytes(), &parsed_hash).is_err() {
-        let mut rl = state.login_rate_limit.lock().await;
-        rl.fail_count += 1;
-        if rl.fail_count >= MAX_ATTEMPTS {
-            rl.locked_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(LOCKOUT_SECS));
-            rl.fail_count = 0;
+    // The single-account form sends no email and maps to the built-in
+    // administrator. Throttling is keyed by account, so one person guessing a
+    // password cannot lock out everyone else.
+    let email = body.email.as_deref().map(str::trim).filter(|value| !value.is_empty()).unwrap_or("admin").to_string();
+    let rate_key = email.to_lowercase();
+    if let Some(lockout) = state.login_locked_for(&rate_key).await {
+        let remaining = lockout.as_secs().max(1);
+        record_auth_event(
+            &state,
+            anonymous_actor(),
+            AuditDecision::Blocked,
+            AuditOutcome::NotStarted,
+            "login:rate_limited",
+            hint.as_deref(),
+        );
+        return Ok((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({"error": format!("Please try again in {remaining}s")})),
+        )
+            .into_response());
+    }
+    let mut user = match state.app.storage.user_by_email(email.clone()).await {
+        Ok(Some(user)) if user.is_active() => Some(user),
+        Ok(Some(_)) => None, // disabled
+        _ => None,
+    };
+    // A database written before local users existed (or a test fixture that
+    // only set the legacy hash) has no admin row yet. Create it lazily, but
+    // only for the default account — never authenticate another email against
+    // the shared password.
+    if user.is_none() && email == "admin" {
+        if let Some(hash) = state.password_hash.read().await.clone() {
+            user = state.app.storage.ensure_builtin_admin(hash).await.ok().filter(|user| user.is_active());
         }
+    }
+    let Some(user) = user else {
+        state.note_login_failure(&rate_key).await;
+        record_auth_event(
+            &state,
+            anonymous_actor(),
+            AuditDecision::Denied,
+            AuditOutcome::Error,
+            "login:unknown_user",
+            hint.as_deref(),
+        );
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let user_hash = user.password_hash.clone();
+    // Keep the legacy mirror in sync so the setup check and old paths agree.
+    *state.password_hash.write().await = Some(user_hash.clone());
+
+    if !dbx_core::identity::verify_password(&body.password, &user_hash) {
+        state.note_login_failure(&rate_key).await;
+        record_auth_event(
+            &state,
+            anonymous_actor(),
+            AuditDecision::Denied,
+            AuditOutcome::Error,
+            "login:invalid_password",
+            hint.as_deref(),
+        );
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Success — reset rate limit
-    {
-        let mut rl = state.login_rate_limit.lock().await;
-        rl.fail_count = 0;
-        rl.locked_until = None;
-    }
+    state.clear_login_failures(&rate_key).await;
 
     let token = uuid::Uuid::new_v4().to_string();
-    state.sessions.write().await.insert(token.clone());
+    let roles = state.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default();
+    let session = state.create_user_session(token.clone(), &user, roles, None, user_agent).await;
+    let actor = session.actor;
+    let _ = state.app.storage.record_user_login(user.id.clone()).await;
+    record_auth_event(&state, actor, AuditDecision::Allowed, AuditOutcome::Success, "login:success", hint.as_deref());
 
     let cookie = session_cookie(&state, &token);
     Ok((StatusCode::OK, [("set-cookie", cookie.as_str())], Json(serde_json::json!({"ok": true}))).into_response())
@@ -132,23 +250,32 @@ pub async fn setup(State(state): State<Arc<WebState>>, Json(body): Json<LoginReq
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Only allow setup when no password is configured
+    // Only allow setup when no password is configured and no local user exists.
     if state.password_hash.read().await.is_some() {
         return Err(StatusCode::FORBIDDEN);
+    }
+    if state.app.storage.user_by_email("admin".to_string()).await.ok().flatten().is_some() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    // A reachable-but-unconfigured instance must not let the first visitor
+    // become administrator. Set DBX_SETUP_TOKEN and pass it here.
+    if let Ok(expected) = std::env::var("DBX_SETUP_TOKEN") {
+        let expected = expected.trim();
+        if !expected.is_empty() && body.setup_token.as_deref().map(str::trim) != Some(expected) {
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
 
     if body.password.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-        .hash_password(body.password.as_bytes(), &salt)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .to_string();
+    let hash = dbx_core::identity::hash_password(&body.password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Save to database
     state.app.storage.save_password_hash(&hash).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user =
+        state.app.storage.ensure_builtin_admin(hash.clone()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Update in-memory state
     *state.password_hash.write().await = Some(hash);
@@ -160,7 +287,16 @@ pub async fn setup(State(state): State<Arc<WebState>>, Json(body): Json<LoginReq
 
     // Auto-login: create session
     let token = uuid::Uuid::new_v4().to_string();
-    state.sessions.write().await.insert(token.clone());
+    let roles = vec!["admin".to_string()];
+    let session = state.create_user_session(token.clone(), &user, roles, None, None).await;
+    record_auth_event(
+        &state,
+        session.actor,
+        AuditDecision::Allowed,
+        AuditOutcome::Success,
+        "setup:success",
+        hint_label(&body.operator).as_deref(),
+    );
 
     let cookie = session_cookie(&state, &token);
     Ok((StatusCode::OK, [("set-cookie", cookie.as_str())], Json(serde_json::json!({"ok": true}))).into_response())
@@ -168,17 +304,22 @@ pub async fn setup(State(state): State<Arc<WebState>>, Json(body): Json<LoginReq
 
 pub async fn check(State(state): State<Arc<WebState>>, req: Request<axum::body::Body>) -> Json<AuthCheckResponse> {
     if state.password_disabled {
-        return Json(AuthCheckResponse { authenticated: true, required: false, setup_required: false });
+        return Json(AuthCheckResponse {
+            authenticated: true,
+            required: false,
+            setup_required: false,
+            actor: Some(AuthActorView::from(&Actor::bootstrap())),
+        });
     }
     let has_password = state.password_hash.read().await.is_some();
     if !has_password {
-        return Json(AuthCheckResponse { authenticated: false, required: false, setup_required: true });
+        return Json(AuthCheckResponse { authenticated: false, required: false, setup_required: true, actor: None });
     }
-    let authenticated = match extract_session_token(&req) {
-        Some(token) => state.sessions.read().await.contains(&token),
-        None => false,
+    let actor = match extract_session_token(&req) {
+        Some(token) => state.session_actor(&token).await.map(|session| AuthActorView::from(&session.actor)),
+        None => None,
     };
-    Json(AuthCheckResponse { authenticated, required: true, setup_required: false })
+    Json(AuthCheckResponse { authenticated: actor.is_some(), required: true, setup_required: false, actor })
 }
 
 pub async fn change_password(
@@ -196,33 +337,54 @@ pub async fn change_password(
     if !state.sessions.read().await.contains(&current_token) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-
-    let hash_guard = state.password_hash.read().await;
-    let hash_str = match hash_guard.as_deref() {
-        Some(h) => h.to_string(),
-        None => return Err(StatusCode::BAD_REQUEST),
-    };
-    drop(hash_guard);
+    let actor = state.session_actor(&current_token).await.map(|session| session.actor).unwrap_or_else(Actor::bootstrap);
 
     if body.new_password.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let parsed_hash = PasswordHash::new(&hash_str).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if Argon2::default().verify_password(body.old_password.as_bytes(), &parsed_hash).is_err() {
+    let user = state.app.storage.user_by_id(actor.id.clone()).await.ok().flatten().ok_or(StatusCode::BAD_REQUEST)?;
+    if !dbx_core::identity::verify_password(&body.old_password, &user.password_hash) {
+        record_auth_event(
+            &state,
+            actor.clone(),
+            AuditDecision::Denied,
+            AuditOutcome::Error,
+            "password_change:invalid_old_password",
+            None,
+        );
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let salt = SaltString::generate(&mut OsRng);
-    let new_hash = Argon2::default()
-        .hash_password(body.new_password.as_bytes(), &salt)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .to_string();
+    let new_hash =
+        dbx_core::identity::hash_password(&body.new_password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    state.app.storage.save_password_hash(&new_hash).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.app.storage.save_password_hash(&new_hash.clone()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .app
+        .storage
+        .update_user_password(user.id.clone(), new_hash.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     *state.password_hash.write().await = Some(new_hash);
 
     // Rotation revokes sibling sessions; only the caller stays logged in.
+    // Persisted rows are revoked first, otherwise an old cookie would be
+    // accepted again through the database fallback after a restart.
+    let sibling_session_ids: Vec<String> = {
+        let actors = state.session_actors.read().await;
+        actors
+            .iter()
+            .filter(|(token, _)| token.as_str() != current_token)
+            .map(|(_, session)| session.db_id.clone())
+            .filter(|db_id| !db_id.is_empty())
+            .collect()
+    };
+    for db_id in sibling_session_ids {
+        if let Err(error) = state.app.storage.revoke_web_session(db_id).await {
+            log::warn!("[auth] sibling session revocation failed: {error}");
+        }
+    }
     {
         let mut sessions = state.sessions.write().await;
         for token in sessions.iter().filter(|token| **token != current_token) {
@@ -230,19 +392,20 @@ pub async fn change_password(
         }
         sessions.retain(|token| *token == current_token);
     }
+    state.session_actors.write().await.retain(|token, _| token == &current_token);
+    record_auth_event(&state, actor, AuditDecision::Allowed, AuditOutcome::Success, "password_change:success", None);
 
     Ok((StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response())
 }
 
 pub async fn logout(State(state): State<Arc<WebState>>, req: Request<axum::body::Body>) -> Response {
     if let Some(token) = extract_session_token(&req) {
-        {
-            let mut sessions = state.sessions.write().await;
-            sessions.remove(&token);
-            dbx_core::query::pl_debug::pl_debug_revoke_web_owner_core(&state.app, &token);
-        }
+        let actor = state.session_actor(&token).await.map(|session| session.actor).unwrap_or_else(Actor::bootstrap);
+        state.remove_session(&token).await;
+        dbx_core::query::pl_debug::pl_debug_revoke_web_owner_core(&state.app, &token);
         // 登出只清除当前登录会话的临时密码，不影响其他会话与桌面端凭据。
         state.app.session_credentials.clear_owner(&token);
+        record_auth_event(&state, actor, AuditDecision::Allowed, AuditOutcome::Success, "logout:success", None);
     }
     let cookie = format!("dbx_session=; Path={}; HttpOnly; Max-Age=0", session_cookie_path(&state));
     (StatusCode::OK, [("set-cookie", cookie.as_str())], Json(serde_json::json!({"ok": true}))).into_response()
@@ -270,12 +433,20 @@ pub async fn auth_middleware(
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
+    // `ConnectInfo` is a plain request extension, and it is only present when
+    // the server was started with connect info, so it is read here instead of
+    // being extracted (which would make it mandatory).
+    let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0);
+    let client_ip = client_ip_from(peer, req.headers());
+    let request_id = request_id_from(req.headers());
     // Only the bootstrap auth endpoints are reachable without a session —
     // login/setup/check. change-password and logout require one: change-password
     // must not be an unauthenticated password oracle.
     let api_suffix = middleware_api_path_suffix(req.uri().path(), &state.public_base_path);
     if api_suffix.is_some_and(|suffix| matches!(suffix, "auth/login" | "auth/setup" | "auth/check")) {
-        return next.run(req).await;
+        let mut response = next.run(req).await;
+        attach_request_id(&mut response, &request_id);
+        return response;
     }
 
     // Non-API requests (static files) are always accessible.
@@ -283,30 +454,159 @@ pub async fn auth_middleware(
         return next.run(req).await;
     }
 
+    let user_agent =
+        req.headers().get(axum::http::header::USER_AGENT).and_then(|value| value.to_str().ok()).map(str::to_string);
+
+    // A hilbert/ongrid access token authenticates the request directly. The
+    // token is verified on every request (no DB session is created), so a
+    // revocation on the identity provider takes effect immediately.
+    if let (Some(verifier), Some(token)) = (state.hilbert.clone(), bearer_token(req.headers())) {
+        match verifier.verify(&token) {
+            Ok(claims) => {
+                let subject = claims.user_id.clone().unwrap_or_else(|| claims.sub.clone());
+                let actor = Actor {
+                    id: format!("hilbert:{subject}"),
+                    display_name: claims.email.clone().unwrap_or_else(|| claims.sub.clone()),
+                    kind: ActorKind::Human,
+                    roles: dbx_core::identity::hilbert::roles_for_claims(&claims),
+                    tenant_id: None,
+                    session_id: None,
+                    auth_method: "hilbert_jwt".to_string(),
+                };
+                let context = AuditContext {
+                    actor: actor.clone(),
+                    source: AuditSource::Web,
+                    client_ip,
+                    user_agent,
+                    request_id: Some(request_id.clone()),
+                    execution_id: None,
+                };
+                let mut req = req;
+                req.extensions_mut().insert(actor);
+                let mut response =
+                    dbx_core::audit::with_audit_context(context, async move { next.run(req).await }).await;
+                attach_request_id(&mut response, &request_id);
+                return response;
+            }
+            Err(error) => {
+                log::warn!("[auth] hilbert token rejected: {error}");
+                let mut response =
+                    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "hilbert_token_invalid" })))
+                        .into_response();
+                attach_request_id(&mut response, &request_id);
+                return response;
+            }
+        }
+    }
+
     if state.password_disabled {
-        return next.run(req).await;
+        let actor = Actor::bootstrap();
+        let context = AuditContext {
+            actor: actor.clone(),
+            source: AuditSource::Web,
+            client_ip,
+            user_agent,
+            request_id: Some(request_id.clone()),
+            execution_id: None,
+        };
+        let mut req = req;
+        req.extensions_mut().insert(actor);
+        let mut response = dbx_core::audit::with_audit_context(context, async move { next.run(req).await }).await;
+        attach_request_id(&mut response, &request_id);
+        return response;
     }
 
     if state.password_hash.read().await.is_none() {
-        return StatusCode::UNAUTHORIZED.into_response();
+        let mut response = StatusCode::UNAUTHORIZED.into_response();
+        attach_request_id(&mut response, &request_id);
+        return response;
     }
 
     // Check session token
     let token = extract_session_token(&req);
-    if let Some(ref token) = token {
-        if state.sessions.read().await.contains(token) {
+    if let Some(token) = token {
+        if let Some(session) = state.session_actor(&token).await {
+            let actor = session.actor;
+            let context = AuditContext {
+                actor: actor.clone(),
+                source: AuditSource::Web,
+                client_ip,
+                user_agent,
+                request_id: Some(request_id.clone()),
+                execution_id: None,
+            };
+            let mut req = req;
+            req.extensions_mut().insert(actor);
             // 在下游处理器及其 await 到的池创建路径上注入当前登录会话的 owner 作用域，
             // 使 save_password=false 连接的临时密码按会话隔离（见 SessionCredentialStore）。
-            let owner = token.clone();
-            return dbx_core::session_credentials::with_credential_owner(
+            let owner = token;
+            let mut response = dbx_core::session_credentials::with_credential_owner(
                 Some(owner),
-                async move { next.run(req).await },
+                dbx_core::audit::with_audit_context(context, async move { next.run(req).await }),
             )
             .await;
+            attach_request_id(&mut response, &request_id);
+            return response;
         }
     }
 
     StatusCode::UNAUTHORIZED.into_response()
+}
+
+/// Echoes the request id so an audit row can be correlated with the client's
+/// own logs.
+fn attach_request_id(response: &mut Response, request_id: &str) {
+    if let Ok(value) = HeaderValue::from_str(request_id) {
+        response.headers_mut().entry("x-request-id").or_insert(value);
+    }
+}
+
+/// `Authorization: Bearer <token>` (scheme compared case-insensitively).
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, token) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = token.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn request_id_from(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 200)
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+}
+
+/// `DBX_TRUSTED_PROXIES` as a comma-separated list of addresses.
+///
+/// A forwarded header is only believed when the immediate peer is on this
+/// list; otherwise any client could claim any source address in the audit log.
+static TRUSTED_PROXIES: LazyLock<Vec<IpAddr>> = LazyLock::new(|| {
+    std::env::var("DBX_TRUSTED_PROXIES")
+        .map(|value| value.split(',').filter_map(|entry| entry.trim().parse::<IpAddr>().ok()).collect::<Vec<_>>())
+        .unwrap_or_default()
+});
+
+fn client_ip_from(peer: Option<SocketAddr>, headers: &HeaderMap) -> Option<String> {
+    let peer_ip = peer?.ip();
+    if TRUSTED_PROXIES.contains(&peer_ip) {
+        let forwarded = headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|value| value.parse::<IpAddr>().ok());
+        if let Some(ip) = forwarded {
+            return Some(ip.to_string());
+        }
+    }
+    Some(peer_ip.to_string())
 }
 
 #[cfg(test)]

@@ -1,7 +1,9 @@
+mod audit_http;
 mod auth;
 mod credentials;
 mod demo;
 mod error;
+mod route_permissions;
 mod routes;
 mod sse;
 mod ssh_prompt;
@@ -23,7 +25,7 @@ const AUTH_BODY_LIMIT_BYTES: usize = 64 * 1024;
 use axum::http::{Request, StatusCode, Uri};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use dbx_core::connection::AppState;
 use dbx_core::persistence::secret_codec::SecretKeyPolicy;
@@ -147,6 +149,46 @@ fn web_compression_predicate() -> impl Predicate {
 
 fn password_viewer_enabled_from_env(value: Option<&str>) -> bool {
     !value.is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+}
+
+#[cfg(feature = "enterprise-audit")]
+fn audit_enabled_from_env() -> bool {
+    !matches!(std::env::var("DBX_AUDIT_MODE").ok().as_deref().map(str::trim), Some("off"))
+}
+
+/// Builds the hilbert verifier, refusing to start when it is enabled but its
+/// preconditions are not met (shared secret without acknowledgement, no key).
+///
+/// `DBX_HILBERT_JWKS_URL` is preferred when set: keys are fetched once at
+/// startup (restart to pick up a rotation).
+async fn hilbert_verifier() -> Result<Option<Arc<dbx_core::identity::hilbert::HilbertAuth>>, String> {
+    let jwks_url = std::env::var("DBX_HILBERT_JWKS_URL").ok().map(|value| value.trim().to_string());
+    if let Some(jwks_url) = jwks_url.filter(|url| !url.is_empty()) {
+        let issuer = std::env::var("DBX_HILBERT_ISSUER").unwrap_or_else(|_| "ongrid".to_string());
+        let audience = std::env::var("DBX_HILBERT_AUDIENCE").unwrap_or_else(|_| "dbx".to_string());
+        let verifier = dbx_core::identity::hilbert::HilbertAuth::from_jwks_url(&jwks_url, issuer, audience).await?;
+        return Ok(Some(Arc::new(verifier)));
+    }
+    dbx_core::identity::hilbert::HilbertVerifier::from_env()
+        .map(|verifier| verifier.map(|verifier| Arc::new(dbx_core::identity::hilbert::HilbertAuth::Key(verifier))))
+}
+
+fn session_idle_ttl_from_env() -> std::time::Duration {
+    std::env::var("DBX_SESSION_IDLE_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(state::DEFAULT_IDLE_TTL)
+}
+
+fn session_ttl_from_env() -> std::time::Duration {
+    std::env::var("DBX_SESSION_TTL_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(state::DEFAULT_SESSION_TTL)
 }
 
 fn web_body_limit_bytes() -> usize {
@@ -571,6 +613,13 @@ async fn serve() -> Result<(), String> {
 
     app_state.set_honor_fixed_ssh_local_ports(true);
 
+    #[cfg(feature = "enterprise-audit")]
+    if audit_enabled_from_env() {
+        let sink = dbx_core::audit::SqliteAuditSink::spawn(app_state.storage.clone(), 8192);
+        app_state.install_audit_sink(Arc::new(sink));
+        log::info!("Server-side audit writer enabled");
+    }
+
     // Password hash: env var takes priority, then database
     let password_disabled = std::env::var("DBX_DISABLE_PASSWORD")
         .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -609,6 +658,9 @@ async fn serve() -> Result<(), String> {
         password_viewer_enabled,
         password_hash: RwLock::new(password_hash),
         sessions: RwLock::new(HashSet::new()),
+        session_actors: RwLock::new(HashMap::new()),
+        session_ttl: session_ttl_from_env(),
+        session_idle_ttl: session_idle_ttl_from_env(),
         sse_channels: RwLock::new(HashMap::new()),
         transfer_progress_channels: RwLock::new(HashMap::new()),
         table_import_channels: RwLock::new(HashMap::new()),
@@ -616,16 +668,36 @@ async fn serve() -> Result<(), String> {
         sql_file_failure_logs: Default::default(),
         managed_sql_previews: Default::default(),
         nacos_imports: RwLock::new(HashMap::new()),
-        login_rate_limit: tokio::sync::Mutex::new(state::LoginRateLimit { fail_count: 0, locked_until: None }),
+        login_rate_limit: tokio::sync::Mutex::new(state::LoginRateLimit::default()),
         export_files: RwLock::new(HashMap::new()),
         ssh_prompts: Arc::new(ssh_prompt::SshPromptHub::new()),
         migration_ready: Arc::new(AtomicBool::new(migration_ready)),
         web_mcp,
+        hilbert: hilbert_verifier().await?,
     });
 
     ssh_prompt::install_web_ssh_prompt_bridge(web_state.ssh_prompts.clone());
     routes::sql_file::start_sql_file_cleanup(&web_state);
     routes::connection::start_connection_idle_sweeper(&web_state);
+
+    // Migrate the single shared password into the built-in administrator and
+    // restore session state. Both are idempotent.
+    if let Some(hash) = web_state.password_hash.read().await.clone() {
+        match web_state.app.storage.ensure_builtin_admin(hash.clone()).await {
+            Ok(user) => {
+                // `DBX_PASSWORD` is authoritative on every start, matching the
+                // previous behavior where the env var overrode the stored hash.
+                if std::env::var("DBX_PASSWORD").is_ok() {
+                    if let Err(error) = web_state.app.storage.update_user_password(user.id.clone(), hash).await {
+                        log::error!("Failed to apply DBX_PASSWORD to the local administrator: {error}");
+                    }
+                }
+                log::info!("Local administrator is ready ({})", user.id);
+            }
+            Err(error) => log::error!("Failed to create the local administrator: {error}"),
+        }
+    }
+    web_state.restore_sessions().await;
 
     let backup_root = std::env::var_os("DBX_BACKUP_ROOT")
         .map(std::path::PathBuf::from)
@@ -1574,11 +1646,57 @@ async fn serve() -> Result<(), String> {
     let api =
         api.route("/query/build-duckdb-attach-database-sql", post(routes::query::build_duckdb_attach_database_sql));
 
-    let api = add_mq_routes(api)
+    let api = add_mq_routes(api);
+
+    // Rule simulation never executes SQL; the handler checks `query:read`.
+    let api = api.route("/governance/simulate", post(routes::governance::simulate));
+
+    // Approval requests. Reads need `approval:read`; decisions and execution
+    // tokens additionally require `approval:act` inside the handlers.
+    let api = api
+        .route("/approvals", get(routes::approvals::list_requests).post(routes::approvals::create_request))
+        .route("/approvals/{request_id}/approve", post(routes::approvals::approve))
+        .route("/approvals/{request_id}/reject", post(routes::approvals::reject))
+        .route("/approvals/{request_id}/execute-token", post(routes::approvals::issue_execute_token));
+
+    // Local users and roles. Each handler checks `admin:users`; the router
+    // layer above only establishes the session.
+    let api = api
+        .route("/users", get(routes::users::list_users).post(routes::users::create_user))
+        .route("/users/{user_id}", patch(routes::users::update_user))
+        .route("/users/{user_id}/sessions/revoke", post(routes::users::revoke_user_sessions))
+        .route("/roles", get(routes::users::list_roles));
+
+    let api = api
         .layer(middleware::from_fn_with_state(web_state.clone(), migration_gate))
         .layer(middleware::from_fn_with_state(web_state.clone(), demo::demo_mode_gate))
+        // Inside the auth layer, so the actor extension is already present.
+        .layer(middleware::from_fn_with_state(web_state.clone(), route_permissions::enforce_route_permissions))
+        // Outside the permission layer, so a denial is still recorded.
+        .layer(middleware::from_fn_with_state(web_state.clone(), audit_http::http_audit_middleware))
         .layer(middleware::from_fn_with_state(web_state.clone(), auth::auth_middleware))
         .with_state(web_state.clone());
+
+    // Audit endpoints carry their own gate (bootstrap token / loopback), so
+    // they are merged after the shared layers as a separately wrapped router.
+    #[cfg(feature = "enterprise-audit")]
+    let api = {
+        let audit_api = Router::new()
+            .route("/audit/events", get(routes::audit::list_events))
+            .route("/audit/events/{event_id}", get(routes::audit::event_detail))
+            .route("/audit/export", get(routes::audit::export_events))
+            .route("/audit/stats", get(routes::audit::stats))
+            .route("/audit/chain-head", get(routes::audit::chain_head))
+            .route("/audit/checkpoints", get(routes::audit::checkpoints).post(routes::audit::create_checkpoint))
+            .route("/audit/verify", get(routes::audit::verify_chain))
+            .route("/audit/verify-checkpoint", get(routes::audit::verify_from_checkpoint))
+            .route_layer(middleware::from_fn_with_state(web_state.clone(), routes::audit::require_audit_access))
+            .layer(middleware::from_fn_with_state(web_state.clone(), migration_gate))
+            .layer(middleware::from_fn_with_state(web_state.clone(), demo::demo_mode_gate))
+            .layer(middleware::from_fn_with_state(web_state.clone(), auth::auth_middleware))
+            .with_state(web_state.clone());
+        api.merge(audit_api)
+    };
 
     // Build app
     let mut app = Router::new()
@@ -1650,6 +1768,129 @@ async fn serve() -> Result<(), String> {
     let shutdown_state = web_state.app.clone();
     let server_shutdown = tokio_util::sync::CancellationToken::new();
     let server_shutdown_trigger = server_shutdown.clone();
+
+    // Keeps an off-host anchor current: the newest checkpoint is what proves
+    // the chain was not truncated before the last hour.
+    #[cfg(feature = "enterprise-audit")]
+    if audit_enabled_from_env() {
+        let checkpoint_storage = web_state.app.storage.clone();
+        let checkpoint_shutdown = server_shutdown.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        if let Err(error) = checkpoint_storage.create_audit_checkpoint().await {
+                            if error != "AUDIT_CHAIN_EMPTY" {
+                                tracing::warn!("Audit checkpoint failed: {error}");
+                            }
+                        }
+                    }
+                    _ = checkpoint_shutdown.cancelled() => break,
+                }
+            }
+        });
+    }
+
+    // External export: signed JSONL batches pushed to a collector/SIEM, so the
+    // trail has an anchor this machine cannot rewrite. At-least-once delivery,
+    // resumed from the last acknowledged sequence.
+    #[cfg(feature = "enterprise-audit")]
+    if audit_enabled_from_env() {
+        if let Some(export_config) = dbx_core::audit::exporter::AuditExporterConfig::from_env() {
+            let export_storage = web_state.app.storage.clone();
+            let export_shutdown = server_shutdown.clone();
+            let export_url = export_config.url.clone();
+            tokio::spawn(async move {
+                let client =
+                    reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap_or_default();
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        _ = ticker.tick() => {
+                            let last = export_storage
+                                .audit_export_state("http_jsonl".to_string())
+                                .await
+                                .ok()
+                                .flatten()
+                                .unwrap_or(0);
+                            let events = match export_storage.audit_events_after(last, 500).await {
+                                Ok(events) => events,
+                                Err(error) => {
+                                    tracing::warn!("Audit export read failed: {error}");
+                                    continue;
+                                }
+                            };
+                            if events.is_empty() {
+                                continue;
+                            }
+                            let batch = match dbx_core::audit::exporter::sign_batch(
+                                &events,
+                                export_config.hmac_key.as_deref(),
+                            ) {
+                                Ok(batch) => batch,
+                                Err(error) => {
+                                    tracing::warn!("Audit export batch failed: {error}");
+                                    continue;
+                                }
+                            };
+                            match dbx_core::audit::exporter::post_batch(&client, &export_config, &batch).await {
+                                Ok(()) => {
+                                    if let Err(error) = export_storage
+                                        .set_audit_export_state("http_jsonl".to_string(), batch.last_seq)
+                                        .await
+                                    {
+                                        tracing::warn!("Audit export cursor was not stored: {error}");
+                                    }
+                                }
+                                Err(error) => tracing::warn!("Audit export delivery failed: {error}"),
+                            }
+                        }
+                        _ = export_shutdown.cancelled() => break,
+                    }
+                }
+            });
+            tracing::info!("Audit export to {export_url} is enabled");
+        }
+    }
+
+    // Retention is reported, not enforced: deleting a segment is only safe
+    // after a copy is anchored outside the database, so the operator decides.
+    #[cfg(feature = "enterprise-audit")]
+    if audit_enabled_from_env() {
+        let retention_storage = web_state.app.storage.clone();
+        let retention_shutdown = server_shutdown.clone();
+        let retention_days = std::env::var("DBX_AUDIT_RETENTION_DAYS")
+            .ok()
+            .and_then(|value| value.trim().parse::<i64>().ok())
+            .unwrap_or(180);
+        if retention_days > 0 {
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        _ = ticker.tick() => {
+                            let Ok(Some(oldest)) = retention_storage.audit_oldest_event_ms().await else {
+                                continue;
+                            };
+                            let age_days = (chrono::Utc::now().timestamp_millis() - oldest) / 86_400_000;
+                            if age_days > retention_days {
+                                tracing::warn!(
+                                    "Audit retention exceeded: the oldest event is {age_days} days old \
+                                     (DBX_AUDIT_RETENTION_DAYS={retention_days}). Export and archive it, \
+                                     then remove the segment manually; automatic deletion is disabled."
+                                );
+                            }
+                        }
+                        _ = retention_shutdown.cancelled() => break,
+                    }
+                }
+            });
+        }
+    }
     tokio::spawn(async move {
         #[cfg(unix)]
         {
@@ -1694,9 +1935,12 @@ async fn serve() -> Result<(), String> {
     });
 
     let shutdown_wait = server_shutdown.clone();
-    let serve_future = axum::serve(listener, app).with_graceful_shutdown(async move {
-        shutdown_wait.cancelled().await;
-    });
+    // ConnectInfo supplies the client address used by audit and by the audit
+    // API's loopback gate; without it every event loses its source address.
+    let serve_future = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(async move {
+            shutdown_wait.cancelled().await;
+        });
 
     // If graceful shutdown of HTTP connections takes longer than 5 seconds, abort to ensure prompt termination on Ctrl+C.
     // Non-zero exit codes keep systemd's Restart=on-failure meaningful: a serve error or an
@@ -1721,6 +1965,19 @@ async fn serve() -> Result<(), String> {
         exit_code = 1;
     }
     shutdown_state.shutdown(std::time::Duration::from_secs(3)).await;
+    // Records are queued, not written synchronously; drain the audit writer
+    // before exiting or the last few seconds of events are lost.
+    match tokio::time::timeout(std::time::Duration::from_secs(5), shutdown_state.flush_audit()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::error!("Audit flush failed before exit: {error}");
+            exit_code = exit_code.max(1);
+        }
+        Err(_) => {
+            tracing::error!("Audit flush did not finish within 5s; exiting with pending events");
+            exit_code = exit_code.max(1);
+        }
+    }
     std::process::exit(exit_code);
 }
 

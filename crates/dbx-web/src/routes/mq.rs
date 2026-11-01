@@ -1613,7 +1613,10 @@ mod tests {
             password_viewer_enabled: true,
             demo_mode: false,
             password_hash: RwLock::new(None),
+            session_idle_ttl: crate::state::DEFAULT_IDLE_TTL,
             sessions: RwLock::new(HashSet::new()),
+            session_actors: RwLock::new(HashMap::new()),
+            session_ttl: crate::state::DEFAULT_SESSION_TTL,
             sse_channels: RwLock::new(HashMap::new()),
             transfer_progress_channels: RwLock::new(HashMap::new()),
             table_import_channels: RwLock::new(HashMap::new()),
@@ -1621,11 +1624,12 @@ mod tests {
             sql_file_failure_logs: Default::default(),
             managed_sql_previews: Default::default(),
             nacos_imports: RwLock::new(HashMap::new()),
-            login_rate_limit: Mutex::new(LoginRateLimit { fail_count: 0, locked_until: None }),
+            login_rate_limit: Mutex::new(LoginRateLimit::default()),
             export_files: RwLock::new(HashMap::new()),
             ssh_prompts: Arc::new(crate::ssh_prompt::SshPromptHub::new()),
             migration_ready: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             web_mcp: Arc::new(crate::web_mcp::WebMcpRuntime::disabled()),
+            hilbert: None,
         });
         (state, dir)
     }

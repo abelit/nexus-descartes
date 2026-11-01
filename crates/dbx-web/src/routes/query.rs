@@ -483,6 +483,16 @@ pub struct BuildDatabaseSqlExportRequest {
     pub options: dbx_core::database_export::BuildDatabaseSqlExportOptions,
 }
 
+/// `X-DBX-Approval-Token` for a statement the rules marked `require_approval`.
+fn approval_token_from(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-dbx-approval-token")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 pub async fn execute_query(
     State(state): State<Arc<WebState>>,
     headers: HeaderMap,
@@ -535,6 +545,8 @@ pub async fn execute_query(
             execution_id: Some(execution_id),
             use_transaction: req.use_transaction,
             execution_mode: req.execution_mode.unwrap_or_default(),
+            audit: dbx_core::audit::current_audit_context(),
+            approval_token: approval_token_from(&headers),
             ..Default::default()
         },
     )
@@ -589,6 +601,7 @@ pub async fn execute_conditional_update(
     let cancel_token = registered.token();
     let response_timeout = dbx_core::query::query_timeout_duration(req.timeout_secs);
     let app = state.app.clone();
+    let audit_context = dbx_core::audit::current_audit_context();
     let (result_tx, result_rx) = oneshot::channel();
 
     tokio::spawn(async move {
@@ -619,6 +632,7 @@ pub async fn execute_conditional_update(
                 execution_id: Some(execution_id),
                 use_transaction: req.use_transaction,
                 execution_mode: req.execution_mode.unwrap_or_default(),
+                audit: audit_context,
                 ..Default::default()
             },
         )
@@ -705,6 +719,8 @@ pub async fn execute_multi(
             continue_on_error: req.continue_on_error.unwrap_or(false),
             execution_mode: req.execution_mode.unwrap_or_default(),
             preserve_explicit_transaction: req.preserve_explicit_transaction,
+            audit: dbx_core::audit::current_audit_context(),
+            approval_token: approval_token_from(&headers),
         },
     )
     .await;

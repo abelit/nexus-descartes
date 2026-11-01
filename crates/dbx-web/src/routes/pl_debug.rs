@@ -69,13 +69,14 @@ async fn bootstrap(State(state): State<Arc<WebState>>, headers: HeaderMap) -> Re
         return Ok(Json(pl_debug::pl_debug_bootstrap_core(&state.app)).into_response());
     }
     let supplied = auth::session_token_from_headers(&headers);
-    let mut sessions = state.sessions.write().await;
-    if supplied.as_ref().is_some_and(|token| sessions.contains(token)) {
-        return Ok(Json(pl_debug::pl_debug_bootstrap_core(&state.app)).into_response());
+    {
+        let sessions = state.sessions.read().await;
+        if supplied.as_ref().is_some_and(|token| sessions.contains(token)) {
+            return Ok(Json(pl_debug::pl_debug_bootstrap_core(&state.app)).into_response());
+        }
     }
     let token = Uuid::new_v4().to_string();
-    sessions.insert(token.clone());
-    drop(sessions);
+    state.insert_session(token.clone(), dbx_core::audit::Actor::bootstrap()).await;
     let cookie = auth::session_cookie(&state, &token);
     Ok((StatusCode::OK, [("set-cookie", cookie)], Json(pl_debug::pl_debug_bootstrap_core(&state.app))).into_response())
 }
