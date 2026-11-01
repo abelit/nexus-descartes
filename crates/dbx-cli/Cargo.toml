@@ -8,6 +8,9 @@ license = "Apache-2.0"
 name = "dbx"
 path = "src/main.rs"
 
+[features]
+enterprise-audit = ["dbx-core/enterprise-audit"]
+
 [dependencies]
 dbx-core = { path = "../dbx-core", default-features = false, features = ["sqlite-bundled"] }
 dbx-mcp = { path = "../dbx-mcp" }

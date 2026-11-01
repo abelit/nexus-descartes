@@ -5854,10 +5854,32 @@ impl ServerHandler for DbxMcpServer {
             mcp_response_json: None,
             mcp_session_id: args.get("session_id").and_then(|v| v.as_str()).map(str::to_owned),
         };
+        let audit_request_id = entry.id.clone();
         let mut guard = CallHistoryGuard { backend: self.backend.clone(), fallback: Some(entry.clone()), started };
         let tool_name = request.name.to_string();
         let is_plugin_tool = crate::plugin_tools::is_plugin_tool_name(&tool_name);
-        CALL_HISTORY.scope(std::sync::Mutex::new(entry), async {
+        // Every tool call runs with an audit context so the SQL it executes is
+        // recorded (best-effort for local MCP; the Web backend is the
+        // authoritative trail).
+        let audit_context = dbx_core::audit::AuditContext {
+            actor: dbx_core::audit::Actor {
+                id: "mcp:local".to_string(),
+                display_name: "Local MCP client".to_string(),
+                kind: dbx_core::audit::ActorKind::Service,
+                roles: Vec::new(),
+                tenant_id: None,
+                session_id: None,
+                auth_method: "mcp_local".to_string(),
+            },
+            source: dbx_core::audit::AuditSource::Mcp,
+            client_ip: None,
+            user_agent: None,
+            request_id: Some(audit_request_id),
+            execution_id: None,
+        };
+        CALL_HISTORY.scope(
+            std::sync::Mutex::new(entry),
+            dbx_core::audit::with_audit_context(audit_context, async {
             let cancellation = context.ct.clone();
             let result: Result<CallToolResponse, rmcp::ErrorData> = if is_plugin_tool {
                 tokio::select! {
@@ -5902,7 +5924,9 @@ impl ServerHandler for DbxMcpServer {
             });
             let _ = write.await;
             result
-        }).await
+            }),
+        )
+        .await
     }
 
     fn get_info(&self) -> ServerConfig {

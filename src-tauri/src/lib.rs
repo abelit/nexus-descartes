@@ -1178,6 +1178,10 @@ async fn shutdown_runtime_resources(app_handle: &tauri::AppHandle) {
         server.shutdown(Duration::from_secs(1)).await;
     }
     if let Some(state) = app_handle.try_state::<Arc<AppState>>() {
+        // Records are queued; drain them before the runtime goes away.
+        if let Err(error) = state.flush_audit().await {
+            log::warn!("Audit flush before exit failed: {error}");
+        }
         state.shutdown(Duration::from_secs(3)).await;
     }
 }
@@ -2170,6 +2174,15 @@ pub fn run() {
                     .open_url(url, None::<&str>)
                     .map_err(|err| format!("Failed to open the system browser: {err}"))
             }));
+            // Desktop audit is best-effort: the user owns this data file, so
+            // it is a local trail, not compliance evidence.
+            #[cfg(feature = "enterprise-audit")]
+            {
+                let sink = tauri::async_runtime::block_on(async {
+                    dbx_core::audit::SqliteAuditSink::spawn(state.storage.clone(), 2048)
+                });
+                state.install_audit_sink(Arc::new(sink));
+            }
             let state = Arc::new(state);
             app.manage(state.clone());
             commands::plugins::install_plugin_event_bridge(app.handle(), state.clone());

@@ -311,6 +311,10 @@ pub trait DbxBackend: Send + Sync {
 
     async fn load_connections(&self) -> Result<Vec<ConnectionConfig>, String>;
 
+    /// Drains a local audit writer before the process exits. The Web backend
+    /// owns its own shutdown, so the default is a no-op.
+    async fn flush_audit(&self) {}
+
     /// Whether the user has saved any MCP policy. Fresh installs have none,
     /// in which case writable plugin connections fall back to their own
     /// protection level (at least write) instead of the global default. Once
@@ -945,6 +949,13 @@ impl LocalBackend {
         let config_map: HashMap<String, ConnectionConfig> =
             configs.into_iter().map(|config| (config.id.clone(), config)).collect();
         *state.configs.write().await = config_map;
+        // Local MCP/CLI processes write their own best-effort trail. Enterprise
+        // deployments should use the Web backend, whose log is authoritative.
+        #[cfg(feature = "enterprise-audit")]
+        {
+            let sink = dbx_core::audit::SqliteAuditSink::spawn(state.storage.clone(), 1024);
+            state.install_audit_sink(Arc::new(sink));
+        }
         Ok(Self {
             state,
             data_dir,
@@ -1208,6 +1219,12 @@ fn local_agent_dir(settings: &DesktopSettings, data_dir: &Path) -> PathBuf {
 
 #[async_trait]
 impl DbxBackend for LocalBackend {
+    async fn flush_audit(&self) {
+        if let Err(error) = self.state.flush_audit().await {
+            log::warn!("audit flush before exit failed: {error}");
+        }
+    }
+
     async fn load_docs_annotations(
         &self,
         connection: &ConnectionConfig,

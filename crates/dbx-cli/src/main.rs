@@ -226,7 +226,27 @@ async fn run(argv: Vec<String>) -> Result<String, (CliError, bool)> {
         )
     };
 
-    let result = run_with_backend(backend.as_ref(), flags).await;
+    // Local CLI usage records a best-effort audit trail (source=cli). In the
+    // enterprise setup (DBX_WEB_URL) the Web server owns the authoritative log.
+    let audit_context = dbx_core::audit::AuditContext {
+        actor: dbx_core::audit::Actor {
+            id: "cli:local".to_string(),
+            display_name: "CLI user".to_string(),
+            kind: dbx_core::audit::ActorKind::Human,
+            roles: Vec::new(),
+            tenant_id: None,
+            session_id: None,
+            auth_method: "cli".to_string(),
+        },
+        source: dbx_core::audit::AuditSource::Cli,
+        client_ip: None,
+        user_agent: None,
+        request_id: None,
+        execution_id: None,
+    };
+    let result = dbx_core::audit::with_audit_context(audit_context, run_with_backend(backend.as_ref(), flags)).await;
+    // The local writer is asynchronous; drain it before the process exits.
+    backend.flush_audit().await;
     result.map_err(|error| (error, json_output))
 }
 

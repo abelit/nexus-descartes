@@ -317,6 +317,25 @@ pub async fn execute_multi(
                     execution_mode: execution_mode.unwrap_or_default(),
                     preserve_explicit_transaction: preserve_explicit_transaction.unwrap_or(false),
                     defer_lobs: defer_lobs.unwrap_or(false),
+                    approval_token: None,
+                    // Desktop audit is best-effort: there is no authenticated
+                    // identity, so the event names the desktop user explicitly.
+                    audit: Some(dbx_core::audit::AuditContext {
+                        actor: dbx_core::audit::Actor {
+                            id: "desktop:local".to_string(),
+                            display_name: "Desktop user".to_string(),
+                            kind: dbx_core::audit::ActorKind::Human,
+                            roles: Vec::new(),
+                            tenant_id: None,
+                            session_id: None,
+                            auth_method: "desktop".to_string(),
+                        },
+                        source: dbx_core::audit::AuditSource::Desktop,
+                        client_ip: None,
+                        user_agent: None,
+                        request_id: None,
+                        execution_id: None,
+                    }),
                 },
                 progress,
             )

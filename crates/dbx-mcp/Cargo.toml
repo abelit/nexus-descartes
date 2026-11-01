@@ -16,6 +16,7 @@ sqlite-bundled = ["dbx-core/sqlite-bundled"]
 # Linux zigbuild legs cannot link the dbus Secret Service backend and keep
 # falling back to the managed .dbx/secret.key file.
 os-keyring = ["dbx-core/os-keyring", "dep:security-framework"]
+enterprise-audit = ["dbx-core/enterprise-audit"]
 transaction-test-hooks = []
 
 [[bin]]
