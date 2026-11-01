@@ -18,6 +18,22 @@ services:
       # - DBX_PUBLIC_BASE_PATH=/dbx
       # Optional production override. The default key is /app/data/.dbx/secret.key.
       # - DBX_SECRET_KEY_FILE=/run/secrets/dbx_secret_key
+      # Server-side audit is on by default. `full` keeps statement text in
+      # /app/data, so that volume should be encrypted; use `redacted` or `digest`
+      # when the log must not contain statements.
+      # - DBX_AUDIT_SQL_MODE=full
+      # Required behind a reverse proxy: the proxy makes every client look like
+      # loopback, which otherwise exposes the audit API (read + export).
+      # - DBX_AUDIT_BOOTSTRAP_TOKEN=replace-with-a-long-random-secret
+      # Signs hourly checkpoints. Copy checkpoints off-host and keep this key
+      # out of the database volume.
+      # - DBX_AUDIT_CHECKPOINT_KEY=replace-with-a-long-random-secret
+      # `enforce` rejects API calls whose permission is missing (and restricts
+      # unclassified routes to administrators). Default `observe` logs only.
+      # - DBX_GOVERNANCE_MODE=enforce
+      # Required by /api/auth/setup when set; prevents the first visitor from
+      # becoming administrator on a freshly exposed instance.
+      # - DBX_SETUP_TOKEN=replace-with-a-long-random-secret
     # secrets:
     #   - dbx_secret_key
     volumes:

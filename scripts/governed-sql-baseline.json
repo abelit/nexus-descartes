@@ -1,0 +1,8 @@
+{
+  "crates/dbx-core/src/data/sql_file_import.rs": 1,
+  "crates/dbx-core/src/query/sqlserver_manual_transaction.rs": 4,
+  "crates/dbx-core/src/schema/agent_pg_sequences.rs": 1,
+  "crates/dbx-core/src/schema/kingbase.rs": 1,
+  "crates/dbx-core/src/schema/providers/native.rs": 2,
+  "crates/dbx-mcp/src/transaction.rs": 1
+}

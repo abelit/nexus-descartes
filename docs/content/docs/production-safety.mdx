@@ -133,6 +133,35 @@ Outside production protection, DBX applies additional rules to selected high-ris
 - MCP Data read/write rejects unbounded updates/deletes, DDL, `TRUNCATE`, and high-risk requests it cannot classify reliably
 - Cross-engine transfer and bulk import require separate review of type mappings, target tables, and truncate options
 
+## Server-Side Audit
+
+DBX Web built with the `enterprise-audit` feature (the default) writes an
+append-only audit log next to its data: who ran which statement, against which
+connection and database, from which address, and what the outcome was.
+
+- Each event is chained to the previous one by a SHA-256 hash, and the chain
+  head is protected by database triggers.
+- `GET /api/audit/verify` recomputes the chain and reports a modified row, a
+  deleted tail, a rolled-back head, a deleted head, or a gap in the sequence.
+- Hourly checkpoints anchor the current head. Sign them with
+  `DBX_AUDIT_CHECKPOINT_KEY` and copy them off-host; a checkpoint stored only in
+  the same database proves nothing against someone who can rewrite that database.
+- Statement text is retained by default (`DBX_AUDIT_SQL_MODE=full`) so events
+  remain useful for investigation. Credential literals are masked by default
+  (`DBX_AUDIT_MASK_CREDENTIALS=1`); set the mode to `redacted` or `digest` when
+  the log itself must not contain statements.
+- `full` writes statements into the DBX database file. Use whole-disk or volume
+  encryption for `/app/data`, and restrict who can read the audit API.
+
+Audit is a server-side control. Desktop, CLI, and local MCP processes run under
+the user's own account and write, at best, a local best-effort trail; they are
+not compliance evidence. The shared deployment should be the Web/Docker server.
+An MCP server or CLI built with `enterprise-audit` records calls with
+`source=mcp` / `source=cli` into that local trail and flushes it before exit;
+point clients at `DBX_WEB_URL` to use the authoritative Web log instead.
+
+<Callout type="warn">Until local users land, every password login maps to the single `local:admin` actor and events carry `actor_verified=false`. The optional operator name sent by the login form is stored only as `details.hint`; it is a label, not an identity, and must not be used to attribute actions.</Callout>
+
 ## Recommended Configuration
 
 | Scenario | Recommendation |

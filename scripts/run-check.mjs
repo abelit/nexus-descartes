@@ -9,6 +9,11 @@ const tasks = [
     args: ["scripts/sync-connection-types.mjs", "--check"],
   },
   {
+    name: "governed-sql",
+    command: "node",
+    args: ["scripts/check-governed-sql.mjs"],
+  },
+  {
     name: "format",
     command: "oxfmt",
     args: ["--check", "apps/desktop/src/**/*.{ts,vue}"],

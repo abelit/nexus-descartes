@@ -54,9 +54,12 @@ POST /api/auth/setup
 Content-Type: application/json
 
 {
-  "password": "your-password"
+  "password": "your-password",
+  "setup_token": "value of DBX_SETUP_TOKEN when configured"
 }
 ```
+
+Setup is only accepted while no local user exists. When `DBX_SETUP_TOKEN` is set, the request must carry it; configure it before exposing a fresh instance, otherwise the first visitor becomes administrator.
 
 ### Login
 
@@ -65,13 +68,16 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "password": "your-password"
+  "password": "your-password",
+  "email": "optional local user email; defaults to admin"
 }
 ```
 
 On success, the response sets `Set-Cookie: dbx_session=...`. Reuse that cookie on later requests.
 
-Five consecutive login failures trigger an approximately 60-second lockout. Sessions live in the current Web process and require login again after restart. The cookie is `HttpOnly`, uses `SameSite=Lax`, and follows `DBX_PUBLIC_BASE_PATH` for its path.
+Five consecutive login failures for one account trigger an approximately 60-second lockout; other accounts are unaffected. Sessions are persisted in `dbx.db`, so a restart does not log everyone out; they expire after 30 minutes idle (`DBX_SESSION_IDLE_SECS`) or 24 hours absolute (`DBX_SESSION_TTL_SECS`), and a password change revokes every other session. Only the SHA-256 hash of a session token is stored. The cookie is `HttpOnly`, uses `SameSite=Lax`, and follows `DBX_PUBLIC_BASE_PATH` for its path.
+
+`GET /api/auth/check` returns the signed-in actor's roles and effective permission codes (`audit:read`, `query:write`, …). The UI uses them to hide actions; the server still enforces each one.
 
 ### Logout
 
@@ -84,7 +90,17 @@ Cookie: dbx_session=...
 
 | Variable | Purpose |
 | --- | --- |
-| `DBX_PASSWORD` | Set an initial password at container startup |
+| `DBX_PASSWORD` | Set an initial password at container startup (migrated into the built-in `admin` user) |
+| `DBX_SETUP_TOKEN` | Required by `/api/auth/setup` when set |
+| `DBX_SESSION_IDLE_SECS` | Idle timeout for a session; default 1800 |
+| `DBX_SESSION_TTL_SECS` | Absolute session lifetime; default 86400 |
+| `DBX_GOVERNANCE_MODE` | `observe` (default) allows unclassified routes; `enforce` denies them and enforces the route permission table |
+| `DBX_HILBERT_ENABLED` | `1` accepts `Authorization: Bearer <hilbert access token>` |
+| `DBX_HILBERT_JWKS_URL` | JWKS endpoint used to verify hilbert tokens (preferred); fetched once at startup |
+| `DBX_HILBERT_RS256_PUBLIC_KEY_FILE` | Static PEM public key alternative to JWKS |
+| `DBX_HILBERT_HS256_SECRET` | Transition-only HS256 secret; rejected unless `DBX_HILBERT_ALLOW_SHARED_SECRET=1` |
+| `DBX_HILBERT_ALLOW_SHARED_SECRET` | Explicit acknowledgement of the HS256 transition risk |
+| `DBX_HILBERT_ISSUER` / `DBX_HILBERT_AUDIENCE` | Expected `iss`/`aud`; default `ongrid` / `dbx` |
 | `DBX_DISABLE_PASSWORD=1` | Disable password protection entirely |
 | `DBX_PORT` | Change the listen port (default `4224`) |
 | `DBX_DATA_DIR` | Data directory containing `dbx.db` |
@@ -422,6 +438,223 @@ CLI supports the same `DBX_WEB_URL` and `DBX_WEB_PASSWORD` variables. Both integ
 - Browser-selected table-import and SQL files are uploaded into server temporary storage, not read from arbitrary client paths
 - Web exports create a temporary server file, return it through a download route, and then clean it up
 - Reverse proxies should preserve cookies and SSE streaming, allow appropriate long-running timeouts, and limit public exposure
+
+### hilbert / ongrid tokens
+
+With `DBX_HILBERT_ENABLED=1`, an `Authorization: Bearer <access token>` header
+authenticates the request without a DBX session cookie. The token is verified on
+every request, so disabling the account in hilbert takes effect immediately.
+
+Accepted tokens must declare `aud=dbx`, `iss=ongrid`, and `token_type=access`;
+refresh tokens and tokens without a type are rejected. Before enabling this,
+hilbert must be configured with its own `ONGRID_SECRET_KEY` and a DBX-specific
+key: when the vault key is derived from `ONGRID_JWT_SECRET`, sharing that secret
+with DBX would also expose hilbert's encrypted credentials. DBX refuses HS256
+unless `DBX_HILBERT_ALLOW_SHARED_SECRET=1` is set for a transition; RS256 with a JWKS
+endpoint or a PEM public key is the supported configuration. Keys are fetched
+once at startup, so restart after a hilbert key rotation.
+
+Roles map conservatively: `is_superuser` → `admin`, `role=admin|owner` →
+`admin`, `dba`/`security_admin`/`auditor`/`operator` map to the same DBX role,
+and anything else is `viewer` until `/v1/me` membership resolution exists.
+
+### Governance simulation
+
+```http
+POST /api/governance/simulate
+Content-Type: application/json
+
+{
+  "connection_id": "conn-id",
+  "database": "app",
+  "sql": "DELETE FROM users"
+}
+```
+
+Returns the strictest matched rule (`allow` / `warn` / `require_approval` /
+`block`), every matching rule, whether the connection is production, and whether
+enforcement is on. It requires `query:read` and never executes the statement.
+
+Built-in rules (code-defined for now):
+
+| Rule | Effect |
+| --- | --- |
+| `prod.ddl.approval` | Production DDL needs approval |
+| `prod.dml.no_where.block` | Unbounded write on production is blocked |
+| `prod.truncate.approval` | Production `TRUNCATE` needs approval |
+| `prod.privilege.approval` | Production `GRANT`/`REVOKE`/`CREATE USER` needs approval |
+| `global.no_where.warn` | Unbounded write warns anywhere |
+| `global.ddl.warn` | DDL warns outside production |
+
+With `DBX_GOVERNANCE_MODE=enforce`, a `block` decision returns
+`POLICY_DENIED` and `require_approval` returns `POLICY_APPROVAL_REQUIRED`
+before the statement reaches a driver; both are audited (`blocked` /
+`approval_required`). The default `observe` mode records nothing new and keeps
+execution unchanged.
+
+### Route permissions
+
+Every API prefix maps to a permission (`query:write` for SQL execution,
+`connection:read` for listing connections, `export:data` for exports, …). The
+server checks it after authenticating the session:
+
+- `observe` (default): the check runs but unclassified routes are still served,
+  so an existing deployment keeps working while the table is completed.
+- `enforce`: a missing permission returns `403 PERMISSION_DENIED`; a route with
+  no classification requires `admin:settings` and otherwise returns
+  `403 ROUTE_PERMISSION_UNCLASSIFIED`. New routes must be added to the table in
+  `crates/dbx-web/src/route_permissions.rs` before regular users can call them.
+
+`/api/audit/*` has its own gate (permission, bootstrap token, or loopback), and
+`/api/auth/*` is handled by the login endpoints.
+
+## Approvals
+
+Statements the rules mark `require_approval` cannot run until an approver decides
+a request. Requests are bound to the exact statement, connection configuration,
+schema, policy bundle, and rule IDs; changing any of them invalidates the token.
+
+```http
+POST /api/approvals
+{
+  "connection_id": "conn-id",
+  "database": "app",
+  "sql": "ALTER TABLE users ADD COLUMN age int",
+  "justification": "add age column"
+}
+
+GET  /api/approvals?mine=1&status=pending
+POST /api/approvals/{id}/approve   {"comment": "ok"}
+POST /api/approvals/{id}/reject    {"comment": "no"}
+POST /api/approvals/{id}/execute-token
+```
+
+- Creating a request requires `query:write` and at least one rule with
+  `require_approval`.
+- Listing requires `approval:read`; approving, rejecting, and issuing a token
+  require `approval:act`.
+- The requester cannot decide their own request.
+- Only the requester can obtain the execution token, only after approval, and
+  only once per token store; the raw token is returned once and expires after 5
+  minutes. Execution must present it together with the same binding.
+
+The consume-and-execute wiring in the query path is the next step; until then
+the token API is used by clients that validate before calling execution.
+
+### Retention and segment deletion
+
+`DBX_AUDIT_RETENTION_DAYS` only warns. Removing a segment is deliberately not
+automated: an operator must first export it (external sink or
+`GET /api/audit/export`) and keep the exported copy with its checkpoint, then
+delete rows with a maintenance procedure that also records the deletion as an
+audit event. `verify` starts from the newest checkpoint, so keep checkpoints that
+cover every retained segment.
+
+## Users and Roles
+
+Local users replace the single shared password. Each user has one built-in role
+at global scope; every response carries the effective permission codes.
+
+```http
+GET /api/users
+POST /api/users
+PATCH /api/users/{user_id}
+POST /api/users/{user_id}/sessions/revoke
+GET /api/roles
+```
+
+```json
+{
+  "email": "dba@example.com",
+  "display_name": "Ops DBA",
+  "password": "at-least-8-characters",
+  "role": "dba"
+}
+```
+
+All five routes require `admin:users`. Disabling a user or changing their role
+revokes their live sessions. The built-in `admin` user cannot be disabled or
+moved off the `admin` role.
+
+| Role | Capabilities |
+| --- | --- |
+| `admin` | Everything |
+| `security_admin` | Policies, approvals, audit; cannot execute SQL |
+| `dba` | Execute and approve within scope, including DDL; can read audit |
+| `auditor` | Read, export, and verify audit; cannot execute SQL |
+| `operator` | Read/write SQL within scope; DDL needs approval |
+| `viewer` | Read-only queries |
+
+## Audit APIs
+
+Server-side audit records every SQL execution and the authentication/config
+events around it. Events are append-only and hash-chained; every response here
+is read from the chain itself, not from a mutable history table.
+
+<Callout type="warn">In this phase the audit API is not yet gated by roles. It requires the `X-DBX-Audit-Token` header to match `DBX_AUDIT_BOOTSTRAP_TOKEN`, or a direct loopback connection when no token is configured. Deployments behind a reverse proxy on the same host see loopback peers, so they must set `DBX_AUDIT_BOOTSTRAP_TOKEN`. Role-based access (`audit:read`) arrives with local users.</Callout>
+
+```http
+GET /api/audit/events
+X-DBX-Audit-Token: <DBX_AUDIT_BOOTSTRAP_TOKEN>
+```
+
+Query parameters: `actor_id`, `connection_id`, `database`, `operation`,
+`decision`, `outcome`, `sql_contains`, `from_ms`, `to_ms`, `cursor_seq`,
+`limit` (max 500).
+
+```http
+GET /api/audit/events/{event_id}
+GET /api/audit/stats?from_ms=...&to_ms=...
+GET /api/audit/chain-head
+GET /api/audit/checkpoints
+POST /api/audit/checkpoint
+GET /api/audit/verify?from_seq=1
+GET /api/audit/verify-checkpoint
+GET /api/audit/export?format=jsonl
+GET /api/audit/export?format=csv
+```
+
+`/api/audit/verify` recomputes each row's hash under the scheme stored with that
+row (`sha256-v1` for rows written before the canonical form was extended,
+`sha256-v2` afterwards) and reports the first broken sequence number for a
+modified row, a deleted tail, a rolled-back head, a deleted head, or a gap.
+
+`/api/audit/verify-checkpoint` starts from the newest checkpoint instead of
+genesis, so tampering with the head of an old chain still fails against the
+retained anchor. Checkpoints are signed with `DBX_AUDIT_CHECKPOINT_KEY` when
+set; keep that key outside the database and back it up separately.
+
+Reads and exports are themselves recorded as audit events with
+`details.meta = true`.
+
+### External audit export
+
+Set `DBX_AUDIT_EXPORT_URL` (and preferably `DBX_AUDIT_EXPORT_HMAC_KEY`) to push
+the log to a collector, SIEM, or a WORM-backed endpoint. Every batch is a JSON
+envelope:
+
+```json
+{ "from_seq": 100, "to_seq": 199, "count": 100, "events": [ ... ] }
+```
+
+`x-dbx-audit-signature: sha256=<hmac-sha256 of the exact body>` lets the receiver
+reject tampering in transit. Delivery is at-least-once and resumes from the last
+acknowledged sequence (`audit_export_state`); deduplicate on `event_id`. A
+failed delivery leaves the cursor unchanged and retries on the next tick.
+
+### Audit environment variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DBX_AUDIT_MODE` | `on` | `off` disables the writer; not permitted together with fail-closed enforcement |
+| `DBX_AUDIT_SQL_MODE` | `full` | `full`, `redacted`, or `digest` retention for the statement text |
+| `DBX_AUDIT_MASK_CREDENTIALS` | `1` | Masks password/token literals even in `full` mode |
+| `DBX_AUDIT_BOOTSTRAP_TOKEN` | unset | Token required by the audit API when set; otherwise loopback only |
+| `DBX_AUDIT_CHECKPOINT_KEY` | unset | HMAC key for checkpoint signatures |
+| `DBX_AUDIT_RETENTION_DAYS` | `180` | Warn when the oldest event is older than this; `0` disables the warning. Deletion is always manual |
+| `DBX_AUDIT_EXPORT_URL` | unset | Push signed JSONL batches to this endpoint every 10s |
+| `DBX_AUDIT_EXPORT_HMAC_KEY` | unset | HMAC key for the `x-dbx-audit-signature` header (`sha256=<hex>`) |
+| `DBX_TRUSTED_PROXIES` | unset | Comma-separated proxy IPs allowed to supply `X-Forwarded-For` |
 
 ## Example Scripts
 
