@@ -737,7 +737,7 @@ export const SETTINGS_SEARCH_DEFINITIONS: readonly SettingsSearchDefinition[] = 
     descriptionKey: "settings.approvals.description",
     targetId: "security",
     visible: webOnly,
-    keywordKeys: ["settings.approvals.approve", "settings.approvals.pending", "settings.approvals.issueToken"],
+    keywordKeys: ["settings.approvals.approve", "settings.approvals.pending", "settings.approvals.issueToken", "settings.approvals.templatesTitle", "settings.approvals.templateSteps", "settings.approvals.stepProgress", "settings.approvals.commentHint"],
   },
   {
     id: "security-users",
