@@ -17,7 +17,9 @@ Covered:
   disabling `global.ddl.warn`;
 - invalid documents (unparsable JSON, empty message) are rejected;
 - the narrower scope wins when two scopes define the same rule id;
-- scoped and database-glob matching; disabled rules do not fire;
+- scoped and database-glob matching; a database scope that names both the
+  connection and the database (`<connection_id>::<database>`) matches only that
+  pair; disabled rules do not fire;
 - storage: versions are monotonic per scope, the latest is returned per scope,
   and rollback appends a new version.
 

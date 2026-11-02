@@ -10176,6 +10176,22 @@ export default withEnglishFallback({
     aiSkillAutoEnabledDesc: "每次请求都附带 Skill 列表（即使未勾选任何 Skill），让模型自行判断是否需要加载。Skill 仅对 DBX 内置 AI 可用。",
     mcpTab: "MCP",
     jdbcTab: "JDBC 驱动",
+    policies: {
+      title: "策略规则",
+      description: "按作用域版本化的规则文档。发布前会校验文档，发布后立即改变生效 bundle hash，之前签发的审批将不再匹配。",
+      publishTitle: "发布策略文档",
+      publishHint: "包含 rules 数组的 JSON 文档。与内置规则同 id 的规则会替换内置规则；使用 enabled:false 可禁用内置规则。",
+      note: "变更说明",
+      publish: "发布",
+      versions: "版本",
+      noVersions: "该作用域暂无发布版本。",
+      rollback: "回滚",
+      effective: "生效规则",
+      builtinRules: "内置规则",
+      invalidJson: "文档不是合法 JSON。",
+      scopeRequired: "请先选择该作用域对应的连接与数据库。",
+    },
+
     identity: {
       title: "用户与角色",
       description: "本服务器的本地账号。每个用户绑定一个内置角色；所有操作仍由服务端校验权限。",

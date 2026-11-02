@@ -10210,6 +10210,22 @@ export default {
     aiSkillAutoEnabledDesc: "Send the skill listing with every request, even when nothing is selected, so the model can pick a skill on its own. Skills are available to DBX's built-in AI only.",
     mcpTab: "MCP",
     jdbcTab: "JDBC Drivers",
+    policies: {
+      title: "Policy rules",
+      description: "Versioned rule documents per scope. Publishing validates the document and immediately changes the effective bundle hash; approvals issued earlier stop matching.",
+      publishTitle: "Publish a policy document",
+      publishHint: "JSON document with a rules array. A rule whose id matches a built-in replaces it; use enabled:false to disable a built-in.",
+      note: "Change note",
+      publish: "Publish",
+      versions: "Versions",
+      noVersions: "No versions published for this scope.",
+      rollback: "Roll back",
+      effective: "Effective rules",
+      builtinRules: "Built-in rules",
+      invalidJson: "The document is not valid JSON.",
+      scopeRequired: "Select a connection and database for this scope first.",
+    },
+
     identity: {
       title: "Users and roles",
       description: "Local accounts for this server. Each user has one built-in role; every action is still checked on the server.",

@@ -170,7 +170,13 @@ fn scope_applies(rule: &Rule, ctx: &RuleContext<'_>) -> bool {
     match &rule.scope {
         RuleScope::Global => true,
         RuleScope::Connection(connection_id) => connection_id == ctx.connection_id,
-        RuleScope::Database(database) => like(database, ctx.database),
+        RuleScope::Database(scope) => match scope.split_once("::") {
+            // A database scope may pin both the connection and the database
+            // (`<connection_id>::<database>`); a plain value matches the
+            // database name on any connection.
+            Some((connection_id, database)) => connection_id == ctx.connection_id && like(database, ctx.database),
+            None => like(scope, ctx.database),
+        },
     }
 }
 
@@ -385,6 +391,24 @@ mod tests {
             "b",
         );
         assert_eq!(other_conn.effect, PolicyEffect::Allow);
+    }
+
+    #[test]
+    fn a_database_scope_can_pin_the_connection() {
+        let rules = vec![Rule {
+            id: "db.pinned".into(),
+            enabled: true,
+            priority: 1,
+            effect: PolicyEffect::Block,
+            rule_match: RuleMatch { statement_types: vec!["select".into()], ..Default::default() },
+            message: "pinned".into(),
+            scope: RuleScope::Database("conn::app".into()),
+            builtin: false,
+        }];
+        assert_eq!(evaluate(&rules, &context("SELECT 1", false), "b").effect, PolicyEffect::Block);
+        let other_connection =
+            evaluate(&rules, &RuleContext { connection_id: "other", ..context("SELECT 1", false) }, "b");
+        assert_eq!(other_connection.effect, PolicyEffect::Allow);
     }
 
     #[test]

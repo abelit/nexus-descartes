@@ -25,6 +25,8 @@ Tracking plan: `.claude/plans/dms-dbx-mutable-bear.md`.
 - `POST /api/governance/simulate` and `GET /api/policies/effective` report the
   bundle hash and every matched rule.
 - Reads require `policy:read`; publish/rollback require `policy:publish`.
+- The security settings page publishes, lists, and rolls back documents, and
+  shows the effective rules and bundle hash.
 
 ## Document shape
 

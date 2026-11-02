@@ -568,7 +568,9 @@ GET /api/policies/effective
 - Reads require `policy:read`; publish/rollback require `policy:publish`.
 
 `GET /api/governance/simulate` and `GET /api/policies/effective` include the
-`policy_bundle_hash` used for the decision.
+`policy_bundle_hash` used for the decision. The security settings page has a
+policy editor: choose a scope, edit the JSON document, publish, review versions,
+and roll back. A database scope of `<connection_id>::<database>` pins both.
 
 ## Approvals
 

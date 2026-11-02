@@ -722,6 +722,15 @@ export const SETTINGS_SEARCH_DEFINITIONS: readonly SettingsSearchDefinition[] = 
   { id: "security", category: "security", titleKey: "settings.securityTab", targetId: "security", visible: webOnly },
   { id: "security-password", category: "security", titleKey: "auth.changePassword", targetId: "security", visible: webOnly, keywordKeys: ["auth.changePasswordDescription", "auth.oldPassword", "auth.newPassword", "auth.confirmPassword"] },
   {
+    id: "security-policies",
+    category: "security",
+    titleKey: "settings.policies.title",
+    descriptionKey: "settings.policies.description",
+    targetId: "security",
+    visible: webOnly,
+    keywordKeys: ["settings.policies.publish", "settings.policies.publishTitle", "settings.policies.rollback", "settings.policies.effective"],
+  },
+  {
     id: "security-approvals",
     category: "security",
     titleKey: "settings.approvals.title",
