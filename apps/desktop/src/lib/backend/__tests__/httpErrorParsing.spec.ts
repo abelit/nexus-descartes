@@ -29,7 +29,7 @@ class MemoryStorage implements Storage {
     this.data.set(key, value);
   }
 }
-import { BackendErrorException } from "@/lib/backend/errorUtils";
+import { BackendErrorException, isPermissionDeniedError } from "@/lib/backend/errorUtils";
 
 const envelope = {
   version: 1,
@@ -160,5 +160,14 @@ describe("HTTP query transport diagnostics", () => {
     expect(logs).not.toContain(envelope.detail);
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe("isPermissionDeniedError", () => {
+  test("recognizes permission refusals and ignores other failures", () => {
+    const denied = new BackendErrorException(new Error("admin:settings is required for POST database-backups"));
+    expect(isPermissionDeniedError(denied)).toBe(true);
+    expect(isPermissionDeniedError(new Error("PERMISSION_DENIED: missing query:ddl"))).toBe(true);
+    expect(isPermissionDeniedError(new Error("network down"))).toBe(false);
   });
 });

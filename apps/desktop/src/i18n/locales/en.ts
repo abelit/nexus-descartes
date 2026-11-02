@@ -1073,6 +1073,7 @@ export default {
     newPassword: "Enter new password",
     confirmPassword: "Confirm password",
     enterPassword: "Enter access password",
+    accountPlaceholder: "Email (default: admin)",
     passwordMismatch: "Passwords do not match",
     setPassword: "Set Password",
     login: "Login",

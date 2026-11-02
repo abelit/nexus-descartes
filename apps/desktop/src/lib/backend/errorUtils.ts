@@ -275,6 +275,19 @@ export class BackendErrorException extends Error {
   }
 }
 
+/**
+ * True when the server refused the call because the signed-in actor lacks a
+ * permission. Pollers use this to stop retrying an endpoint they can never
+ * access instead of logging a 403 every few seconds.
+ */
+export function isPermissionDeniedError(error: unknown): boolean {
+  if (error instanceof BackendErrorException && error.backendError.code === "PERMISSION_DENIED") {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("PERMISSION_DENIED") || message.includes("is required for");
+}
+
 function normalizeRawBackendError(error: unknown): BackendError | null {
   return normalizeBackendError(error);
 }

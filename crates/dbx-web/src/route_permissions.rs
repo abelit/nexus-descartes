@@ -52,6 +52,11 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("approval-templates", MethodClass::Any, Permission::ApprovalRead),
     // Policy reads; write/publish are checked in the handlers.
     ("policies", MethodClass::Any, Permission::PolicyRead),
+    // Bootstrap metadata every signed-in client needs, including non-admins:
+    // the workspace reads capabilities and the one-time migration state before
+    // it can render. Mutating migration routes stay admin-only below.
+    ("app-settings/web-capabilities", MethodClass::Any, Permission::QueryRead),
+    ("migration/status", MethodClass::Read, Permission::QueryRead),
     // Read-only metadata and UI support endpoints.
     ("api", MethodClass::Any, Permission::QueryRead),
     ("changelog", MethodClass::Any, Permission::QueryRead),
@@ -231,6 +236,17 @@ pub async fn enforce_route_permissions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_bootstrap_metadata_is_readable_by_every_user() {
+        assert_eq!(
+            classify(&Method::GET, "app-settings/web-capabilities"),
+            RouteAccess::Classified(Permission::QueryRead)
+        );
+        assert_eq!(classify(&Method::GET, "migration/status"), RouteAccess::Classified(Permission::QueryRead));
+        // Starting a migration still needs the admin setting permission.
+        assert_eq!(classify(&Method::POST, "migration/start"), RouteAccess::Classified(Permission::AdminSettings));
+    }
 
     #[test]
     fn execution_requires_write_and_listing_requires_read() {

@@ -2,8 +2,9 @@
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import PasswordInput from "@/components/ui/PasswordInput.vue";
-import { Lock, Loader2, ShieldCheck } from "@lucide/vue";
+import { Lock, Loader2, ShieldCheck, User } from "@lucide/vue";
 import AppLogo from "@/components/icons/AppLogo.vue";
 import { apiUrl } from "@/lib/common/webPath";
 import { translateBackendError } from "@/i18n/backend-errors";
@@ -18,6 +19,7 @@ const props = withDefaults(
 const emit = defineEmits<{ authenticated: [] }>();
 const { t } = useI18n();
 
+const email = ref("");
 const password = ref("");
 const confirmPassword = ref("");
 const error = ref("");
@@ -48,10 +50,15 @@ async function submit() {
   error.value = "";
   try {
     const url = apiUrl(props.setupMode ? "/api/auth/setup" : "/api/auth/login");
+    const body: { password: string; email?: string } = { password: password.value };
+    const account = email.value.trim();
+    if (!props.setupMode && account) {
+      body.email = account;
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: password.value }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
       emit("authenticated");
@@ -83,6 +90,10 @@ async function submit() {
         <div v-if="setupMode" class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <ShieldCheck class="w-4 h-4" />
           <span>{{ t("auth.setupTitle") }}</span>
+        </div>
+        <div v-if="!setupMode" class="relative">
+          <User class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input v-model="email" class="pl-10 h-11" :placeholder="t('auth.accountPlaceholder')" autocomplete="username" />
         </div>
         <div class="relative">
           <Lock class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

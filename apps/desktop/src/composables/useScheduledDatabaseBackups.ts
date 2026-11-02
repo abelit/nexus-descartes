@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import * as api from "@/lib/backend/api";
 import { appendDebugLog } from "@/lib/backend/debugLog";
+import { isPermissionDeniedError } from "@/lib/backend/errorUtils";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { readDatabaseBackupRuns, readDatabaseBackupSchedules, type DatabaseBackupExecutionConfig, type DatabaseBackupRun, type DatabaseBackupSchedule } from "@/lib/backup/scheduledDatabaseBackup";
 import type { DatabaseBackupSnapshot } from "@/lib/backup/backgroundDatabaseBackup";
@@ -78,6 +79,15 @@ export function useScheduledDatabaseBackups(_options: { scheduler?: boolean } = 
       } catch (reason) {
         error.value = reason instanceof Error ? reason.message : String(reason);
         appendDebugLog("error", "[DBX][database-backup:refresh]", reason);
+        // Backups are admin-only. A non-admin session cannot ever succeed, so
+        // stop the 2s poll instead of producing a 403 on every tick.
+        if (isPermissionDeniedError(reason)) {
+          if (timer) {
+            clearInterval(timer);
+            timer = undefined;
+          }
+          return;
+        }
         throw reason;
       }
     })().finally(() => {
