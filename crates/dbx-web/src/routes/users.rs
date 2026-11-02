@@ -15,6 +15,63 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 use crate::state::WebState;
 
+#[derive(Serialize, Debug, Clone)]
+pub struct BindingView {
+    pub role_code: String,
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScopeInput {
+    #[serde(default = "global_scope")]
+    pub scope_type: String,
+    #[serde(default)]
+    pub scope_id: Option<String>,
+}
+
+fn global_scope() -> String {
+    "global".to_string()
+}
+
+async fn validate_scope(state: &WebState, scope: Option<&ScopeInput>) -> Result<(String, Option<String>), AppError> {
+    let scope = scope.cloned().unwrap_or(ScopeInput { scope_type: global_scope(), scope_id: None });
+    let scope_id = scope.scope_id.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+    match scope.scope_type.as_str() {
+        "global" => {
+            if scope_id.is_some() {
+                return Err(AppError::bad_request("global scope must not specify scope_id"));
+            }
+            Ok(("global".to_string(), None))
+        }
+        "connection" => {
+            let id = scope_id.ok_or_else(|| AppError::bad_request("connection scope requires scope_id"))?;
+            let exists = state.app.configs.read().await.contains_key(&id);
+            if !exists {
+                return Err(AppError::bad_request("unknown connection in scope"));
+            }
+            Ok(("connection".to_string(), Some(id)))
+        }
+        "connection_group" => {
+            let id = scope_id.ok_or_else(|| AppError::bad_request("connection_group scope requires scope_id"))?;
+            let exists = state
+                .app
+                .storage
+                .list_connection_groups()
+                .await
+                .map_err(AppError::from)?
+                .iter()
+                .any(|group| group.id == id);
+            if !exists {
+                return Err(AppError::bad_request("unknown connection group in scope"));
+            }
+            Ok(("connection_group".to_string(), Some(id)))
+        }
+        "database" => Err(AppError::bad_request("database scope is not supported yet")),
+        other => Err(AppError::bad_request(format!("Unknown scope type '{other}'"))),
+    }
+}
+
 #[derive(Serialize)]
 pub struct UserView {
     pub id: String,
@@ -26,6 +83,7 @@ pub struct UserView {
     pub last_login_at: Option<String>,
     pub roles: Vec<String>,
     pub permissions: Vec<String>,
+    pub bindings: Vec<BindingView>,
 }
 
 #[derive(Serialize)]
@@ -203,8 +261,22 @@ pub async fn list_users(
     let mut views = Vec::with_capacity(users.len());
     for user in users {
         let roles = state.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default();
+        let bindings = state
+            .app
+            .storage
+            .bindings_for_user(user.id.clone())
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|binding| BindingView {
+                role_code: binding.role_code,
+                scope_type: binding.scope_type,
+                scope_id: binding.scope_id,
+            })
+            .collect();
         views.push(UserView {
             permissions: dbx_core::identity::permissions_for_roles(&roles),
+            bindings,
             id: user.id,
             email: user.email,
             display_name: user.display_name,
@@ -225,6 +297,8 @@ pub struct CreateUserRequest {
     pub password: String,
     #[serde(default = "default_role")]
     pub role: String,
+    #[serde(default)]
+    pub scope: Option<ScopeInput>,
 }
 
 fn default_role() -> String {
@@ -254,15 +328,25 @@ pub async fn create_user(
     let password_hash = dbx_core::identity::hash_password(&body.password).map_err(|error| AppError::internal(error))?;
     let display_name =
         if body.display_name.trim().is_empty() { email.clone() } else { body.display_name.trim().to_string() };
+    let (scope_type, scope_id) = validate_scope(&state, body.scope.as_ref()).await?;
     let user = state
         .app
         .storage
-        .create_user(email, display_name, password_hash, role_code, actor.id.clone())
+        .create_user_scoped(
+            email,
+            display_name,
+            password_hash,
+            role_code.clone(),
+            scope_type.clone(),
+            scope_id.clone(),
+            actor.id.clone(),
+        )
         .await
         .map_err(AppError::from)?;
     let roles = state.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default();
     Ok(Json(UserView {
         permissions: dbx_core::identity::permissions_for_roles(&roles),
+        bindings: vec![BindingView { role_code, scope_type, scope_id }],
         id: user.id,
         email: user.email,
         display_name: user.display_name,
@@ -282,6 +366,8 @@ pub struct UpdateUserRequest {
     pub role: Option<String>,
     #[serde(default)]
     pub display_name: Option<String>,
+    #[serde(default)]
+    pub scope: Option<ScopeInput>,
 }
 
 pub async fn update_user(
@@ -321,23 +407,37 @@ pub async fn update_user(
         }
     }
 
-    if let Some(role_code) = body.role.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        if dbx_core::identity::role_permissions(role_code).is_none() {
+    if body.role.is_some() || body.scope.is_some() {
+        let existing_bindings = state.app.storage.bindings_for_user(user.id.clone()).await.unwrap_or_default();
+        let role_code = body
+            .role
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| existing_bindings.first().map(|binding| binding.role_code.clone()))
+            .ok_or_else(|| AppError::bad_request("role is required"))?;
+        if dbx_core::identity::role_permissions(&role_code).is_none() {
             return Err(AppError::bad_request(format!("Unknown role '{role_code}'")));
         }
         if user.is_builtin && role_code != "admin" {
             return Err(AppError::bad_request("the built-in administrator must keep the admin role"));
         }
+        // Keep the existing scope unless a new one is supplied.
+        let fallback_scope = existing_bindings
+            .first()
+            .map(|binding| ScopeInput { scope_type: binding.scope_type.clone(), scope_id: binding.scope_id.clone() });
+        let (scope_type, scope_id) = validate_scope(&state, body.scope.as_ref().or(fallback_scope.as_ref())).await?;
         for existing in state.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default() {
             state.app.storage.unbind_role(user.id.clone(), existing).await.map_err(AppError::from)?;
         }
         state
             .app
             .storage
-            .bind_role(user.id.clone(), role_code.to_string(), actor.id.clone())
+            .bind_role_scoped(user.id.clone(), role_code, scope_type, scope_id, actor.id.clone())
             .await
             .map_err(AppError::from)?;
-        // Role changes take effect on the next request of that user: the
+        // Binding changes take effect on the next request of that user: the
         // session's permissions are re-resolved from the database when the
         // session is loaded, so existing sessions are revoked to be safe.
         state.app.storage.revoke_user_sessions(user.id.clone()).await.map_err(AppError::from)?;
@@ -351,8 +451,22 @@ pub async fn update_user(
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("user not found"))?;
     let roles = state.app.storage.role_codes_for_user(refreshed.id.clone()).await.unwrap_or_default();
+    let bindings = state
+        .app
+        .storage
+        .bindings_for_user(refreshed.id.clone())
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|binding| BindingView {
+            role_code: binding.role_code,
+            scope_type: binding.scope_type,
+            scope_id: binding.scope_id,
+        })
+        .collect();
     Ok(Json(UserView {
         permissions: dbx_core::identity::permissions_for_roles(&roles),
+        bindings,
         id: refreshed.id,
         email: refreshed.email,
         display_name: refreshed.display_name,

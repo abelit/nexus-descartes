@@ -36,7 +36,9 @@ pub fn build_sql_event(explicit: Option<&AuditContext>, audit: SqlAuditOutcome<'
         SqlRisk::Ddl => AuditOperation::Ddl,
         SqlRisk::Transaction => AuditOperation::Transaction,
     };
-    let decision = if audit.error.as_deref().is_some_and(is_approval_required_message) {
+    let decision = if audit.error.as_deref().is_some_and(is_denied_message) {
+        AuditDecision::Denied
+    } else if audit.error.as_deref().is_some_and(is_approval_required_message) {
         AuditDecision::ApprovalRequired
     } else {
         match &audit.outcome {
@@ -265,6 +267,10 @@ fn batch_details(existing: Option<&str>, statement_count: usize, statement_index
         }
     }
     value.to_string()
+}
+
+fn is_denied_message(message: &str) -> bool {
+    message.contains("PERMISSION_DENIED") || message.contains("CONNECTION_SCOPE_DENIED")
 }
 
 fn is_approval_required_message(message: &str) -> bool {

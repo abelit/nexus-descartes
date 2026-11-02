@@ -509,6 +509,24 @@ server checks it after authenticating the session:
 `/api/audit/*` has its own gate (permission, bootstrap token, or loopback), and
 `/api/auth/*` is handled by the login endpoints.
 
+## Connection Groups
+
+Connection groups are server-owned and are the only authorization scope for
+connections; the sidebar layout is presentation only. All endpoints require
+`admin:users`.
+
+```http
+GET  /api/connection-groups
+POST /api/connection-groups            { "name": "prod", "parent_id": null }
+PUT  /api/connection-groups/{id}       { "name": "prod", "parent_id": null }
+DELETE /api/connection-groups/{id}
+PUT  /api/connection-groups/{id}/members { "connection_ids": ["conn-a", "conn-b"] }
+```
+
+A group cannot be nested under its own descendant, cannot be deleted while it
+has children or a role binding references it, and child groups inherit a parent
+binding's scope at authorization time.
+
 ## Policy Documents
 
 Rules are compiled from the built-in safety floor plus the latest published
@@ -633,9 +651,16 @@ DELETE /api/roles/{code}
   "email": "dba@example.com",
   "display_name": "Ops DBA",
   "password": "at-least-8-characters",
-  "role": "dba"
+  "role": "dba",
+  "scope": { "scope_type": "connection_group", "scope_id": "group-id" }
 }
 ```
+
+`scope` defaults to `global`. A `connection` scope names one connection; a
+`connection_group` scope covers the group's connections and all descendant
+groups. A scoped binding only authorizes connections inside its scope, so the
+same role can be granted per team without a global grant. `database` scope is
+not enforced yet and is rejected.
 
 All routes require `admin:users`. Disabling a user, changing their role, or
 resetting their password revokes their live sessions. The built-in `admin` user

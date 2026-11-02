@@ -174,6 +174,48 @@ pub fn enforce_statement_list(
     Ok(())
 }
 
+/// Resource-scope authorization for local users.
+///
+/// A user with bindings may only touch connections covered by a binding whose
+/// role grants the permission the statement needs. Users without bindings keep
+/// the role-only behavior (single administrator / legacy). This runs in every
+/// governance mode: it is authorization, not rule observation.
+pub async fn authorize_connection_scope(
+    state: &AppState,
+    actor_id: Option<&str>,
+    connection_id: &str,
+    statements: &[String],
+    db_type: Option<DatabaseType>,
+) -> Result<(), String> {
+    let Some(actor_id) = actor_id.filter(|id| !id.starts_with("system") && !id.contains(':')) else {
+        // Local user ids are UUIDs; service/desktop/mcp/hilbert actors have a
+        // namespace prefix and are not subject to local bindings.
+        return Ok(());
+    };
+    let Some(permissions) =
+        state.storage.scoped_permissions_for_connection(actor_id.to_string(), connection_id.to_string()).await?
+    else {
+        return Ok(());
+    };
+    for sql in statements {
+        let required = match db_type {
+            Some(db_type) => match crate::sql_risk::classify_sql_risk_for_database(sql, db_type) {
+                Ok(crate::sql_risk::SqlRisk::ReadOnly) => "query:read",
+                Ok(crate::sql_risk::SqlRisk::Ddl) => "query:ddl",
+                Ok(crate::sql_risk::SqlRisk::Transaction) => "query:write",
+                _ => "query:write",
+            },
+            None => "query:read",
+        };
+        if !permissions.iter().any(|permission| permission == required) {
+            return Err(format!(
+                "PERMISSION_DENIED: the user's role bindings do not grant {required} on this connection"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Enforcement for batch-capable entry points: resolves the connection and
 /// applies [`enforce_statement_list`] to every statement.
 pub async fn enforce_statements_for_connection(
@@ -182,7 +224,7 @@ pub async fn enforce_statements_for_connection(
     database: &str,
     statements: &[String],
 ) -> Result<(), String> {
-    if !enforcement_enabled() || statements.is_empty() {
+    if statements.is_empty() {
         return Ok(());
     }
     let config = {
@@ -192,6 +234,11 @@ pub async fn enforce_statements_for_connection(
     let Some(config) = config else {
         return Ok(());
     };
+    let actor_id = current_audit_context().map(|context| context.actor.id);
+    authorize_connection_scope(state, actor_id.as_deref(), connection_id, statements, Some(config.db_type)).await?;
+    if !enforcement_enabled() {
+        return Ok(());
+    }
     enforce_statement_list(&config, connection_id, database, config.db_type, statements)
 }
 
@@ -211,7 +258,7 @@ pub async fn authorize_batch(
     approval_token: Option<&str>,
     actor_id: Option<&str>,
 ) -> Result<bool, String> {
-    if !enforcement_enabled() || statements.is_empty() {
+    if statements.is_empty() {
         return Ok(false);
     }
     let config = {
@@ -221,6 +268,10 @@ pub async fn authorize_batch(
     let Some(config) = config else {
         return Ok(false);
     };
+    authorize_connection_scope(state, actor_id, connection_id, statements, Some(config.db_type)).await?;
+    if !enforcement_enabled() {
+        return Ok(false);
+    }
     let policy = policy::current_policy();
     let db_type = config.db_type;
     let is_production = is_production_database(&config, database);

@@ -6,6 +6,7 @@ pub mod approvals;
 pub mod audit;
 pub mod cloud_sync;
 pub mod connection;
+pub mod connection_groups;
 pub mod consul;
 pub mod data_compare;
 pub mod database_export;

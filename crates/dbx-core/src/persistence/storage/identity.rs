@@ -14,6 +14,21 @@ pub struct CustomRoleRow {
     pub permissions: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoleBindingRow {
+    pub role_code: String,
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConnectionGroupRow {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub connection_ids: Vec<String>,
+}
+
 pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS users (
@@ -63,7 +78,22 @@ pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result
             client_ip TEXT,
             user_agent TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id, expires_at_ms);",
+        CREATE INDEX IF NOT EXISTS idx_web_sessions_user ON web_sessions(user_id, expires_at_ms);
+        CREATE TABLE IF NOT EXISTS connection_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS connection_group_members (
+            group_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            PRIMARY KEY (group_id, connection_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_connection_group_members_conn
+            ON connection_group_members(connection_id);",
     )
     .map_err(|error| format!("IDENTITY_SCHEMA: {error}"))?;
 
@@ -316,6 +346,306 @@ impl Storage {
             conn.execute("UPDATE users SET last_login_at = ?1 WHERE id = ?2", params![now_rfc3339(), user_id])
                 .map_err(|error| error.to_string())?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn create_connection_group(
+        &self,
+        name: String,
+        parent_id: Option<String>,
+        created_by: Option<String>,
+    ) -> Result<String, String> {
+        self.with_conn(move |conn| {
+            if name.trim().is_empty() {
+                return Err("GROUP_NAME_REQUIRED".to_string());
+            }
+            if let Some(parent_id) = parent_id.as_deref() {
+                let exists: bool = conn
+                    .query_row("SELECT EXISTS(SELECT 1 FROM connection_groups WHERE id = ?1)", [parent_id], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|error| error.to_string())?;
+                if !exists {
+                    return Err("GROUP_PARENT_NOT_FOUND".to_string());
+                }
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = now_rfc3339();
+            conn.execute(
+                "INSERT INTO connection_groups (id, name, parent_id, created_by, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                params![id, name.trim(), parent_id, created_by, now],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(id)
+        })
+        .await
+    }
+
+    pub async fn list_connection_groups(&self) -> Result<Vec<ConnectionGroupRow>, String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT id, name, parent_id FROM connection_groups ORDER BY name")
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
+                })
+                .map_err(|error| error.to_string())?;
+            let mut groups = Vec::new();
+            for row in rows {
+                let (id, name, parent_id) = row.map_err(|error| error.to_string())?;
+                let mut member_stmt = conn
+                    .prepare(
+                        "SELECT connection_id FROM connection_group_members WHERE group_id = ?1 ORDER BY connection_id",
+                    )
+                    .map_err(|error| error.to_string())?;
+                let connection_ids = member_stmt
+                    .query_map([&id], |row| row.get::<_, String>(0))
+                    .map_err(|error| error.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
+                groups.push(ConnectionGroupRow { id, name, parent_id, connection_ids });
+            }
+            Ok(groups)
+        })
+        .await
+    }
+
+    pub async fn update_connection_group(
+        &self,
+        id: String,
+        name: String,
+        parent_id: Option<String>,
+    ) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            if name.trim().is_empty() {
+                return Err("GROUP_NAME_REQUIRED".to_string());
+            }
+            if let Some(parent_id) = parent_id.as_deref() {
+                if parent_id == id {
+                    return Err("GROUP_CYCLE".to_string());
+                }
+                let descendants: bool = conn
+                    .query_row(
+                        "WITH RECURSIVE descendants(id) AS (\
+                            SELECT id FROM connection_groups WHERE parent_id = ?1 \
+                            UNION SELECT g.id FROM connection_groups g JOIN descendants d ON g.parent_id = d.id) \
+                         SELECT EXISTS(SELECT 1 FROM descendants WHERE id = ?2)",
+                        params![id, parent_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| error.to_string())?;
+                if descendants {
+                    return Err("GROUP_CYCLE".to_string());
+                }
+            }
+            conn.execute(
+                "UPDATE connection_groups SET name = ?1, parent_id = ?2, updated_at = ?3 WHERE id = ?4",
+                params![name.trim(), parent_id, now_rfc3339(), id],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn delete_connection_group(&self, id: String) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let children: i64 = conn
+                .query_row("SELECT COUNT(*) FROM connection_groups WHERE parent_id = ?1", [&id], |row| row.get(0))
+                .map_err(|error| error.to_string())?;
+            if children > 0 {
+                return Err("GROUP_HAS_CHILDREN".to_string());
+            }
+            let bound: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM role_bindings WHERE scope_type = 'connection_group' AND scope_id = ?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if bound > 0 {
+                return Err("GROUP_IN_USE".to_string());
+            }
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM connection_group_members WHERE group_id = ?1", [&id])
+                .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM connection_groups WHERE id = ?1", [&id]).map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn set_connection_group_members(
+        &self,
+        group_id: String,
+        connection_ids: Vec<String>,
+    ) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let exists: bool = conn
+                .query_row("SELECT EXISTS(SELECT 1 FROM connection_groups WHERE id = ?1)", [&group_id], |row| {
+                    row.get(0)
+                })
+                .map_err(|error| error.to_string())?;
+            if !exists {
+                return Err("GROUP_NOT_FOUND".to_string());
+            }
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM connection_group_members WHERE group_id = ?1", [&group_id])
+                .map_err(|error| error.to_string())?;
+            for connection_id in connection_ids {
+                tx.execute(
+                    "INSERT OR IGNORE INTO connection_group_members (group_id, connection_id) VALUES (?1, ?2)",
+                    params![group_id, connection_id],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Permissions a user holds for one connection through their scoped
+    /// bindings. `None` means the user has no bindings at all (legacy/single
+    /// admin), so callers keep the role-only behavior.
+    pub async fn scoped_permissions_for_connection(
+        &self,
+        user_id: String,
+        connection_id: String,
+    ) -> Result<Option<Vec<String>>, String> {
+        self.with_conn(move |conn| {
+            let binding_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM role_bindings WHERE principal_type = 'user' AND principal_id = ?1",
+                    [&user_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if binding_count == 0 {
+                return Ok(None);
+            }
+            let mut stmt = conn
+                .prepare(
+                    "WITH RECURSIVE ancestors(id) AS (\
+                        SELECT group_id FROM connection_group_members WHERE connection_id = ?2 \
+                        UNION \
+                        SELECT g.parent_id FROM connection_groups g JOIN ancestors a ON g.id = a.id \
+                          WHERE g.parent_id IS NOT NULL) \
+                     SELECT DISTINCT rp.permission \
+                     FROM role_bindings rb \
+                     JOIN role_permissions rp ON rp.role_code = rb.role_code \
+                     WHERE rb.principal_type = 'user' AND rb.principal_id = ?1 \
+                       AND (rb.expires_at IS NULL OR rb.expires_at > ?3) \
+                       AND (rb.scope_type = 'global' \
+                            OR (rb.scope_type = 'connection' AND rb.scope_id = ?2) \
+                            OR (rb.scope_type = 'connection_group' AND rb.scope_id IN (SELECT id FROM ancestors))) \
+                     ORDER BY rp.permission",
+                )
+                .map_err(|error| error.to_string())?;
+            let permissions = stmt
+                .query_map(params![user_id, connection_id, now_rfc3339()], |row| row.get::<_, String>(0))
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            Ok(Some(permissions))
+        })
+        .await
+    }
+
+    /// Binds a role with an explicit resource scope.
+    pub async fn bind_role_scoped(
+        &self,
+        user_id: String,
+        role_code: String,
+        scope_type: String,
+        scope_id: Option<String>,
+        granted_by: String,
+    ) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let now = now_rfc3339();
+            conn.execute(
+                "INSERT INTO role_bindings \
+                 (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
+                 VALUES (?1, 'user', ?2, ?3, ?4, ?5, ?6, '', ?7)",
+                params![uuid::Uuid::new_v4().to_string(), user_id, role_code, scope_type, scope_id, granted_by, now],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn bindings_for_user(&self, user_id: String) -> Result<Vec<RoleBindingRow>, String> {
+        self.with_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT role_code, scope_type, scope_id FROM role_bindings \
+                     WHERE principal_type = 'user' AND principal_id = ?1 \
+                       AND (expires_at IS NULL OR expires_at > ?2) \
+                     ORDER BY scope_type, role_code",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(params![user_id, now_rfc3339()], |row| {
+                    Ok(RoleBindingRow { role_code: row.get(0)?, scope_type: row.get(1)?, scope_id: row.get(2)? })
+                })
+                .map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    /// Variant of `create_user` that binds the role to an explicit scope.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_user_scoped(
+        &self,
+        email: String,
+        display_name: String,
+        password_hash: String,
+        role_code: String,
+        scope_type: String,
+        scope_id: Option<String>,
+        granted_by: String,
+    ) -> Result<User, String> {
+        self.with_conn(move |conn| {
+            let now = now_rfc3339();
+            let user = User {
+                id: uuid::Uuid::new_v4().to_string(),
+                email,
+                display_name,
+                password_hash,
+                status: "active".to_string(),
+                is_builtin: false,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+                last_login_at: None,
+            };
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            tx.execute(
+                "INSERT INTO users (id, email, display_name, password_hash, status, is_builtin, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)",
+                params![user.id, user.email, user.display_name, user.password_hash, user.status, user.created_at],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.execute(
+                "INSERT INTO role_bindings \
+                 (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
+                 VALUES (?1, 'user', ?2, ?3, ?4, ?5, ?6, '', ?7)",
+                params![uuid::Uuid::new_v4().to_string(), user.id, role_code, scope_type, scope_id, granted_by, now],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(user)
         })
         .await
     }
@@ -671,6 +1001,61 @@ mod tests {
         assert!(storage.list_custom_roles().await.unwrap().is_empty());
 
         assert_eq!(storage.delete_custom_role("viewer".to_string()).await.unwrap_err(), "ROLE_BUILTIN_IMMUTABLE");
+    }
+
+    #[tokio::test]
+    async fn scoped_bindings_only_cover_their_connections_and_child_groups() {
+        let (storage, _) = storage().await;
+        let parent =
+            storage.create_connection_group("prod".to_string(), None, Some("admin".to_string())).await.unwrap();
+        let child = storage
+            .create_connection_group("prod-eu".to_string(), Some(parent.clone()), Some("admin".to_string()))
+            .await
+            .unwrap();
+        storage.set_connection_group_members(parent.clone(), vec!["conn-a".to_string()]).await.unwrap();
+        storage.set_connection_group_members(child.clone(), vec!["conn-c".to_string()]).await.unwrap();
+
+        let user = storage
+            .create_user_scoped(
+                "ops@example.com".to_string(),
+                "Ops".to_string(),
+                hash_password("secret123").unwrap(),
+                "operator".to_string(),
+                "connection_group".to_string(),
+                Some(parent),
+                "admin".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let covered =
+            storage.scoped_permissions_for_connection(user.id.clone(), "conn-a".to_string()).await.unwrap().unwrap();
+        assert!(covered.contains(&"query:write".to_string()));
+        let inherited =
+            storage.scoped_permissions_for_connection(user.id.clone(), "conn-c".to_string()).await.unwrap().unwrap();
+        assert!(inherited.contains(&"query:write".to_string()), "child groups inherit the binding");
+        let outside =
+            storage.scoped_permissions_for_connection(user.id.clone(), "conn-b".to_string()).await.unwrap().unwrap();
+        assert!(outside.is_empty(), "unrelated connections are not covered");
+
+        // A user without any binding keeps role-only behavior (`None`).
+        storage
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO users (id, email, display_name, password_hash, status, is_builtin, created_at, updated_at) \
+                     VALUES ('unbound', 'unbound@example.com', 'Unbound', 'x', 'active', 0, '2020-01-01', '2020-01-01')",
+                    [],
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert!(storage
+            .scoped_permissions_for_connection("unbound".to_string(), "conn-a".to_string())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

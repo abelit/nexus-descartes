@@ -59,6 +59,7 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     // Administration
     ("users", MethodClass::Any, Permission::AdminUsers),
     ("roles", MethodClass::Any, Permission::AdminUsers),
+    ("connection-groups", MethodClass::Any, Permission::AdminUsers),
     ("app-settings/", MethodClass::Any, Permission::AdminSettings),
     ("mcp", MethodClass::Any, Permission::AdminSettings),
     ("cloud-sync/", MethodClass::Any, Permission::AdminSettings),

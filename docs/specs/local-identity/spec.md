@@ -32,6 +32,18 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
   (`ROUTE_PERMISSION_UNCLASSIFIED` otherwise), so new routes must be classified
   before regular users can call them.
 
+## Resource scopes
+
+- `connection_groups` / `connection_group_members` are server-owned; the client
+  sidebar layout is never an authorization source.
+- Role bindings carry `global`, `connection`, or `connection_group` scope
+  (`database` is rejected until enforcement exists). Child groups inherit a
+  parent binding at authorization time via a recursive query.
+- Execution authorization: a local user with bindings may only touch covered
+  connections and must hold `query:read` / `query:write` / `query:ddl` for the
+  statement. Users without bindings keep role-only behavior. This check runs in
+  every governance mode (it is authorization, not observation).
+
 ## Custom roles and user administration
 
 - Custom roles live in `roles`/`role_permissions`; a process-wide registry is
@@ -60,8 +72,6 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
 
 ## Non-goals
 
-- Per-resource scopes on bindings (the column exists; enforcement arrives with
-  the policy engine).
 - hilbert JWT login (blocked on independent keys and `aud=dbx`).
 - Route-permission matrix for every API prefix; audit and user administration
   are gated first, query/connection gating follows with the policy engine.

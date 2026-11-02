@@ -3020,6 +3020,17 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
             None => (None, None),
         }
     };
+    // Resource scopes apply in every mode: a local user may only touch
+    // connections covered by one of their role bindings.
+    let scope_actor = audit_context.as_ref().map(|context| context.actor.id.clone());
+    crate::governance::authorize_connection_scope(
+        state,
+        scope_actor.as_deref(),
+        connection_id,
+        &[sql.to_string()],
+        db_type,
+    )
+    .await?;
     // High-risk rules run before the statement reaches a driver. `observe`
     // (the default) keeps execution unchanged; `enforce` turns a `block` or
     // `require_approval` decision into a typed failure.
@@ -5583,6 +5594,15 @@ pub async fn execute_blob_bound_statements(
     };
     let sql = bound.iter().map(|statement| statement.sql.clone()).collect::<Vec<_>>();
     check_read_only_for_connection_multi(state, &pool_key, &sql).await?;
+    let scope_actor = crate::audit::current_audit_context().map(|context| context.actor.id);
+    crate::governance::authorize_connection_scope(
+        state,
+        scope_actor.as_deref(),
+        connection_id,
+        &sql,
+        connection_database_type(state, connection_id).await,
+    )
+    .await?;
     let audit_context = crate::audit::current_audit_context();
     let audit_connection_name = {
         let configs = state.configs.read().await;

@@ -1696,6 +1696,15 @@ async fn serve() -> Result<(), String> {
         .route("/users/{user_id}/sessions/revoke", post(routes::users::revoke_user_sessions))
         .route("/users/{user_id}/sessions/{session_id}", delete(routes::users::revoke_user_session))
         .route("/roles", get(routes::users::list_roles).post(routes::users::create_role))
+        .route(
+            "/connection-groups",
+            get(routes::connection_groups::list_groups).post(routes::connection_groups::create_group),
+        )
+        .route(
+            "/connection-groups/{group_id}",
+            put(routes::connection_groups::update_group).delete(routes::connection_groups::delete_group),
+        )
+        .route("/connection-groups/{group_id}/members", put(routes::connection_groups::set_members))
         .route("/roles/{code}", put(routes::users::update_role).delete(routes::users::delete_role));
 
     let api = api
