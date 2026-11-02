@@ -622,6 +622,10 @@ DELETE /api/approval-templates/{id}
 - Only the requester can obtain the execution token, only after approval, and
   only once per token store; the raw token is returned once and expires after 5
   minutes. Execution must present it together with the same binding.
+- An approved DDL token also satisfies the resource scope: a role with
+  `query:write` but without `query:ddl` may execute the approved statement.
+  Rules are re-evaluated first and the token is consumed only after the scope
+  check passes.
 - `approval.created`, `approval.step_pending`, `approval.step_approved`,
   `approval.approved`, and `approval.rejected` are delivered to every configured
   channel: the generic webhook (signed with `x-dbx-approval-signature` when

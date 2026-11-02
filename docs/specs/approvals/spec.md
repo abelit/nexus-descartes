@@ -48,6 +48,10 @@ An approval walks a template's steps in order:
   `approval:act`.
 - A rejection on any step rejects the request and marks the remaining steps
   `skipped`. The request only becomes `approved` after the last step completes.
+- An approved DDL token also satisfies the resource scope: a role that holds
+  `query:write` but not `query:ddl` may execute the approved statement. Rules
+  (including `block`) are still re-evaluated before the token is consumed, and
+  the token is only consumed after the scope check passes.
 - Templates are unique per scope. Resolution prefers a connection template over
   a global one; `POST /api/approvals` accepts `template_id` to override it.
 - Template documents are validated when published: at least one step, at most

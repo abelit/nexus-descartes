@@ -3020,32 +3020,48 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
             None => (None, None),
         }
     };
-    // Resource scopes apply in every mode: a local user may only touch
-    // connections covered by one of their role bindings.
-    let scope_actor = audit_context.as_ref().map(|context| context.actor.id.clone());
-    crate::governance::authorize_connection_scope(
-        state,
-        scope_actor.as_deref(),
-        connection_id,
-        Some(database),
-        &[sql.to_string()],
-        db_type,
-    )
-    .await?;
-    // High-risk rules run before the statement reaches a driver. `observe`
+    // High-risk rules run before the statement reaches a driver, and before
+    // the scope check: a require-approval rule turns a missing `query:ddl`
+    // capability into "ask for approval", while the consumed token lets the
+    // scope check fall back to `query:write`. `observe`
     // (the default) keeps execution unchanged; `enforce` turns a `block` or
     // `require_approval` decision into a typed failure.
+    let mut approval_authorized = options.policy_approved;
+    // A denial happens before the driver is touched, so the normal result
+    // audit never runs. Record the refusal here: the event carries the SQL,
+    // the rule outcome, and the actor, which is exactly what "who tried what"
+    // needs to answer.
+    let record_denial = |message: &str| {
+        if let Some(event) = crate::audit::execution::build_sql_event(
+            audit_context.as_ref(),
+            crate::audit::execution::SqlAuditOutcome {
+                connection_id,
+                connection_name: connection_name.as_deref(),
+                database,
+                schema,
+                sql,
+                db_type,
+                outcome: crate::audit::AuditOutcome::NotStarted,
+                error: Some(message.to_string()),
+                affected_rows: None,
+                duration_ms: 0,
+            },
+        ) {
+            state.record_audit(event);
+        }
+    };
     if crate::governance::enforcement_enabled() {
         if let (Some(config), Some(db_type)) = (connection_config.as_ref(), db_type) {
             let decision = crate::governance::decide(connection_id, config, database, db_type, sql);
             match decision.effect {
                 crate::governance::PolicyEffect::Block => {
-                    return Err(format!(
+                    let message = format!(
                         "POLICY_DENIED: {} (rule {})",
                         decision.reason,
                         decision.rule_id.as_deref().unwrap_or("unknown")
-                    )
-                    .into());
+                    );
+                    record_denial(&message);
+                    return Err(message.into());
                 }
                 crate::governance::PolicyEffect::RequireApproval if options.policy_approved => {}
                 crate::governance::PolicyEffect::RequireApproval => {
@@ -3071,17 +3087,36 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
                     };
                     if let Err(error) = approval {
                         let detail = if error.is_empty() { String::new() } else { format!(" ({error})") };
-                        return Err(format!(
+                        let message = format!(
                             "POLICY_APPROVAL_REQUIRED: {} (rule {}){detail}",
                             decision.reason,
                             decision.rule_id.as_deref().unwrap_or("unknown")
-                        )
-                        .into());
+                        );
+                        record_denial(&message);
+                        return Err(message.into());
                     }
+                    approval_authorized = true;
                 }
                 _ => {}
             }
         }
+    }
+    // Resource scopes apply in every mode: a local user may only touch
+    // connections covered by one of their role bindings.
+    let scope_actor = audit_context.as_ref().map(|context| context.actor.id.clone());
+    if let Err(error) = crate::governance::authorize_connection_scope(
+        state,
+        scope_actor.as_deref(),
+        connection_id,
+        Some(database),
+        &[sql.to_string()],
+        db_type,
+        approval_authorized,
+    )
+    .await
+    {
+        record_denial(&error);
+        return Err(error.into());
     }
     let mut transaction = None;
     // Same contract as the multi-statement entry point: a single statement is
@@ -4275,7 +4310,7 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     // approval token is bound to the complete statement list and consumed here;
     // `policy_approved` then stops the per-statement funnel from asking again.
     let audit_actor_id = crate::audit::current_audit_context().map(|context| context.actor.id);
-    let approval_consumed = crate::governance::authorize_batch(
+    let approval_consumed = match crate::governance::authorize_batch(
         state,
         connection_id,
         database,
@@ -4284,7 +4319,18 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
         options.approval_token.as_deref(),
         audit_actor_id.as_deref(),
     )
-    .await?;
+    .await
+    {
+        Ok(consumed) => consumed,
+        Err(error) => {
+            // Record the refusal before returning: no statement reached a
+            // driver, so the normal outcome audit would otherwise be silent.
+            let plan = batch_audit_plan(state, connection_id, database, schema, &statements, db_type).await;
+            let outcome: Result<&Vec<ExecuteMultiResult>, String> = Err(error.clone());
+            record_batch_audit(state, options.audit.as_ref(), plan, outcome, std::time::Instant::now());
+            return Err(error.into());
+        }
+    };
 
     if options.use_transaction == Some(true) && statements.len() > 1 {
         if batch_transaction_ddl_is_unrollbackable(db_type, &statements) {
@@ -5606,6 +5652,7 @@ pub async fn execute_blob_bound_statements(
         Some(database),
         &sql,
         connection_database_type(state, connection_id).await,
+        false,
     )
     .await?;
     let audit_context = crate::audit::current_audit_context();
@@ -6281,6 +6328,7 @@ pub async fn execute_statements_in_transaction_on_pool_typed(
             Some(database),
             statements,
             db_type,
+            policy_approved,
         )
         .await?;
     } else {

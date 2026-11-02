@@ -8,6 +8,7 @@ cargo check -p dbx-web --features enterprise-audit --bin dbx-web
 cargo check -p dbx-web --features enterprise-audit --tests
 NODE_OPTIONS=--max-old-space-size=8192 pnpm typecheck
 pnpm vitest run apps/desktop/src/lib/settings apps/desktop/src/i18n/__tests__/localePlaceholderParity.spec.ts
+scripts/e2e-governance.sh   # also asserts chain verification and the PostgreSQL sink
 ```
 
 `dbx-core` audit suite (45 tests) covers:

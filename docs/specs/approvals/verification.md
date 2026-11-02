@@ -6,6 +6,7 @@
 RUST_MIN_STACK=8388608 cargo test -p dbx-core --features enterprise-audit --lib governance::approval
 RUST_MIN_STACK=8388608 cargo test -p dbx-core --features enterprise-audit --lib persistence::storage::approval
 cargo check -p dbx-web --features enterprise-audit --bin dbx-web
+scripts/e2e-governance.sh   # Docker PostgreSQL + MySQL end-to-end
 ```
 
 Covered:
@@ -30,7 +31,12 @@ Covered:
 - the requester is removed from the approver snapshot, and a step with no other
   approver fails creation with `APPROVAL_STEP_NO_APPROVER`;
 - template documents validation, connection-over-global resolution, and
-  one-template-per-scope replacement.
+  one-template-per-scope replacement;
+- `scripts/e2e-governance.sh` runs the whole flow against real PostgreSQL and
+  MySQL containers: SQL on both drivers, 403 `POLICY_APPROVAL_REQUIRED` before
+  approval, multi-step/countersign decisions, snapshot membership, one-time
+  token execution, spent-token refusal, audit chain verification, and rows in
+  the PostgreSQL audit sink.
 
 ## Manual
 

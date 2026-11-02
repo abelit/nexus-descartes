@@ -180,6 +180,11 @@ pub fn enforce_statement_list(
 /// role grants the permission the statement needs. Users without bindings keep
 /// the role-only behavior (single administrator / legacy). This runs in every
 /// governance mode: it is authorization, not rule observation.
+///
+/// `approval_authorized` says a one-time approval already authorized these
+/// statements. DDL then needs `query:write` instead of `query:ddl`, so an
+/// operator without the DDL capability can still execute the statement a DBA
+/// approved; without an approval the capability is required as usual.
 pub async fn authorize_connection_scope(
     state: &AppState,
     actor_id: Option<&str>,
@@ -187,6 +192,7 @@ pub async fn authorize_connection_scope(
     database: Option<&str>,
     statements: &[String],
     db_type: Option<DatabaseType>,
+    approval_authorized: bool,
 ) -> Result<(), String> {
     let Some(actor_id) = actor_id.filter(|id| !id.starts_with("system") && !id.contains(':')) else {
         // Local user ids are UUIDs; service/desktop/mcp/hilbert actors have a
@@ -211,7 +217,11 @@ pub async fn authorize_connection_scope(
             },
             None => "query:read",
         };
-        if !permissions.iter().any(|permission| permission == required) {
+        let granted = permissions.iter().any(|permission| permission == required)
+            || (approval_authorized
+                && required == "query:ddl"
+                && permissions.iter().any(|permission| permission == "query:write"));
+        if !granted {
             return Err(format!(
                 "PERMISSION_DENIED: the user's role bindings do not grant {required} on this connection"
             ));
@@ -246,6 +256,7 @@ pub async fn enforce_statements_for_connection(
         Some(database),
         statements,
         Some(config.db_type),
+        false,
     )
     .await?;
     if !enforcement_enabled() {
@@ -280,9 +291,17 @@ pub async fn authorize_batch(
     let Some(config) = config else {
         return Ok(false);
     };
-    authorize_connection_scope(state, actor_id, connection_id, Some(database), statements, Some(config.db_type))
-        .await?;
     if !enforcement_enabled() {
+        authorize_connection_scope(
+            state,
+            actor_id,
+            connection_id,
+            Some(database),
+            statements,
+            Some(config.db_type),
+            false,
+        )
+        .await?;
         return Ok(false);
     }
     let policy = policy::current_policy();
@@ -312,6 +331,16 @@ pub async fn authorize_batch(
         }
     }
     if required_rule_ids.is_empty() {
+        authorize_connection_scope(
+            state,
+            actor_id,
+            connection_id,
+            Some(database),
+            statements,
+            Some(config.db_type),
+            false,
+        )
+        .await?;
         return Ok(false);
     }
     required_rule_ids.sort();
@@ -347,6 +376,19 @@ pub async fn authorize_batch(
         rule_ids: &required_rule_ids,
     });
     approval::token_authorizes(&token, actor_id, &hash, chrono::Utc::now().timestamp_millis())?;
+    // The approval covers DDL even when the operator lacks `query:ddl`; the
+    // scope check runs before consumption so a scope failure cannot burn the
+    // token.
+    authorize_connection_scope(
+        state,
+        Some(actor_id),
+        connection_id,
+        Some(database),
+        statements,
+        Some(config.db_type),
+        true,
+    )
+    .await?;
     if !state.storage.consume_approval_token(token.id.clone(), chrono::Utc::now().timestamp_millis()).await? {
         return Err("APPROVAL_TOKEN_ALREADY_USED".to_string());
     }
