@@ -48,8 +48,16 @@ const draftEmail = ref("");
 const draftName = ref("");
 const draftPassword = ref("");
 const draftRole = ref("viewer");
-const draftScopeType = ref<"global" | "connection" | "connection_group">("global");
+const draftScopeType = ref<"global" | "connection" | "connection_group" | "database">("global");
 const draftScopeId = ref("");
+const draftScopeConnection = ref("");
+const draftScopeDatabase = ref("");
+
+const scopeEditUserId = ref("");
+const scopeEditType = ref<"global" | "connection" | "connection_group" | "database">("global");
+const scopeEditId = ref("");
+const scopeEditConnection = ref("");
+const scopeEditDatabase = ref("");
 
 const groupDraft = ref({ name: "", parentId: "" });
 const editingGroupId = ref("");
@@ -97,7 +105,7 @@ async function createUser() {
       display_name: draftName.value.trim(),
       password: draftPassword.value,
       role: draftRole.value,
-      scope: draftScopeType.value === "global" ? undefined : { scope_type: draftScopeType.value, scope_id: draftScopeId.value },
+      scope: buildScope(draftScopeType.value, draftScopeId.value, draftScopeConnection.value, draftScopeDatabase.value),
     });
     draftEmail.value = "";
     draftName.value = "";
@@ -105,6 +113,8 @@ async function createUser() {
     draftRole.value = "viewer";
     draftScopeType.value = "global";
     draftScopeId.value = "";
+    draftScopeConnection.value = "";
+    draftScopeDatabase.value = "";
     await refresh();
   } catch (createError) {
     toast(formatError(createError));
@@ -280,6 +290,47 @@ async function deleteRole(role: LocalRole) {
   }
 }
 
+function buildScope(type: "global" | "connection" | "connection_group" | "database", id: string, connection: string, database: string): usersApi.RoleScope | undefined {
+  if (type === "global") return undefined;
+  if (type === "database") return { scope_type: "database", scope_id: `${connection}::${database}` };
+  return { scope_type: type, scope_id: id };
+}
+
+function openScopeEditor(user: LocalUser) {
+  if (scopeEditUserId.value === user.id) {
+    scopeEditUserId.value = "";
+    return;
+  }
+  scopeEditUserId.value = user.id;
+  const binding = user.bindings?.[0];
+  scopeEditType.value = (binding?.scope_type as typeof scopeEditType.value) ?? "global";
+  scopeEditId.value = binding?.scope_id ?? "";
+  scopeEditConnection.value = "";
+  scopeEditDatabase.value = "";
+  if (binding?.scope_type === "database" && binding.scope_id) {
+    const [connection, database] = binding.scope_id.split("::");
+    scopeEditConnection.value = connection;
+    scopeEditDatabase.value = database ?? "";
+  }
+}
+
+async function saveScopeForSelected() {
+  const user = users.value.find((item) => item.id === scopeEditUserId.value);
+  if (!user) return;
+  busyUserId.value = user.id;
+  try {
+    await usersApi.updateUser(user.id, {
+      scope: buildScope(scopeEditType.value, scopeEditId.value, scopeEditConnection.value, scopeEditDatabase.value),
+    });
+    scopeEditUserId.value = "";
+    await refresh();
+  } catch (scopeError) {
+    toast(formatError(scopeError));
+  } finally {
+    busyUserId.value = "";
+  }
+}
+
 function connectionName(connectionId?: string | null): string {
   if (!connectionId) return "—";
   return connectionStore.connections.find((connection) => connection.id === connectionId)?.name ?? connectionId;
@@ -382,6 +433,7 @@ onMounted(() => {
           <option value="global">{{ t("settings.identity.scopeGlobal") }}</option>
           <option value="connection">{{ t("settings.identity.scopeConnection") }}</option>
           <option value="connection_group">{{ t("settings.identity.scopeGroup") }}</option>
+          <option value="database">{{ t("settings.identity.scopeDatabase") }}</option>
         </select>
         <select v-if="draftScopeType === 'connection'" v-model="draftScopeId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
           <option value="">{{ t("settings.identity.scopeSelect") }}</option>
@@ -393,6 +445,15 @@ onMounted(() => {
           <option value="">{{ t("settings.identity.scopeSelect") }}</option>
           <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
         </select>
+        <template v-if="draftScopeType === 'database'">
+          <select v-model="draftScopeConnection" class="h-8 max-w-40 rounded-md border border-input bg-background px-2 text-sm">
+            <option value="">{{ t("settings.identity.scopeSelect") }}</option>
+            <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
+              {{ connection.name }}
+            </option>
+          </select>
+          <Input v-model="draftScopeDatabase" class="h-8 w-32" :placeholder="t('settings.identity.scopeDatabaseName')" />
+        </template>
         <Button size="sm" :disabled="loading" @click="createUser">{{ t("settings.identity.create") }}</Button>
       </div>
       <p class="text-xs text-muted-foreground">{{ t("settings.identity.passwordHint") }}</p>
@@ -448,6 +509,9 @@ onMounted(() => {
                 <Button size="sm" variant="outline" class="h-7 px-1.5" :title="t('settings.identity.resetPassword')" @click="resetPassword(user)">
                   <KeyRound class="h-3.5 w-3.5" />
                 </Button>
+                <Button size="sm" variant="outline" class="h-7 px-1.5 text-xs" :title="t('settings.identity.editScope')" @click="openScopeEditor(user)">
+                  {{ t("settings.identity.editScopeShort") }}
+                </Button>
                 <Button size="sm" variant="outline" class="h-7 px-1.5" :title="t('settings.identity.sessions')" @click="toggleSessions(user)">
                   <ShieldOff class="h-3.5 w-3.5" />
                 </Button>
@@ -473,6 +537,37 @@ onMounted(() => {
       <Button size="sm" variant="outline" @click="passwordUserId = ''">
         <X class="h-3.5 w-3.5" />
       </Button>
+    </div>
+
+    <div v-if="scopeEditUserId" class="flex flex-wrap items-center gap-2 rounded-md border border-border/60 p-2">
+      <span class="text-xs text-muted-foreground">{{ t("settings.identity.editScope") }}</span>
+      <select v-model="scopeEditType" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
+        <option value="global">{{ t("settings.identity.scopeGlobal") }}</option>
+        <option value="connection">{{ t("settings.identity.scopeConnection") }}</option>
+        <option value="connection_group">{{ t("settings.identity.scopeGroup") }}</option>
+        <option value="database">{{ t("settings.identity.scopeDatabase") }}</option>
+      </select>
+      <select v-if="scopeEditType === 'connection'" v-model="scopeEditId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
+        <option value="">{{ t("settings.identity.scopeSelect") }}</option>
+        <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
+          {{ connection.name }}
+        </option>
+      </select>
+      <select v-if="scopeEditType === 'connection_group'" v-model="scopeEditId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
+        <option value="">{{ t("settings.identity.scopeSelect") }}</option>
+        <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
+      </select>
+      <template v-if="scopeEditType === 'database'">
+        <select v-model="scopeEditConnection" class="h-8 max-w-40 rounded-md border border-input bg-background px-2 text-sm">
+          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
+          <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
+            {{ connection.name }}
+          </option>
+        </select>
+        <Input v-model="scopeEditDatabase" class="h-8 w-32" :placeholder="t('settings.identity.scopeDatabaseName')" />
+      </template>
+      <Button size="sm" @click="saveScopeForSelected">{{ t("settings.identity.saveRole") }}</Button>
+      <Button size="sm" variant="outline" @click="scopeEditUserId = ''"><X class="h-3.5 w-3.5" /></Button>
     </div>
 
     <div v-if="sessionsUserId" class="space-y-2 rounded-md border border-border/60 p-3">

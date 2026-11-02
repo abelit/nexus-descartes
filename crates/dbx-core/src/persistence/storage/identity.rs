@@ -520,8 +520,13 @@ impl Storage {
         &self,
         user_id: String,
         connection_id: String,
+        database: Option<String>,
     ) -> Result<Option<Vec<String>>, String> {
         self.with_conn(move |conn| {
+            // Database scope encodes both the connection and the database as
+            // `<connection_id>::<database>`; connection ids are UUIDs and never
+            // contain the separator.
+            let database_scope = database.map(|database| format!("{connection_id}::{database}"));
             let binding_count: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM role_bindings WHERE principal_type = 'user' AND principal_id = ?1",
@@ -546,12 +551,15 @@ impl Storage {
                        AND (rb.expires_at IS NULL OR rb.expires_at > ?3) \
                        AND (rb.scope_type = 'global' \
                             OR (rb.scope_type = 'connection' AND rb.scope_id = ?2) \
-                            OR (rb.scope_type = 'connection_group' AND rb.scope_id IN (SELECT id FROM ancestors))) \
+                            OR (rb.scope_type = 'connection_group' AND rb.scope_id IN (SELECT id FROM ancestors)) \
+                            OR (rb.scope_type = 'database' AND ?4 IS NOT NULL AND rb.scope_id = ?4)) \
                      ORDER BY rp.permission",
                 )
                 .map_err(|error| error.to_string())?;
             let permissions = stmt
-                .query_map(params![user_id, connection_id, now_rfc3339()], |row| row.get::<_, String>(0))
+                .query_map(params![user_id, connection_id, now_rfc3339(), database_scope], |row| {
+                    row.get::<_, String>(0)
+                })
                 .map_err(|error| error.to_string())?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| error.to_string())?;
@@ -1028,14 +1036,23 @@ mod tests {
             .await
             .unwrap();
 
-        let covered =
-            storage.scoped_permissions_for_connection(user.id.clone(), "conn-a".to_string()).await.unwrap().unwrap();
+        let covered = storage
+            .scoped_permissions_for_connection(user.id.clone(), "conn-a".to_string(), None)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(covered.contains(&"query:write".to_string()));
-        let inherited =
-            storage.scoped_permissions_for_connection(user.id.clone(), "conn-c".to_string()).await.unwrap().unwrap();
+        let inherited = storage
+            .scoped_permissions_for_connection(user.id.clone(), "conn-c".to_string(), None)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(inherited.contains(&"query:write".to_string()), "child groups inherit the binding");
-        let outside =
-            storage.scoped_permissions_for_connection(user.id.clone(), "conn-b".to_string()).await.unwrap().unwrap();
+        let outside = storage
+            .scoped_permissions_for_connection(user.id.clone(), "conn-b".to_string(), None)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(outside.is_empty(), "unrelated connections are not covered");
 
         // A user without any binding keeps role-only behavior (`None`).
@@ -1052,10 +1069,45 @@ mod tests {
             .await
             .unwrap();
         assert!(storage
-            .scoped_permissions_for_connection("unbound".to_string(), "conn-a".to_string())
+            .scoped_permissions_for_connection("unbound".to_string(), "conn-a".to_string(), None)
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn database_scope_matches_only_its_database() {
+        let (storage, _) = storage().await;
+        let user = storage
+            .create_user_scoped(
+                "db-ops@example.com".to_string(),
+                "DB Ops".to_string(),
+                hash_password("secret123").unwrap(),
+                "operator".to_string(),
+                "database".to_string(),
+                Some("conn-a::app".to_string()),
+                "admin".to_string(),
+            )
+            .await
+            .unwrap();
+        let matching = storage
+            .scoped_permissions_for_connection(user.id.clone(), "conn-a".to_string(), Some("app".to_string()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matching.contains(&"query:write".to_string()));
+        let other_database = storage
+            .scoped_permissions_for_connection(user.id.clone(), "conn-a".to_string(), Some("other".to_string()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(other_database.is_empty());
+        let other_connection = storage
+            .scoped_permissions_for_connection(user.id.clone(), "conn-b".to_string(), Some("app".to_string()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(other_connection.is_empty());
     }
 
     #[tokio::test]

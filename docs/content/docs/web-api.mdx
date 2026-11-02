@@ -659,8 +659,9 @@ DELETE /api/roles/{code}
 `scope` defaults to `global`. A `connection` scope names one connection; a
 `connection_group` scope covers the group's connections and all descendant
 groups. A scoped binding only authorizes connections inside its scope, so the
-same role can be granted per team without a global grant. `database` scope is
-not enforced yet and is rejected.
+same role can be granted per team without a global grant. A `database` scope
+uses `scope_id` of the form `<connection_id>::<database>` and matches only that
+database on that connection.
 
 All routes require `admin:users`. Disabling a user, changing their role, or
 resetting their password revokes their live sessions. The built-in `admin` user

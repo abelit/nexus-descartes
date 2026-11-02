@@ -184,6 +184,7 @@ pub async fn authorize_connection_scope(
     state: &AppState,
     actor_id: Option<&str>,
     connection_id: &str,
+    database: Option<&str>,
     statements: &[String],
     db_type: Option<DatabaseType>,
 ) -> Result<(), String> {
@@ -192,8 +193,11 @@ pub async fn authorize_connection_scope(
         // namespace prefix and are not subject to local bindings.
         return Ok(());
     };
-    let Some(permissions) =
-        state.storage.scoped_permissions_for_connection(actor_id.to_string(), connection_id.to_string()).await?
+    let database = database.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string);
+    let Some(permissions) = state
+        .storage
+        .scoped_permissions_for_connection(actor_id.to_string(), connection_id.to_string(), database)
+        .await?
     else {
         return Ok(());
     };
@@ -235,7 +239,15 @@ pub async fn enforce_statements_for_connection(
         return Ok(());
     };
     let actor_id = current_audit_context().map(|context| context.actor.id);
-    authorize_connection_scope(state, actor_id.as_deref(), connection_id, statements, Some(config.db_type)).await?;
+    authorize_connection_scope(
+        state,
+        actor_id.as_deref(),
+        connection_id,
+        Some(database),
+        statements,
+        Some(config.db_type),
+    )
+    .await?;
     if !enforcement_enabled() {
         return Ok(());
     }
@@ -268,7 +280,8 @@ pub async fn authorize_batch(
     let Some(config) = config else {
         return Ok(false);
     };
-    authorize_connection_scope(state, actor_id, connection_id, statements, Some(config.db_type)).await?;
+    authorize_connection_scope(state, actor_id, connection_id, Some(database), statements, Some(config.db_type))
+        .await?;
     if !enforcement_enabled() {
         return Ok(false);
     }

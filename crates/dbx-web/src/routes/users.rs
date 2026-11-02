@@ -67,7 +67,20 @@ async fn validate_scope(state: &WebState, scope: Option<&ScopeInput>) -> Result<
             }
             Ok(("connection_group".to_string(), Some(id)))
         }
-        "database" => Err(AppError::bad_request("database scope is not supported yet")),
+        "database" => {
+            let id = scope_id.ok_or_else(|| AppError::bad_request("database scope requires scope_id"))?;
+            let (connection_id, database) = id
+                .split_once("::")
+                .ok_or_else(|| AppError::bad_request("database scope id must be '<connection_id>::<database>'"))?;
+            if database.trim().is_empty() {
+                return Err(AppError::bad_request("database scope requires a database name"));
+            }
+            let exists = state.app.configs.read().await.contains_key(connection_id);
+            if !exists {
+                return Err(AppError::bad_request("unknown connection in scope"));
+            }
+            Ok(("database".to_string(), Some(id)))
+        }
         other => Err(AppError::bad_request(format!("Unknown scope type '{other}'"))),
     }
 }

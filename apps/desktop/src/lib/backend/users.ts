@@ -39,7 +39,7 @@ export interface RoleInput {
 }
 
 export interface RoleScope {
-  scope_type: "global" | "connection" | "connection_group";
+  scope_type: "global" | "connection" | "connection_group" | "database";
   scope_id?: string | null;
 }
 

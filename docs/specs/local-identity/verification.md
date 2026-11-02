@@ -23,7 +23,8 @@ The identity suite covers:
 - custom roles round-trip with their permissions, cannot reuse a built-in code,
   cannot be edited/deleted when built-in, and cannot be deleted while bound;
 - a group-scoped binding covers the group's connections and descendant groups
-  but not unrelated connections; an unbound user keeps role-only behavior;
+  but not unrelated connections; a database-scoped binding matches only its
+  database on its connection; an unbound user keeps role-only behavior;
 - a session row can be stored, found, listed, revoked, and expired rows are
   purged;
 - route classification: SQL execution requires `query:write`, listing requires

@@ -36,9 +36,9 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
 
 - `connection_groups` / `connection_group_members` are server-owned; the client
   sidebar layout is never an authorization source.
-- Role bindings carry `global`, `connection`, or `connection_group` scope
-  (`database` is rejected until enforcement exists). Child groups inherit a
-  parent binding at authorization time via a recursive query.
+- Role bindings carry `global`, `connection`, `connection_group`, or `database`
+  scope (database encoded as `<connection_id>::<database>`). Child groups
+  inherit a parent binding at authorization time via a recursive query.
 - Execution authorization: a local user with bindings may only touch covered
   connections and must hold `query:read` / `query:write` / `query:ddl` for the
   statement. Users without bindings keep role-only behavior. This check runs in

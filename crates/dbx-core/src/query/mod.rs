@@ -3027,6 +3027,7 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
         state,
         scope_actor.as_deref(),
         connection_id,
+        Some(database),
         &[sql.to_string()],
         db_type,
     )
@@ -5599,6 +5600,7 @@ pub async fn execute_blob_bound_statements(
         state,
         scope_actor.as_deref(),
         connection_id,
+        Some(database),
         &sql,
         connection_database_type(state, connection_id).await,
     )
