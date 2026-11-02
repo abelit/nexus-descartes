@@ -618,8 +618,14 @@ at global scope; every response carries the effective permission codes.
 GET /api/users
 POST /api/users
 PATCH /api/users/{user_id}
+POST /api/users/{user_id}/password
+GET /api/users/{user_id}/sessions
+DELETE /api/users/{user_id}/sessions/{session_id}
 POST /api/users/{user_id}/sessions/revoke
 GET /api/roles
+POST /api/roles
+PUT /api/roles/{code}
+DELETE /api/roles/{code}
 ```
 
 ```json
@@ -631,9 +637,17 @@ GET /api/roles
 }
 ```
 
-All five routes require `admin:users`. Disabling a user or changing their role
-revokes their live sessions. The built-in `admin` user cannot be disabled or
-moved off the `admin` role.
+All routes require `admin:users`. Disabling a user, changing their role, or
+resetting their password revokes their live sessions. The built-in `admin` user
+cannot be disabled or moved off the `admin` role. `PATCH` also accepts
+`display_name`.
+
+Custom roles are created with a code (1-64 chars of `[a-z0-9_.-]`, not a
+built-in code), a name, and a list of permission codes; built-in roles cannot be
+edited or deleted, and a role still bound to users cannot be deleted. Editing a
+role's permissions signs out every user bound to it so the change takes effect
+immediately. Role sessions are listed per user (id, timestamps, client address,
+user agent) and can be revoked individually or all at once.
 
 | Role | Capabilities |
 | --- | --- |

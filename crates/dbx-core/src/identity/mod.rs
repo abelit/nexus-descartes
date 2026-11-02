@@ -7,6 +7,9 @@
 
 pub mod hilbert;
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, RwLock};
+
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -228,16 +231,63 @@ impl BuiltinRole {
     }
 }
 
-/// Effective permissions for a set of role codes. Unknown codes (custom roles
-/// not shipped yet) contribute nothing rather than failing open.
+/// Resolved permission codes per role. Built-ins are always present; custom
+/// roles come from `roles`/`role_permissions` and are installed by the server.
+/// A custom role may never reuse a built-in code.
+static ROLES: LazyLock<RwLock<HashMap<String, Vec<String>>>> = LazyLock::new(|| {
+    let mut roles = HashMap::new();
+    for role in BuiltinRole::ALL {
+        roles.insert(
+            role.code().to_string(),
+            role.permissions().iter().map(|permission| permission.as_str().to_string()).collect(),
+        );
+    }
+    RwLock::new(roles)
+});
+
+/// Replaces the custom roles with the given set (built-ins stay). Unknown
+/// permission codes are dropped rather than trusted.
+pub fn install_custom_roles(roles: Vec<(String, Vec<String>)>) {
+    let mut registry = ROLES.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    registry.retain(|code, _| BuiltinRole::parse(code).is_some());
+    for (code, permissions) in roles {
+        if code.trim().is_empty() || BuiltinRole::parse(&code).is_some() {
+            continue;
+        }
+        let mut permissions: Vec<String> =
+            permissions.into_iter().filter(|permission| Permission::parse(permission).is_some()).collect();
+        permissions.sort();
+        permissions.dedup();
+        registry.insert(code, permissions);
+    }
+}
+
+/// Every known role code with its resolved permissions (built-ins first).
+pub fn known_roles() -> Vec<(String, Vec<String>)> {
+    let registry = ROLES.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut roles = registry.iter().map(|(code, permissions)| (code.clone(), permissions.clone())).collect::<Vec<_>>();
+    roles.sort_by(|left, right| {
+        let left_builtin = BuiltinRole::parse(&left.0).is_some();
+        let right_builtin = BuiltinRole::parse(&right.0).is_some();
+        right_builtin.cmp(&left_builtin).then_with(|| left.0.cmp(&right.0))
+    });
+    roles
+}
+
+pub fn role_permissions(code: &str) -> Option<Vec<String>> {
+    ROLES.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(code).cloned()
+}
+
+/// Effective permissions for a set of role codes. Unknown codes contribute
+/// nothing rather than failing open.
 pub fn permissions_for_roles(role_codes: &[String]) -> Vec<String> {
+    let registry = ROLES.read().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut permissions = Vec::new();
     for code in role_codes {
-        if let Some(role) = BuiltinRole::parse(code) {
-            for permission in role.permissions() {
-                let value = permission.as_str().to_string();
-                if !permissions.contains(&value) {
-                    permissions.push(value);
+        if let Some(granted) = registry.get(code) {
+            for permission in granted {
+                if !permissions.contains(permission) {
+                    permissions.push(permission.clone());
                 }
             }
         }
@@ -247,7 +297,10 @@ pub fn permissions_for_roles(role_codes: &[String]) -> Vec<String> {
 }
 
 pub fn has_permission(role_codes: &[String], permission: Permission) -> bool {
-    role_codes.iter().any(|code| BuiltinRole::parse(code).is_some_and(|role| role.permissions().contains(&permission)))
+    let registry = ROLES.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    role_codes
+        .iter()
+        .any(|code| registry.get(code).is_some_and(|granted| granted.iter().any(|value| value == permission.as_str())))
 }
 
 pub fn hash_password(password: &str) -> Result<String, String> {
@@ -382,6 +435,30 @@ mod tests {
         assert!(!session_expired(0, 500, 900, policy));
         assert!(session_expired(0, 0, 1_000, policy), "idle limit");
         assert!(session_expired(0, 9_500, 10_000, policy), "absolute limit");
+    }
+
+    #[test]
+    fn custom_roles_grant_their_installed_permissions() {
+        let code = format!("test.custom.{}", uuid::Uuid::new_v4());
+        install_custom_roles(vec![(
+            code.clone(),
+            vec!["audit:read".to_string(), "query:read".to_string(), "bogus".to_string()],
+        )]);
+        let roles = vec![code.clone()];
+        assert!(has_permission(&roles, Permission::AuditRead));
+        assert!(has_permission(&roles, Permission::QueryRead));
+        assert!(!has_permission(&roles, Permission::QueryWrite));
+        assert_eq!(role_permissions(&code).unwrap(), vec!["audit:read".to_string(), "query:read".to_string()]);
+        install_custom_roles(Vec::new());
+        assert!(!has_permission(&roles, Permission::AuditRead));
+    }
+
+    #[test]
+    fn custom_roles_cannot_reuse_a_builtin_code() {
+        install_custom_roles(vec![("admin".to_string(), vec!["query:read".to_string()])]);
+        // Built-in admin still holds everything.
+        assert!(has_permission(&["admin".to_string()], Permission::AdminUsers));
+        install_custom_roles(Vec::new());
     }
 
     #[test]

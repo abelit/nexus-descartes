@@ -6,6 +6,14 @@ use chrono::Utc;
 
 /// Creates the identity tables and seeds the built-in roles. Idempotent: every
 /// statement uses `IF NOT EXISTS`, and role rows use `INSERT OR IGNORE`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomRoleRow {
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    pub permissions: Vec<String>,
+}
+
 pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS users (
@@ -217,6 +225,18 @@ impl Storage {
         .await
     }
 
+    pub async fn update_user_display_name(&self, user_id: String, display_name: String) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            conn.execute(
+                "UPDATE users SET display_name = ?1, updated_at = ?2 WHERE id = ?3",
+                params![display_name, now_rfc3339(), user_id],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn set_user_status(&self, user_id: String, status: String) -> Result<(), String> {
         self.with_conn(move |conn| {
             conn.execute(
@@ -296,6 +316,149 @@ impl Storage {
             conn.execute("UPDATE users SET last_login_at = ?1 WHERE id = ?2", params![now_rfc3339(), user_id])
                 .map_err(|error| error.to_string())?;
             Ok(())
+        })
+        .await
+    }
+
+    /// Custom roles with their permissions (built-in roles are code-defined).
+    pub async fn list_custom_roles(&self) -> Result<Vec<CustomRoleRow>, String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT code, name, description FROM roles WHERE builtin = 0 ORDER BY code")
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+                .map_err(|error| error.to_string())?;
+            let mut roles = Vec::new();
+            for row in rows {
+                let (code, name, description) = row.map_err(|error| error.to_string())?;
+                let mut permission_stmt = conn
+                    .prepare("SELECT permission FROM role_permissions WHERE role_code = ?1 ORDER BY permission")
+                    .map_err(|error| error.to_string())?;
+                let permissions = permission_stmt
+                    .query_map([&code], |row| row.get::<_, String>(0))
+                    .map_err(|error| error.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
+                roles.push(CustomRoleRow { code, name, description, permissions });
+            }
+            Ok(roles)
+        })
+        .await
+    }
+
+    pub async fn create_custom_role(
+        &self,
+        code: String,
+        name: String,
+        description: String,
+        permissions: Vec<String>,
+    ) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let builtin: Option<i64> = conn
+                .query_row("SELECT builtin FROM roles WHERE code = ?1", [&code], |row| row.get(0))
+                .optional()
+                .map_err(|error| error.to_string())?;
+            if builtin.is_some() {
+                return Err("ROLE_CODE_TAKEN".to_string());
+            }
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            tx.execute(
+                "INSERT INTO roles (code, name, description, builtin) VALUES (?1, ?2, ?3, 0)",
+                params![code, name, description],
+            )
+            .map_err(|error| error.to_string())?;
+            for permission in permissions {
+                tx.execute(
+                    "INSERT OR IGNORE INTO role_permissions (role_code, permission) VALUES (?1, ?2)",
+                    params![code, permission],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn update_custom_role(
+        &self,
+        code: String,
+        name: String,
+        description: String,
+        permissions: Vec<String>,
+    ) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let builtin: i64 = conn
+                .query_row("SELECT builtin FROM roles WHERE code = ?1", [&code], |row| row.get(0))
+                .optional()
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "ROLE_NOT_FOUND".to_string())?;
+            if builtin != 0 {
+                return Err("ROLE_BUILTIN_IMMUTABLE".to_string());
+            }
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            tx.execute(
+                "UPDATE roles SET name = ?1, description = ?2 WHERE code = ?3",
+                params![name, description, code],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM role_permissions WHERE role_code = ?1", [&code])
+                .map_err(|error| error.to_string())?;
+            for permission in permissions {
+                tx.execute(
+                    "INSERT OR IGNORE INTO role_permissions (role_code, permission) VALUES (?1, ?2)",
+                    params![code, permission],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn delete_custom_role(&self, code: String) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let builtin: i64 = conn
+                .query_row("SELECT builtin FROM roles WHERE code = ?1", [&code], |row| row.get(0))
+                .optional()
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "ROLE_NOT_FOUND".to_string())?;
+            if builtin != 0 {
+                return Err("ROLE_BUILTIN_IMMUTABLE".to_string());
+            }
+            let bindings: i64 = conn
+                .query_row("SELECT COUNT(*) FROM role_bindings WHERE role_code = ?1", [&code], |row| row.get(0))
+                .map_err(|error| error.to_string())?;
+            if bindings > 0 {
+                return Err("ROLE_IN_USE".to_string());
+            }
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM role_permissions WHERE role_code = ?1", [&code])
+                .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM roles WHERE code = ?1", [&code]).map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn user_ids_for_role(&self, role_code: String) -> Result<Vec<String>, String> {
+        self.with_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT DISTINCT principal_id FROM role_bindings WHERE principal_type = 'user' AND role_code = ?1",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt.query_map([role_code], |row| row.get::<_, String>(0)).map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
         })
         .await
     }
@@ -460,6 +623,54 @@ mod tests {
         for role in BuiltinRole::ALL {
             assert!(!role.permissions().is_empty(), "{}", role.code());
         }
+    }
+
+    #[tokio::test]
+    async fn custom_roles_round_trip_and_refuse_builtin_bindings() {
+        let (storage, _) = storage().await;
+        storage
+            .create_custom_role(
+                "ops_readonly".to_string(),
+                "Ops read-only".to_string(),
+                "reads only".to_string(),
+                vec!["query:read".to_string(), "audit:read".to_string()],
+            )
+            .await
+            .unwrap();
+        let roles = storage.list_custom_roles().await.unwrap();
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles[0].permissions, vec!["audit:read".to_string(), "query:read".to_string()]);
+
+        storage
+            .update_custom_role(
+                "ops_readonly".to_string(),
+                "Ops read-only".to_string(),
+                "reads and exports".to_string(),
+                vec!["query:read".to_string()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(storage.list_custom_roles().await.unwrap()[0].permissions, vec!["query:read".to_string()]);
+
+        // A bound role cannot be deleted.
+        storage
+            .create_user(
+                "ops@example.com".to_string(),
+                "Ops".to_string(),
+                hash_password("secret123").unwrap(),
+                "ops_readonly".to_string(),
+                "admin".to_string(),
+            )
+            .await
+            .unwrap();
+        let user = storage.user_by_email("ops@example.com".to_string()).await.unwrap().unwrap();
+        assert_eq!(storage.user_ids_for_role("ops_readonly".to_string()).await.unwrap(), vec![user.id.clone()]);
+        assert_eq!(storage.delete_custom_role("ops_readonly".to_string()).await.unwrap_err(), "ROLE_IN_USE");
+        storage.unbind_role(user.id, "ops_readonly".to_string()).await.unwrap();
+        storage.delete_custom_role("ops_readonly".to_string()).await.unwrap();
+        assert!(storage.list_custom_roles().await.unwrap().is_empty());
+
+        assert_eq!(storage.delete_custom_role("viewer".to_string()).await.unwrap_err(), "ROLE_BUILTIN_IMMUTABLE");
     }
 
     #[tokio::test]

@@ -20,6 +20,8 @@ The identity suite covers:
 - the built-in admin is created once, bound to `admin`, and keeps its password;
 - built-in roles and their permission rows are seeded;
 - an expired role binding does not grant its role;
+- custom roles round-trip with their permissions, cannot reuse a built-in code,
+  cannot be edited/deleted when built-in, and cannot be deleted while bound;
 - a session row can be stored, found, listed, revoked, and expired rows are
   purged;
 - route classification: SQL execution requires `query:write`, listing requires
@@ -45,9 +47,10 @@ The identity suite covers:
 
 ## Known gaps
 
-- Login throttling is keyed by account only; the client IP is not part of the
-  key yet, so an attacker rotating accounts is not slowed down.
+- Login throttling is keyed by client address + account; an attacker rotating
+  accounts from one address is slowed, but a distributed attack is not.
 - Roles are re-resolved only at login or lazy session restore; a role change
   revokes sessions instead of hot-updating permissions.
-- `client_ip` is not yet stored on the login session (it is recorded on audit
-  events by the auth middleware).
+- `client_ip` is recorded on audit events and resolved per request, but login
+  does not yet store it on the session row (admin session lists show it only for
+  sessions created after the next slice).

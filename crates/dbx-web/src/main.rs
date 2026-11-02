@@ -711,6 +711,10 @@ async fn serve() -> Result<(), String> {
         }
     }
     web_state.restore_sessions().await;
+    // Custom roles become effective before the first request.
+    if let Err(error) = routes::users::reload_role_registry(&web_state).await {
+        return Err(format!("ROLE_REGISTRY_LOAD_FAILED: {}", error.message));
+    }
     // Stored policies are compiled at startup; an invalid document must not be
     // silently replaced by the built-ins.
     if let Err(error) = routes::policies::reload_policy(&web_state).await {
@@ -1687,8 +1691,12 @@ async fn serve() -> Result<(), String> {
     let api = api
         .route("/users", get(routes::users::list_users).post(routes::users::create_user))
         .route("/users/{user_id}", patch(routes::users::update_user))
+        .route("/users/{user_id}/password", post(routes::users::reset_user_password))
+        .route("/users/{user_id}/sessions", get(routes::users::list_user_sessions))
         .route("/users/{user_id}/sessions/revoke", post(routes::users::revoke_user_sessions))
-        .route("/roles", get(routes::users::list_roles));
+        .route("/users/{user_id}/sessions/{session_id}", delete(routes::users::revoke_user_session))
+        .route("/roles", get(routes::users::list_roles).post(routes::users::create_role))
+        .route("/roles/{code}", put(routes::users::update_role).delete(routes::users::delete_role));
 
     let api = api
         .layer(middleware::from_fn_with_state(web_state.clone(), migration_gate))

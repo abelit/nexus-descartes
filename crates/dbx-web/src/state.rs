@@ -250,6 +250,31 @@ impl WebState {
         }
     }
 
+    /// Revokes one persisted session by its database id (admin action).
+    pub async fn revoke_session_by_db_id(&self, db_id: &str) {
+        let tokens: Vec<String> = {
+            let mut actors = self.session_actors.write().await;
+            let tokens = actors
+                .iter()
+                .filter(|(_, session)| session.db_id == db_id)
+                .map(|(token, _)| token.clone())
+                .collect::<Vec<_>>();
+            for token in &tokens {
+                actors.remove(token);
+            }
+            tokens
+        };
+        {
+            let mut sessions = self.sessions.write().await;
+            for token in &tokens {
+                sessions.remove(token);
+            }
+        }
+        if let Err(error) = self.app.storage.revoke_web_session(db_id.to_string()).await {
+            log::warn!("[auth] session revocation failed: {error}");
+        }
+    }
+
     pub async fn remove_session(&self, token: &str) {
         self.sessions.write().await.remove(token);
         let removed = self.session_actors.write().await.remove(token);

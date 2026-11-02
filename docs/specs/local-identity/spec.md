@@ -32,6 +32,18 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
   (`ROUTE_PERMISSION_UNCLASSIFIED` otherwise), so new routes must be classified
   before regular users can call them.
 
+## Custom roles and user administration
+
+- Custom roles live in `roles`/`role_permissions`; a process-wide registry is
+  seeded with built-ins and replaced from the database at startup and after
+  every role change.
+- A custom role may not reuse a built-in code; built-ins are immutable; a role
+  still bound to a user cannot be deleted.
+- Editing a role revokes the sessions of every bound user, so permissions never
+  go stale inside a session.
+- Admins can reset a user's password, edit the display name, list a user's live
+  sessions, and revoke one session or all of them.
+
 ## Data model
 
 `users`, `roles`, `role_permissions`, `role_bindings`, `web_sessions`.
@@ -48,7 +60,6 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
 
 ## Non-goals
 
-- Custom roles with editable permission sets (built-in roles only).
 - Per-resource scopes on bindings (the column exists; enforcement arrives with
   the policy engine).
 - hilbert JWT login (blocked on independent keys and `aud=dbx`).
