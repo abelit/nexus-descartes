@@ -13,8 +13,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${1:-$ROOT/target/debug/dbx-web}"
 PORT="${DBX_E2E_PORT:-4317}"
-PG_PORT="${DBX_E2E_PG_PORT:-55432}"
-MYSQL_PORT="${DBX_E2E_MYSQL_PORT:-53306}"
+PG_PORT="${DBX_E2E_PG_PORT:-55433}"
+MYSQL_PORT="${DBX_E2E_MYSQL_PORT:-53307}"
 BASE="http://127.0.0.1:$PORT"
 WORK="$(mktemp -d /tmp/dbx-e2e-gov.XXXXXX)"
 SERVER_PID=""
@@ -80,7 +80,7 @@ pass "admin login"
 
 PG_ID="$(uuidgen)"
 MYSQL_ID="$(uuidgen)"
-status=$(http POST /api/connection/save "$ADMIN" "{\"configs\":[{\"id\":\"$PG_ID\",\"name\":\"e2e-pg\",\"db_type\":\"postgres\",\"host\":\"127.0.0.1\",\"port\":$PG_PORT,\"username\":\"postgres\",\"password\":\"dbx\",\"database\":\"app\"},{\"id\":\"$MYSQL_ID\",\"name\":\"e2e-mysql\",\"db_type\":\"mysql\",\"host\":\"127.0.0.1\",\"port\":$MYSQL_PORT,\"username\":\"root\",\"password\":\"dbx\",\"database\":\"app\"}]}")
+status=$(http POST /api/connection/save "$ADMIN" "{\"configs\":[{\"id\":\"$PG_ID\",\"name\":\"e2e-pg\",\"db_type\":\"postgres\",\"host\":\"127.0.0.1\",\"port\":$PG_PORT,\"username\":\"postgres\",\"password\":\"dbx\",\"database\":\"app\",\"save_password\":true},{\"id\":\"$MYSQL_ID\",\"name\":\"e2e-mysql\",\"db_type\":\"mysql\",\"host\":\"127.0.0.1\",\"port\":$MYSQL_PORT,\"username\":\"root\",\"password\":\"dbx\",\"database\":\"app\",\"save_password\":true}]}")
 expect_status 200 "$status" "save connections"
 pass "saved PostgreSQL and MySQL connections"
 
@@ -178,21 +178,37 @@ expect_status 200 "$status" "approval detail"
 [[ "$(jq -r '.decisions | length' "$WORK/body.json")" == "3" ]] || fail "expected three recorded votes"
 pass "approval timeline exposes recorded votes"
 
-status=$(http POST "/api/approvals/$APPROVAL_ID/execute-token" "$REQ")
-expect_status 200 "$status" "issue token"
-TOKEN=$(jq -r '.token' "$WORK/body.json")
-[[ -n "$TOKEN" && "$TOKEN" != "null" ]] || fail "empty execution token"
-pass "issued one-time execution token"
+status=$(http POST "/api/approvals/$APPROVAL_ID/execute" "$REQ")
+expect_status 200 "$status" "execute approved request"
+[[ "$(jq -r '.status' "$WORK/body.json")" == "executed" ]] || fail "request should be executed"
+pass "approved PostgreSQL DDL executed from the stored request"
 
-status=$(curl -sS -o "$WORK/body.json" -w '%{http_code}' -b "$REQ" -X POST -H 'content-type: application/json' \
-  -H "X-DBX-Approval-Token: $TOKEN" \
-  -d "{\"connectionId\":\"$PG_ID\",\"database\":\"app\",\"sql\":\"$PG_DDL\"}" "$BASE/api/query/execute")
-expect_status 200 "$status" "approved DDL execution"
-pass "approved PostgreSQL DDL executed with the token"
+status=$(http POST "/api/approvals/$APPROVAL_ID/execute" "$REQ")
+expect_status 409 "$status" "second execution"
+pass "an approval can be executed only once"
 
-status=$(http POST /api/query/execute "$REQ" "{\"connectionId\":\"$PG_ID\",\"database\":\"app\",\"sql\":\"$PG_DDL\"}")
-expect_status 403 "$status" "token reuse / new execution"
-pass "a spent token cannot authorize another execution"
+# auto mode: the server executes immediately after the last approval, using
+# the stored connection password.
+AUTO_DDL="create table demo_auto(id int)"
+status=$(http POST /api/approvals "$REQ" "{\"connection_id\":\"$PG_ID\",\"database\":\"app\",\"sql\":\"$AUTO_DDL\",\"justification\":\"e2e auto\",\"execution_mode\":\"auto\"}")
+expect_status 200 "$status" "create auto approval"
+AUTO_APPROVAL=$(jq -r '.id' "$WORK/body.json")
+http POST "/api/approvals/$AUTO_APPROVAL/approve" "$DBA1" '{"comment":"ok"}' >/dev/null
+http POST "/api/approvals/$AUTO_APPROVAL/approve" "$DBA1" '{"comment":"ok"}' >/dev/null
+http POST "/api/approvals/$AUTO_APPROVAL/approve" "$DBA2" '{"comment":"ok"}' >/dev/null
+auto_executed=0
+for _ in $(seq 1 30); do
+  http GET "/api/approvals/$AUTO_APPROVAL" "$REQ" >/dev/null
+  case "$(jq -r '.status' "$WORK/body.json")" in
+    executed) auto_executed=1; break ;;
+    execution_failed) fail "auto execution failed: $(jq -r '.execution_error // "unknown"' "$WORK/body.json")" ;;
+  esac
+  sleep 1
+done
+[[ "$auto_executed" == "1" ]] || fail "auto execution did not finish"
+table_exists=$(docker exec dbx-e2e-pg psql -U postgres -d app -tAc "select to_regclass('public.demo_auto') is not null")
+[[ "$table_exists" == "t" ]] || fail "auto execution did not create the table"
+pass "auto mode executed the stored SQL after the last approval"
 
 # MySQL takes the same multi-step path.
 status=$(http POST /api/approvals "$REQ" "{\"connection_id\":\"$MYSQL_ID\",\"database\":\"app\",\"sql\":\"$MYSQL_DDL\",\"justification\":\"e2e\"}")
@@ -213,7 +229,13 @@ pass "approved MySQL DDL executed with the token"
 # Audit chain and records.
 status=$(http GET "/api/audit/verify" "$ADMIN")
 expect_status 200 "$status" "audit verify"
-[[ "$(jq -r '.first_broken_seq' "$WORK/body.json")" == "null" ]] || fail "audit chain is broken"
+if [[ "$(jq -r '.first_broken_seq' "$WORK/body.json")" != "null" ]]; then
+  # A verification racing a background write may need one more read once the
+  # writer has settled; a real break stays broken.
+  sleep 2
+  http GET "/api/audit/verify" "$ADMIN" >/dev/null
+fi
+[[ "$(jq -r '.first_broken_seq' "$WORK/body.json")" == "null" ]] || fail "audit chain is broken: $(cat "$WORK/body.json")"
 
 found_required=0
 for _ in $(seq 1 20); do

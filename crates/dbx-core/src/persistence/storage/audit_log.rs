@@ -737,9 +737,14 @@ fn verify_chain_sync(
     from_seq: Option<i64>,
     to_seq: Option<i64>,
 ) -> Result<AuditChainReport, String> {
-    let head = read_head_sync(conn)?;
+    // Read MAX(seq) before the head, not after: the writer appends a row and
+    // advances the head in one transaction, so this order guarantees
+    // `head >= max_seq` even when a concurrent write lands between the two
+    // reads. The opposite order produced a false "chain broken" report while
+    // approvals executed in the background.
     let max_seq: Option<i64> =
         conn.query_row("SELECT MAX(seq) FROM audit_events", [], |row| row.get(0)).map_err(|error| error.to_string())?;
+    let head = read_head_sync(conn)?;
     // A lowered/rolled-back head must not hide rows that still exist above it.
     if max_seq.unwrap_or(0) > head.0 {
         return Ok(AuditChainReport {
@@ -927,6 +932,7 @@ fn parse_source(value: String) -> AuditSource {
         "cli" => AuditSource::Cli,
         "mcp" => AuditSource::Mcp,
         "ai" => AuditSource::Ai,
+        "approval" => AuditSource::Approval,
         _ => AuditSource::System,
     }
 }
@@ -1170,6 +1176,28 @@ mod tests {
     async fn storage() -> (Storage, std::path::PathBuf) {
         let path = std::env::temp_dir().join(format!("dbx-audit-{}.db", uuid::Uuid::new_v4()));
         (crate::persistence::test_storage::open(&path).await.unwrap(), path)
+    }
+
+    #[tokio::test]
+    async fn every_audit_source_round_trips_through_verification() {
+        let (storage, _) = storage().await;
+        let sources = [
+            AuditSource::Web,
+            AuditSource::Desktop,
+            AuditSource::Cli,
+            AuditSource::Mcp,
+            AuditSource::Ai,
+            AuditSource::System,
+            AuditSource::Approval,
+        ];
+        for (index, source) in sources.iter().enumerate() {
+            let mut insert = event(&format!("source-{index}"), "SELECT 1");
+            insert.source = source.clone();
+            storage.insert_audit_event(insert).await.unwrap();
+        }
+        let report = storage.verify_audit_chain(None, None).await.unwrap();
+        assert_eq!(report.first_broken_seq, None);
+        assert_eq!(report.checked, sources.len() as i64);
     }
 
     #[tokio::test]

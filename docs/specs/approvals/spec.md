@@ -48,10 +48,11 @@ An approval walks a template's steps in order:
   `approval:act`.
 - A rejection on any step rejects the request and marks the remaining steps
   `skipped`. The request only becomes `approved` after the last step completes.
-- An approved DDL token also satisfies the resource scope: a role that holds
-  `query:write` but not `query:ddl` may execute the approved statement. Rules
-  (including `block`) are still re-evaluated before the token is consumed, and
-  the token is only consumed after the scope check passes.
+- An approved request also satisfies the resource scope: a role that holds
+  `query:write` but not `query:ddl` may execute the approved statements. Rules
+  (including `block`) are re-evaluated at execution time.
+- The request stores the authoritative ordered statement list. Execution
+  always runs that stored list; a client cannot substitute different SQL.
 - Templates are unique per scope. Resolution prefers a connection template over
   a global one; `POST /api/approvals` accepts `template_id` to override it.
 - Template documents are validated when published: at least one step, at most
@@ -61,12 +62,46 @@ An approval walks a template's steps in order:
   state and the vote are written together, so a crash cannot leave a vote
   without its state change.
 
+## Execution
+
+The execution model follows Alibaba Cloud DMS: the approved ticket owns the
+SQL, and an execution mode decides who triggers it.
+
+| Mode | Trigger | DMS name |
+|---|---|---|
+| `submitter` (default) | the requester calls `POST /api/approvals/{id}/execute` | COMMITOR |
+| `last_approver` | the approver who completes the last step triggers execution | LAST_AUDITOR |
+| `auto` | the server executes immediately after the last approval | AUTO |
+
+- The mode is chosen when the request is created (`execution_mode`), or defaults
+  to `DBX_APPROVAL_EXECUTION_MODE` (unset or invalid means `submitter`).
+- `last_approver` and `auto` run without the requester's session, so they are
+  rejected at creation unless the connection has `save_password=true`. The
+  expected degraded mode for session-only credentials is `submitter`.
+- Execution re-binds the stored statements: statement digest, connection
+  configuration hash, database, schema, current policy bundle hash, and the
+  current require-approval rule IDs must match the request hash. A mismatch
+  fails the request with `APPROVAL_BINDING_MISMATCH`; a `block` rule fails it
+  with `POLICY_DENIED`.
+- `claim_approval_execution` moves `approved -> executing` atomically, so one
+  approval executes at most once. The outcome is `executed` or
+  `execution_failed` with `execution_error` and `executed_by`.
+- Execution events are audited with `source=approval` and the approval ID; SQL
+  events carry the same execution ID.
+- The one-time token endpoint remains for CLI/MCP/external clients. It binds the
+  same request hash and is consumed before execution, independently of the
+  server-side one-shot claim.
+
 ## API
 
 `POST /api/approvals`, `GET /api/approvals`, `GET /api/approvals/{id}`,
 `POST /api/approvals/{id}/approve`, `POST /api/approvals/{id}/reject`,
-`POST /api/approvals/{id}/execute-token`, `GET/POST /api/approval-templates`,
-`PUT/DELETE /api/approval-templates/{id}`.
+`POST /api/approvals/{id}/execute`, `POST /api/approvals/{id}/execute-token`,
+`GET/POST /api/approval-templates`, `PUT/DELETE /api/approval-templates/{id}`.
+
+`POST /api/approvals/{id}/execute` requires `query:write`, the requester's
+identity, `approved` status, and `submitter` mode. It returns the refreshed
+request with the execution status.
 
 `GET /api/approvals/{id}` returns the request, its steps, and the recorded
 votes. It is limited to the requester, an administrator, and actors who may
@@ -74,7 +109,8 @@ decide one of the steps.
 
 ## Data model
 
-`approval_requests`, `approval_steps`, `approval_step_decisions`,
+`approval_requests` (including `statements_json`, `execution_mode`,
+`execution_error`, `executed_by`), `approval_steps`, `approval_step_decisions`,
 `approval_templates`, `approval_tokens` (append-style; tokens are never reused).
 
 ## Non-goals

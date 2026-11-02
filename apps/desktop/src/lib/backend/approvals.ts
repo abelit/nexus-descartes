@@ -38,6 +38,10 @@ export interface ApprovalRequest {
   template_id: string;
   current_step_no: number;
   step_count: number;
+  execution_mode: string;
+  execution_error?: string | null;
+  executed_by?: string | null;
+  executed_at_ms?: number | null;
   steps: ApprovalStep[];
   created_at_ms: number;
   expires_at_ms?: number | null;
@@ -84,7 +88,7 @@ export function getApproval(id: string): Promise<ApprovalDetail> {
   return request<ApprovalDetail>(`/api/approvals/${encodeURIComponent(id)}`);
 }
 
-export function createApproval(input: { connection_id: string; database: string; sql: string; justification?: string; template_id?: string }): Promise<ApprovalRequest> {
+export function createApproval(input: { connection_id: string; database: string; sql: string; justification?: string; template_id?: string; execution_mode?: "submitter" | "last_approver" | "auto" }): Promise<ApprovalRequest> {
   return request<ApprovalRequest>("/api/approvals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -102,6 +106,12 @@ export function decideApproval(id: string, decision: "approve" | "reject", comme
 
 export function issueExecuteToken(id: string): Promise<ExecuteToken> {
   return request<ExecuteToken>(`/api/approvals/${encodeURIComponent(id)}/execute-token`, { method: "POST" });
+}
+
+/// Executes the statements stored on an approved request (DMS-style). The
+/// client does not send SQL; the server runs the reviewed artifact once.
+export function executeApproval(id: string): Promise<ApprovalRequest> {
+  return request<ApprovalRequest>(`/api/approvals/${encodeURIComponent(id)}/execute`, { method: "POST" });
 }
 
 export function listApprovalTemplates(): Promise<ApprovalTemplate[]> {

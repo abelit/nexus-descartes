@@ -4,8 +4,8 @@ use std::collections::HashSet;
 
 use super::{params, OptionalExtension, Storage};
 use crate::governance::approval::{
-    ApprovalDecisionOutcome, ApprovalRequest, ApprovalStatus, ApprovalStep, ApprovalStepDecision, ApprovalStepMode,
-    ApprovalStepStatus, ApprovalTemplate, ApprovalToken, ApprovalVote,
+    ApprovalDecisionOutcome, ApprovalExecutionMode, ApprovalRequest, ApprovalStatus, ApprovalStep,
+    ApprovalStepDecision, ApprovalStepMode, ApprovalStepStatus, ApprovalTemplate, ApprovalToken, ApprovalVote,
 };
 
 pub(super) fn ensure_approval_schema_sync(conn: &rusqlite::Connection) -> Result<(), String> {
@@ -19,6 +19,7 @@ pub(super) fn ensure_approval_schema_sync(conn: &rusqlite::Connection) -> Result
             database TEXT NOT NULL DEFAULT '',
             schema_name TEXT,
             sql_text TEXT NOT NULL,
+            statements_json TEXT NOT NULL DEFAULT '[]',
             sql_digest TEXT NOT NULL,
             statement_count INTEGER NOT NULL DEFAULT 1,
             risk_level TEXT,
@@ -29,6 +30,9 @@ pub(super) fn ensure_approval_schema_sync(conn: &rusqlite::Connection) -> Result
             template_id TEXT NOT NULL DEFAULT '',
             current_step_no INTEGER NOT NULL DEFAULT 1,
             step_count INTEGER NOT NULL DEFAULT 1,
+            execution_mode TEXT NOT NULL DEFAULT 'submitter',
+            execution_error TEXT,
+            executed_by TEXT,
             expires_at_ms INTEGER,
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL,
@@ -108,6 +112,10 @@ fn ensure_approval_request_columns_sync(conn: &rusqlite::Connection) -> Result<(
         ("template_id", "TEXT NOT NULL DEFAULT ''"),
         ("current_step_no", "INTEGER NOT NULL DEFAULT 1"),
         ("step_count", "INTEGER NOT NULL DEFAULT 1"),
+        ("statements_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("execution_mode", "TEXT NOT NULL DEFAULT 'submitter'"),
+        ("execution_error", "TEXT"),
+        ("executed_by", "TEXT"),
     ] {
         if !columns.contains(name) {
             conn.execute(&format!("ALTER TABLE approval_requests ADD COLUMN {name} {definition}"), [])
@@ -124,6 +132,13 @@ fn parse_json_vec(raw: &str) -> Vec<String> {
 fn row_to_request(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalRequest> {
     let rule_ids_json: String = row.get("rule_ids_json")?;
     let status: String = row.get("status")?;
+    let execution_mode: String = row.get("execution_mode")?;
+    let sql_text: String = row.get("sql_text")?;
+    let mut statements = parse_json_vec(&row.get::<_, String>("statements_json")?);
+    if statements.is_empty() {
+        // Rows created before statements_json existed stored one joined text.
+        statements = vec![sql_text.clone()];
+    }
     Ok(ApprovalRequest {
         id: row.get("id")?,
         request_type: row.get("request_type")?,
@@ -132,7 +147,8 @@ fn row_to_request(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalRequest> 
         connection_id: row.get("connection_id")?,
         database: row.get("database")?,
         schema_name: row.get("schema_name")?,
-        sql_text: row.get("sql_text")?,
+        sql_text,
+        statements,
         sql_digest: row.get("sql_digest")?,
         statement_count: row.get("statement_count")?,
         risk_level: row.get("risk_level")?,
@@ -143,6 +159,9 @@ fn row_to_request(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalRequest> 
         template_id: row.get("template_id")?,
         current_step_no: row.get("current_step_no")?,
         step_count: row.get("step_count")?,
+        execution_mode: ApprovalExecutionMode::parse(&execution_mode).unwrap_or_default(),
+        execution_error: row.get("execution_error")?,
+        executed_by: row.get("executed_by")?,
         expires_at_ms: row.get("expires_at_ms")?,
         created_at_ms: row.get("created_at_ms")?,
         updated_at_ms: row.get("updated_at_ms")?,
@@ -224,14 +243,16 @@ impl Storage {
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                 .map_err(|error| error.to_string())?;
             let rule_ids_json = serde_json::to_string(&request.rule_ids).map_err(|error| error.to_string())?;
+            let statements_json = serde_json::to_string(&request.statements).map_err(|error| error.to_string())?;
             tx.execute(
                 "INSERT INTO approval_requests (
                     id, request_type, status, requester_id, connection_id, database, schema_name,
-                    sql_text, sql_digest, statement_count, risk_level, rule_ids_json,
+                    sql_text, statements_json, sql_digest, statement_count, risk_level, rule_ids_json,
                     policy_bundle_hash, justification, request_hash, template_id, current_step_no,
-                    step_count, expires_at_ms, created_at_ms, updated_at_ms, executed_at_ms
+                    step_count, execution_mode, execution_error, executed_by, expires_at_ms,
+                    created_at_ms, updated_at_ms, executed_at_ms
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                           ?18, ?19, ?20, ?21, NULL)",
+                           ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, NULL)",
                 params![
                     request.id,
                     request.request_type,
@@ -241,6 +262,7 @@ impl Storage {
                     request.database,
                     request.schema_name,
                     request.sql_text,
+                    statements_json,
                     request.sql_digest,
                     request.statement_count,
                     request.risk_level,
@@ -251,6 +273,9 @@ impl Storage {
                     request.template_id,
                     request.current_step_no,
                     request.step_count,
+                    request.execution_mode.as_str(),
+                    request.execution_error,
+                    request.executed_by,
                     request.expires_at_ms,
                     request.created_at_ms,
                     request.updated_at_ms,
@@ -540,19 +565,65 @@ impl Storage {
         .await
     }
 
-    pub async fn mark_approval_executed(
+    /// Atomically takes ownership of an approved request for execution. The
+    /// first caller wins; a second execution gets `false`, so one approval can
+    /// run at most once.
+    pub async fn claim_approval_execution(&self, id: String, now_ms: i64) -> Result<bool, String> {
+        self.with_conn(move |conn| {
+            let changed = conn
+                .execute(
+                    "UPDATE approval_requests SET status = 'executing', execution_error = NULL, \
+                     updated_at_ms = ?1 WHERE id = ?2 AND status = 'approved'",
+                    params![now_ms, id],
+                )
+                .map_err(|error| error.to_string())?;
+            Ok(changed == 1)
+        })
+        .await
+    }
+
+    /// Closes an execution attempt. Only a request currently in `executing`
+    /// moves, so a stale worker cannot overwrite a later decision.
+    pub async fn finish_approval_execution(
         &self,
         id: String,
         status: ApprovalStatus,
-        executed_at_ms: i64,
-    ) -> Result<(), String> {
+        executed_by: String,
+        error: Option<String>,
+        now_ms: i64,
+    ) -> Result<bool, String> {
         self.with_conn(move |conn| {
-            conn.execute(
-                "UPDATE approval_requests SET status = ?1, executed_at_ms = ?2, updated_at_ms = ?2 WHERE id = ?3",
-                params![status.as_str(), executed_at_ms, id],
-            )
-            .map_err(|error| error.to_string())?;
-            Ok(())
+            let changed = conn
+                .execute(
+                    "UPDATE approval_requests SET status = ?1, executed_by = ?2, execution_error = ?3, \
+                     executed_at_ms = ?4, updated_at_ms = ?4 WHERE id = ?5 AND status = 'executing'",
+                    params![status.as_str(), executed_by, error, now_ms, id],
+                )
+                .map_err(|error| error.to_string())?;
+            Ok(changed == 1)
+        })
+        .await
+    }
+
+    /// Marks a request failed before an execution slot was claimed (for
+    /// example a binding mismatch after the policy changed).
+    pub async fn fail_approval_execution(
+        &self,
+        id: String,
+        executed_by: String,
+        error: String,
+        now_ms: i64,
+    ) -> Result<bool, String> {
+        self.with_conn(move |conn| {
+            let changed = conn
+                .execute(
+                    "UPDATE approval_requests SET status = 'execution_failed', executed_by = ?1, \
+                     execution_error = ?2, executed_at_ms = ?3, updated_at_ms = ?3 \
+                     WHERE id = ?4 AND status = 'approved'",
+                    params![executed_by, error, now_ms, id],
+                )
+                .map_err(|error| error.to_string())?;
+            Ok(changed == 1)
         })
         .await
     }
@@ -733,6 +804,7 @@ mod tests {
             database: "app".to_string(),
             schema_name: Some("public".to_string()),
             sql_text: "ALTER TABLE users ADD COLUMN age int".to_string(),
+            statements: vec!["ALTER TABLE users ADD COLUMN age int".to_string()],
             sql_digest: statements_digest(&["ALTER TABLE users ADD COLUMN age int".to_string()]),
             statement_count: 1,
             risk_level: Some("DDL".to_string()),
@@ -743,6 +815,9 @@ mod tests {
             template_id: String::new(),
             current_step_no: 1,
             step_count: 1,
+            execution_mode: ApprovalExecutionMode::Submitter,
+            execution_error: None,
+            executed_by: None,
             expires_at_ms: None,
             created_at_ms: 1,
             updated_at_ms: 1,
@@ -1086,6 +1161,54 @@ mod tests {
         assert!(validate_steps(&[spec(ApprovalStepMode::Any, &[" "], &[])])
             .unwrap_err()
             .starts_with("APPROVAL_TEMPLATE_INVALID"));
+    }
+
+    #[tokio::test]
+    async fn an_approval_can_be_claimed_for_execution_only_once() {
+        let storage = storage().await;
+        storage.create_approval_request(request("r1", ApprovalStatus::Approved)).await.unwrap();
+
+        assert!(storage.claim_approval_execution("r1".to_string(), 10).await.unwrap());
+        assert!(!storage.claim_approval_execution("r1".to_string(), 11).await.unwrap(), "second claim must lose");
+        let loaded = storage.approval_request_by_id("r1".to_string()).await.unwrap().unwrap();
+        assert_eq!(loaded.status, ApprovalStatus::Executing);
+
+        assert!(storage
+            .finish_approval_execution("r1".to_string(), ApprovalStatus::Executed, "bob".to_string(), None, 12,)
+            .await
+            .unwrap());
+        assert!(!storage
+            .finish_approval_execution(
+                "r1".to_string(),
+                ApprovalStatus::ExecutionFailed,
+                "carol".to_string(),
+                Some("late".to_string()),
+                13,
+            )
+            .await
+            .unwrap());
+        let loaded = storage.approval_request_by_id("r1".to_string()).await.unwrap().unwrap();
+        assert_eq!(loaded.status, ApprovalStatus::Executed);
+        assert_eq!(loaded.executed_by.as_deref(), Some("bob"));
+        assert_eq!(loaded.executed_at_ms, Some(12));
+        assert!(loaded.execution_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_binding_failure_fails_only_a_still_approved_request() {
+        let storage = storage().await;
+        storage.create_approval_request(request("r1", ApprovalStatus::Approved)).await.unwrap();
+        assert!(storage
+            .fail_approval_execution("r1".to_string(), "bob".to_string(), "APPROVAL_BINDING_MISMATCH".to_string(), 20)
+            .await
+            .unwrap());
+        assert!(!storage
+            .fail_approval_execution("r1".to_string(), "bob".to_string(), "again".to_string(), 21)
+            .await
+            .unwrap());
+        let loaded = storage.approval_request_by_id("r1".to_string()).await.unwrap().unwrap();
+        assert_eq!(loaded.status, ApprovalStatus::ExecutionFailed);
+        assert_eq!(loaded.execution_error.as_deref(), Some("APPROVAL_BINDING_MISMATCH"));
     }
 
     #[tokio::test]

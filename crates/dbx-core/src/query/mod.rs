@@ -5515,6 +5515,20 @@ pub async fn execute_statements_with_approval(
     execute_statements_impl(state, connection_id, database, statements, schema, timeout_secs, approved).await
 }
 
+/// Executes the statements of an approved request. The caller must already
+/// have re-evaluated block rules, re-bound the stored statements to the
+/// connection/policy, and claimed the approval for one execution.
+pub async fn execute_approved_statements(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    statements: &[String],
+    schema: Option<&str>,
+    timeout_secs: Option<u64>,
+) -> Result<db::QueryResult, String> {
+    execute_statements_impl(state, connection_id, database, statements, schema, timeout_secs, true).await
+}
+
 async fn execute_statements_impl(
     state: &AppState,
     connection_id: &str,

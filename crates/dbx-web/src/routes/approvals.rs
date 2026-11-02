@@ -12,11 +12,13 @@ use axum::extract::{Path, Query as AxumQuery, State};
 use axum::http::HeaderMap;
 use axum::Extension;
 use axum::Json;
-use dbx_core::audit::Actor;
+use dbx_core::audit::{
+    Actor, ActorKind, AuditContext, AuditDecision, AuditEventInsert, AuditOperation, AuditOutcome, AuditSource,
+};
 use dbx_core::governance::approval::{
     default_approval_step, materialize_approval_steps, new_approval_token, parse_steps_document, request_hash,
-    statements_digest, ApprovalBinding, ApprovalDecisionOutcome, ApprovalRequest, ApprovalStatus, ApprovalStep,
-    ApprovalStepDecision, ApprovalTemplate, ApprovalToken, ApprovalVote,
+    statements_digest, ApprovalBinding, ApprovalDecisionOutcome, ApprovalExecutionMode, ApprovalRequest,
+    ApprovalStatus, ApprovalStep, ApprovalStepDecision, ApprovalTemplate, ApprovalToken, ApprovalVote,
 };
 use dbx_core::identity::Permission;
 use serde::{Deserialize, Serialize};
@@ -103,6 +105,10 @@ pub struct ApprovalView {
     pub template_id: String,
     pub current_step_no: i64,
     pub step_count: i64,
+    pub execution_mode: String,
+    pub execution_error: Option<String>,
+    pub executed_by: Option<String>,
+    pub executed_at_ms: Option<i64>,
     pub steps: Vec<ApprovalStepView>,
     pub created_at_ms: i64,
     pub expires_at_ms: Option<i64>,
@@ -126,6 +132,10 @@ impl ApprovalView {
             template_id: request.template_id,
             current_step_no: request.current_step_no,
             step_count: request.step_count,
+            execution_mode: request.execution_mode.as_str().to_string(),
+            execution_error: request.execution_error,
+            executed_by: request.executed_by,
+            executed_at_ms: request.executed_at_ms,
             steps: steps.iter().map(ApprovalStepView::from).collect(),
             created_at_ms: request.created_at_ms,
             expires_at_ms: request.expires_at_ms,
@@ -157,6 +167,11 @@ pub struct CreateApprovalRequest {
     /// Overrides the template resolved from the connection scope.
     #[serde(default)]
     pub template_id: Option<String>,
+    /// `submitter` (default), `last_approver`, or `auto`; DMS-style. Modes
+    /// other than `submitter` need a connection whose password is stored
+    /// server-side.
+    #[serde(default)]
+    pub execution_mode: Option<String>,
 }
 
 fn template_document(
@@ -248,6 +263,17 @@ pub async fn create_request(
             "APPROVAL_NOT_REQUIRED: the rules do not require approval for this statement",
         ));
     }
+    let execution_mode = match body.execution_mode.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => ApprovalExecutionMode::parse(value).ok_or_else(|| {
+            AppError::bad_request("APPROVAL_EXECUTION_MODE_INVALID: expected `submitter`, `last_approver`, or `auto`")
+        })?,
+        None => ApprovalExecutionMode::from_env_default(),
+    };
+    if execution_mode.requires_saved_credential() && !config.save_password {
+        return Err(AppError::bad_request(
+            "APPROVAL_EXECUTION_MODE_REQUIRES_SAVED_CREDENTIAL: this mode runs without the requester's session, so the connection password must be saved server-side",
+        ));
+    }
     let config_hash = dbx_core::governance::approval::connection_config_hash(&config);
     let hash = request_hash(&ApprovalBinding {
         connection_id: &body.connection_id,
@@ -299,6 +325,7 @@ pub async fn create_request(
         database: body.database,
         schema_name: body.schema_name,
         sql_text: statements.join(";\n"),
+        statements: statements.clone(),
         sql_digest: digest,
         statement_count: i64::try_from(statements.len()).unwrap_or(i64::MAX),
         risk_level: None,
@@ -309,6 +336,9 @@ pub async fn create_request(
         template_id: template.map(|template| template.id).unwrap_or_default(),
         current_step_no: 1,
         step_count,
+        execution_mode,
+        execution_error: None,
+        executed_by: None,
         expires_at_ms: None,
         created_at_ms: now,
         updated_at_ms: now,
@@ -404,6 +434,270 @@ async fn load_request(state: &WebState, request_id: &str) -> Result<ApprovalRequ
         .ok_or_else(|| AppError::not_found("approval request not found"))
 }
 
+/// Who is pressing the execute button. The SQL always comes from the stored
+/// request; the trigger only decides who is allowed to start it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExecutionTrigger {
+    Submitter,
+    LastApprover,
+    Auto,
+}
+
+impl ExecutionTrigger {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Submitter => "submitter",
+            Self::LastApprover => "last_approver",
+            Self::Auto => "auto",
+        }
+    }
+}
+
+/// Load the connection on demand: a background execution may run before any
+/// UI request populated `AppState::configs`.
+async fn connection_config_for_execution(
+    state: &WebState,
+    connection_id: &str,
+) -> Result<dbx_core::models::connection::ConnectionConfig, AppError> {
+    if let Some(config) = state.app.configs.read().await.get(connection_id).cloned() {
+        return Ok(config);
+    }
+    let configs = state.app.storage.load_connections().await.map_err(AppError::from)?;
+    let mut current = state.app.configs.write().await;
+    for config in configs {
+        current.entry(config.id.clone()).or_insert(config);
+    }
+    current.get(connection_id).cloned().ok_or_else(|| AppError::not_found("connection not found"))
+}
+
+async fn fail_approval_request(state: &WebState, request: &ApprovalRequest, executed_by: &str, error: String) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Err(failure) =
+        state.app.storage.fail_approval_execution(request.id.clone(), executed_by.to_string(), error, now).await
+    {
+        log::warn!("approval execution state was not stored: {failure}");
+    }
+}
+
+/// Executes the stored statements of an approved request exactly once.
+///
+/// The caller has already checked that the trigger matches the request's
+/// execution mode. Everything the execution depends on is re-bound here:
+/// statement digest, connection configuration, database, policy bundle, and
+/// the rules that required approval. A mismatch fails the request instead of
+/// running SQL that differs from what approvers saw.
+async fn run_approved_request(
+    state: &Arc<WebState>,
+    request: ApprovalRequest,
+    executor: &Actor,
+    trigger: ExecutionTrigger,
+) -> Result<ApprovalRequest, AppError> {
+    if request.status != ApprovalStatus::Approved {
+        return Err(AppError::conflict("APPROVAL_NOT_EXECUTABLE: the request is not approved or was already executed"));
+    }
+    let mode_matches = matches!(
+        (trigger, request.execution_mode),
+        (ExecutionTrigger::Submitter, ApprovalExecutionMode::Submitter)
+            | (ExecutionTrigger::LastApprover, ApprovalExecutionMode::LastApprover)
+            | (ExecutionTrigger::Auto, ApprovalExecutionMode::Auto)
+    );
+    if !mode_matches {
+        return Err(AppError::conflict("APPROVAL_EXECUTION_MODE: this request uses a different execution mode"));
+    }
+    if trigger == ExecutionTrigger::Submitter && executor.id != request.requester_id {
+        return Err(AppError::forbidden("APPROVAL_EXECUTION_FORBIDDEN: only the requester may execute this request"));
+    }
+    if request.statements.is_empty() {
+        return Err(AppError::conflict("APPROVAL_STATEMENTS_MISSING: the request has no stored statements"));
+    }
+    if statements_digest(&request.statements) != request.sql_digest {
+        let error = "APPROVAL_STATEMENTS_CHANGED: the stored statements no longer match the approved digest";
+        fail_approval_request(state, &request, &executor.id, error.to_string()).await;
+        return Err(AppError::conflict(error));
+    }
+    let config = connection_config_for_execution(state, &request.connection_id).await?;
+
+    let mut rule_ids: Vec<String> = Vec::new();
+    let mut policy_bundle_hash: Option<String> = None;
+    for sql in &request.statements {
+        let decision =
+            dbx_core::governance::decide(&request.connection_id, &config, &request.database, config.db_type, sql);
+        if decision.effect == dbx_core::governance::PolicyEffect::Block {
+            let error = format!(
+                "POLICY_DENIED: {} (rule {})",
+                decision.reason,
+                decision.rule_id.as_deref().unwrap_or("unknown")
+            );
+            fail_approval_request(state, &request, &executor.id, error.clone()).await;
+            return Err(AppError::forbidden(format!("APPROVAL_EXECUTION_FAILED: {error}")));
+        }
+        rule_ids.extend(
+            decision
+                .matched
+                .iter()
+                .filter(|hit| hit.effect == dbx_core::governance::PolicyEffect::RequireApproval)
+                .map(|hit| hit.rule_id.clone()),
+        );
+        policy_bundle_hash = Some(decision.policy_bundle_hash);
+    }
+    rule_ids.sort();
+    rule_ids.dedup();
+    let config_hash = dbx_core::governance::approval::connection_config_hash(&config);
+    let current_hash = request_hash(&ApprovalBinding {
+        connection_id: &request.connection_id,
+        connection_config_hash: &config_hash,
+        database: &request.database,
+        schema: request.schema_name.as_deref(),
+        statements_digest: &request.sql_digest,
+        policy_bundle_hash: policy_bundle_hash.as_deref(),
+        rule_ids: &rule_ids,
+    });
+    if current_hash != request.request_hash {
+        let error = "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval";
+        fail_approval_request(state, &request, &executor.id, error.to_string()).await;
+        return Err(AppError::conflict(error));
+    }
+
+    // The approval covers DDL even when the requester only has query:write.
+    if let Err(error) = dbx_core::governance::authorize_connection_scope(
+        &state.app,
+        Some(&request.requester_id),
+        &request.connection_id,
+        Some(&request.database),
+        &request.statements,
+        Some(config.db_type),
+        true,
+    )
+    .await
+    {
+        return Err(AppError::forbidden(format!("APPROVAL_EXECUTION_DENIED: {error}")));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    if !state.app.storage.claim_approval_execution(request.id.clone(), now).await.map_err(AppError::from)? {
+        return Err(AppError::conflict("APPROVAL_ALREADY_EXECUTED: this request was already executed or is executing"));
+    }
+
+    let requester = state.app.storage.user_by_id(request.requester_id.clone()).await.ok().flatten();
+    let roles = state.app.storage.role_codes_for_user(request.requester_id.clone()).await.unwrap_or_default();
+    let requester_actor = Actor {
+        id: request.requester_id.clone(),
+        display_name: requester.map(|user| user.display_name).unwrap_or_else(|| request.requester_id.clone()),
+        kind: ActorKind::Human,
+        roles,
+        tenant_id: None,
+        session_id: None,
+        auth_method: "approval".to_string(),
+    };
+    let execution_id = uuid::Uuid::new_v4().to_string();
+    let mut context = dbx_core::audit::current_audit_context().unwrap_or_else(|| AuditContext {
+        actor: requester_actor.clone(),
+        source: AuditSource::Approval,
+        client_ip: None,
+        user_agent: None,
+        request_id: None,
+        execution_id: None,
+    });
+    context.actor = requester_actor;
+    context.source = AuditSource::Approval;
+    context.execution_id = Some(execution_id);
+    let executed_by = if trigger == ExecutionTrigger::Auto { "system:auto".to_string() } else { executor.id.clone() };
+
+    let result = dbx_core::audit::with_audit_context(
+        context.clone(),
+        dbx_core::query::execute_approved_statements(
+            &state.app,
+            &request.connection_id,
+            &request.database,
+            &request.statements,
+            request.schema_name.as_deref(),
+            None,
+        ),
+    )
+    .await;
+    let (status, outcome, decision, error) = match &result {
+        Ok(_) => (ApprovalStatus::Executed, AuditOutcome::Success, AuditDecision::Allowed, None),
+        Err(error) => (ApprovalStatus::ExecutionFailed, AuditOutcome::Error, AuditDecision::Error, Some(error.clone())),
+    };
+    if let Err(failure) = state
+        .app
+        .storage
+        .finish_approval_execution(
+            request.id.clone(),
+            status,
+            executed_by.clone(),
+            error.clone(),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await
+    {
+        log::warn!("approval execution state was not stored: {failure}");
+    }
+
+    let mut event = AuditEventInsert::new(&context, AuditOperation::Approval, decision, outcome);
+    event.resource_type = Some("approval".to_string());
+    event.resource_id = Some(request.id.clone());
+    event.approval_id = Some(request.id.clone());
+    event.details_json = Some(
+        serde_json::json!({
+            "approval_id": request.id,
+            "trigger": trigger.label(),
+            "execution_mode": request.execution_mode.as_str(),
+            "executed_by": executed_by,
+            "statement_count": request.statement_count,
+            "error": error,
+        })
+        .to_string(),
+    );
+    state.app.record_audit(event);
+
+    let refreshed = state
+        .app
+        .storage
+        .approval_request_by_id(request.id.clone())
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("approval request not found"))?;
+    notify_approval(if result.is_ok() { "approval.executed" } else { "approval.execution_failed" }, &refreshed);
+    match result {
+        Ok(_) => Ok(refreshed),
+        Err(error) => Err(AppError::conflict(format!("APPROVAL_EXECUTION_FAILED: {error}"))),
+    }
+}
+
+fn spawn_approval_execution(
+    state: Arc<WebState>,
+    request: ApprovalRequest,
+    executor: Actor,
+    trigger: ExecutionTrigger,
+) {
+    tokio::spawn(async move {
+        if let Err(error) = run_approved_request(&state, request, &executor, trigger).await {
+            log::warn!("approval execution did not complete: {error}");
+        }
+    });
+}
+
+pub async fn execute_request(
+    State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
+    Path(request_id): Path<String>,
+) -> Result<Json<ApprovalView>, AppError> {
+    require(&actor, Permission::QueryWrite)?;
+    let request = load_request(&state, &request_id).await?;
+    if request.requester_id != actor.id {
+        return Err(AppError::forbidden("APPROVAL_EXECUTION_FORBIDDEN: only the requester may execute this request"));
+    }
+    if request.execution_mode != ApprovalExecutionMode::Submitter {
+        return Err(AppError::conflict(
+            "APPROVAL_EXECUTION_MODE: this request is executed by its execution mode, not by the requester",
+        ));
+    }
+    let refreshed = run_approved_request(&state, request, &actor, ExecutionTrigger::Submitter).await?;
+    let steps = state.app.storage.approval_steps_for_request(refreshed.id.clone()).await.map_err(AppError::from)?;
+    Ok(Json(ApprovalView::from_parts(refreshed, steps)))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DecisionRequest {
     #[serde(default)]
@@ -425,7 +719,7 @@ fn decision_error(error: String) -> AppError {
 }
 
 async fn decide(
-    state: &WebState,
+    state: &Arc<WebState>,
     actor: &Actor,
     request_id: &str,
     vote: ApprovalVote,
@@ -493,6 +787,19 @@ async fn decide(
         },
         &refreshed,
     );
+    // DMS-style execution modes: the last approver can trigger execution in
+    // the same click, or the server can run it immediately. Both need a
+    // server-held credential, checked when the request was created.
+    if outcome.request_status == ApprovalStatus::Approved {
+        let trigger = match refreshed.execution_mode {
+            ApprovalExecutionMode::Auto => Some(ExecutionTrigger::Auto),
+            ApprovalExecutionMode::LastApprover => Some(ExecutionTrigger::LastApprover),
+            ApprovalExecutionMode::Submitter => None,
+        };
+        if let Some(trigger) = trigger {
+            spawn_approval_execution(state.clone(), refreshed.clone(), actor.clone(), trigger);
+        }
+    }
     Ok(ApprovalView::from_parts(refreshed, steps))
 }
 
@@ -556,7 +863,12 @@ pub async fn issue_execute_token(
         return Err(AppError::forbidden("APPROVAL_TOKEN_FORBIDDEN: only the requester may obtain the token"));
     }
     if request.status != ApprovalStatus::Approved {
-        return Err(AppError::conflict("APPROVAL_NOT_APPROVED: the request is not approved"));
+        return Err(AppError::conflict("APPROVAL_NOT_APPROVED: the request is not approved or was already executed"));
+    }
+    if request.execution_mode != ApprovalExecutionMode::Submitter {
+        return Err(AppError::conflict(
+            "APPROVAL_EXECUTION_MODE: this request is executed by the server or the last approver; no client token is issued",
+        ));
     }
     let now = chrono::Utc::now().timestamp_millis();
     let expires_at_ms = now + TOKEN_TTL_MS;

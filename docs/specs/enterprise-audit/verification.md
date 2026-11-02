@@ -19,6 +19,10 @@ scripts/e2e-governance.sh   # also asserts chain verification and the PostgreSQL
 - schemes: a `sha256-v1` row verifying inside a `sha256-v2` chain, tamper of the
   legacy row still detected, unknown scheme reported as a break rather than an
   error, new rows written with the current scheme;
+- every audit source (including `approval`, used by DMS-style execution)
+  round-trips through storage and chain verification; a source the verifier
+  cannot parse would otherwise recompute a different hash and report a false
+  break;
 - checkpoints: anchor matches the head, tail-only verification after the
   anchor, replaced anchored row detected, checkpoint update/delete rejected,
   genesis verification when no checkpoint exists;

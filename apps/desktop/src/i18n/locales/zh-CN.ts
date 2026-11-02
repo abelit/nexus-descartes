@@ -10269,6 +10269,12 @@ export default withEnglishFallback({
       templateInvalidJson: "步骤必须是合法的 JSON",
       templateCreate: "发布模板",
       templateDelete: "删除",
+      executeNow: "执行审批单",
+      executed: "审批通过的 SQL 已执行",
+      executedBy: "执行人：{user}",
+      executionModeSubmitter: "提交者执行",
+      executionModeLastApprover: "最后审批人执行",
+      executionModeAuto: "审批后自动执行",
     },
     audit: {
       title: "审计日志",

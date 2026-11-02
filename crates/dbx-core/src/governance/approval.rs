@@ -17,6 +17,9 @@ pub const MAX_APPROVAL_STEPS: usize = 10;
 pub enum ApprovalStatus {
     Pending,
     Approved,
+    /// An execution attempt owns the request. The CAS from `approved` makes an
+    /// approval executable at most once.
+    Executing,
     Rejected,
     Expired,
     Cancelled,
@@ -29,6 +32,7 @@ impl ApprovalStatus {
         match self {
             Self::Pending => "pending",
             Self::Approved => "approved",
+            Self::Executing => "executing",
             Self::Rejected => "rejected",
             Self::Expired => "expired",
             Self::Cancelled => "cancelled",
@@ -41,6 +45,7 @@ impl ApprovalStatus {
         match value {
             "pending" => Some(Self::Pending),
             "approved" => Some(Self::Approved),
+            "executing" => Some(Self::Executing),
             "rejected" => Some(Self::Rejected),
             "expired" => Some(Self::Expired),
             "cancelled" => Some(Self::Cancelled),
@@ -48,6 +53,54 @@ impl ApprovalStatus {
             "execution_failed" => Some(Self::ExecutionFailed),
             _ => None,
         }
+    }
+}
+
+/// Who triggers execution after the last approval, mirroring Alibaba Cloud
+/// DMS's COMMITOR / LAST_AUDITOR / AUTO modes. The SQL itself always comes
+/// from the stored request; the mode only decides who presses "execute" (or
+/// whether the server does it immediately).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalExecutionMode {
+    /// The requester triggers execution (DMS `COMMITOR`).
+    #[default]
+    Submitter,
+    /// The approver who completed the last step triggers execution
+    /// (DMS `LAST_AUDITOR`).
+    LastApprover,
+    /// The server executes immediately after the last approval (DMS `AUTO`).
+    Auto,
+}
+
+impl ApprovalExecutionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Submitter => "submitter",
+            Self::LastApprover => "last_approver",
+            Self::Auto => "auto",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "submitter" | "commitor" => Some(Self::Submitter),
+            "last_approver" | "last_auditor" => Some(Self::LastApprover),
+            "auto" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+
+    /// Default from `DBX_APPROVAL_EXECUTION_MODE`; invalid values fall back to
+    /// `submitter` so a typo cannot silently auto-execute production changes.
+    pub fn from_env_default() -> Self {
+        std::env::var("DBX_APPROVAL_EXECUTION_MODE").ok().and_then(|value| Self::parse(&value)).unwrap_or_default()
+    }
+
+    /// Modes other than `submitter` run without the requester's session, so
+    /// the connection password must be stored server-side.
+    pub fn requires_saved_credential(&self) -> bool {
+        !matches!(self, Self::Submitter)
     }
 }
 
@@ -223,6 +276,9 @@ pub struct ApprovalRequest {
     pub database: String,
     pub schema_name: Option<String>,
     pub sql_text: String,
+    /// Authoritative ordered statement list. Execution uses this list, never a
+    /// client-supplied copy, so the approved artifact is exactly what runs.
+    pub statements: Vec<String>,
     pub sql_digest: String,
     pub statement_count: i64,
     pub risk_level: Option<String>,
@@ -235,6 +291,10 @@ pub struct ApprovalRequest {
     /// 1-based position of the approval round that is currently open.
     pub current_step_no: i64,
     pub step_count: i64,
+    pub execution_mode: ApprovalExecutionMode,
+    /// Why execution failed, kept on the request for the UI and audit.
+    pub execution_error: Option<String>,
+    pub executed_by: Option<String>,
     pub expires_at_ms: Option<i64>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
@@ -562,6 +622,21 @@ mod tests {
             decided_at_ms: None,
             comment: String::new(),
         }
+    }
+
+    #[test]
+    fn execution_modes_accept_dms_aliases_and_default_to_submitter() {
+        assert_eq!(ApprovalExecutionMode::parse("submitter"), Some(ApprovalExecutionMode::Submitter));
+        assert_eq!(ApprovalExecutionMode::parse("commitor"), Some(ApprovalExecutionMode::Submitter));
+        assert_eq!(ApprovalExecutionMode::parse("last_approver"), Some(ApprovalExecutionMode::LastApprover));
+        assert_eq!(ApprovalExecutionMode::parse("last_auditor"), Some(ApprovalExecutionMode::LastApprover));
+        assert_eq!(ApprovalExecutionMode::parse("auto"), Some(ApprovalExecutionMode::Auto));
+        assert_eq!(ApprovalExecutionMode::parse("unknown"), None);
+        assert_eq!(ApprovalExecutionMode::default(), ApprovalExecutionMode::Submitter);
+        assert!(!ApprovalExecutionMode::Submitter.requires_saved_credential());
+        assert!(ApprovalExecutionMode::Auto.requires_saved_credential());
+        assert_eq!(ApprovalStatus::parse("executing"), Some(ApprovalStatus::Executing));
+        assert_eq!(ApprovalStatus::Executing.as_str(), "executing");
     }
 
     #[test]

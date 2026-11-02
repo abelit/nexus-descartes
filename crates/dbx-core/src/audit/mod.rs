@@ -52,6 +52,8 @@ pub enum AuditSource {
     Mcp,
     Ai,
     System,
+    /// Server-side execution of an approved ticket (DMS-style).
+    Approval,
 }
 
 impl AuditSource {
@@ -63,6 +65,7 @@ impl AuditSource {
             Self::Mcp => "mcp",
             Self::Ai => "ai",
             Self::System => "system",
+            Self::Approval => "approval",
         }
     }
 }

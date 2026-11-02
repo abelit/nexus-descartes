@@ -32,11 +32,17 @@ Covered:
   approver fails creation with `APPROVAL_STEP_NO_APPROVER`;
 - template documents validation, connection-over-global resolution, and
   one-template-per-scope replacement;
+- execution modes parse DMS aliases (`commitor`, `last_auditor`), default to
+  `submitter`, and mark `auto`/`last_approver` as requiring a saved credential;
+- an approved request can be claimed for execution exactly once
+  (`approved -> executing -> executed`), a second claim fails, and a binding
+  failure moves it to `execution_failed` with the stored error;
 - `scripts/e2e-governance.sh` runs the whole flow against real PostgreSQL and
   MySQL containers: SQL on both drivers, 403 `POLICY_APPROVAL_REQUIRED` before
-  approval, multi-step/countersign decisions, snapshot membership, one-time
-  token execution, spent-token refusal, audit chain verification, and rows in
-  the PostgreSQL audit sink.
+  approval, multi-step/countersign decisions, snapshot membership, server-side
+  execution of the stored request, one-execution enforcement, `auto` mode after
+  the last approval, token execution for an external client, audit chain
+  verification, and rows in the PostgreSQL audit sink.
 
 ## Manual
 
@@ -52,11 +58,17 @@ Covered:
    `APPROVAL_ALREADY_DECIDED`.
 5. `GET /api/approvals/{id}` shows the step timeline and recorded votes; an
    unrelated user gets `APPROVAL_FORBIDDEN`.
-6. Complete the last step → `approved`; as the requester, request the execute
-   token → raw token returned once; a second request returns a different token;
-   the first expires after 5 minutes.
-7. Edit the SQL and try to use the token → `APPROVAL_TOKEN_BINDING_MISMATCH`.
-8. Reject a request at step 1 → status `rejected`, step 2 `skipped`.
+6. Complete the last step → `approved`; as the requester,
+   `POST /api/approvals/{id}/execute` → `executed`, and the table exists in the
+   target database. A second call → 409 `APPROVAL_ALREADY_EXECUTED`.
+7. Create a request with `execution_mode: "auto"` (connection saved password),
+   approve all steps → the request moves to `executing` and then `executed`
+   without another client call. With `save_password=false`, creation fails with
+   `APPROVAL_EXECUTION_MODE_REQUIRES_SAVED_CREDENTIAL`.
+8. As the requester, request the execute token → raw token returned once; a
+   second request returns a different token; the first expires after 5 minutes.
+   Edit the SQL and try to use the token → `APPROVAL_TOKEN_BINDING_MISMATCH`.
+9. Reject a request at step 1 → status `rejected`, step 2 `skipped`.
 
 ## Known gaps
 

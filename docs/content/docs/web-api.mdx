@@ -95,6 +95,7 @@ Cookie: dbx_session=...
 | `DBX_SESSION_IDLE_SECS` | Idle timeout for a session; default 1800 |
 | `DBX_SESSION_TTL_SECS` | Absolute session lifetime; default 86400 |
 | `DBX_APPROVAL_WEBHOOK_URL` / `DBX_APPROVAL_WEBHOOK_HMAC_KEY` | Optional signed JSON webhook for approval events |
+| `DBX_APPROVAL_EXECUTION_MODE` | Default for requests without `execution_mode`: `submitter` (default), `last_approver`, or `auto` |
 | `DBX_APPROVAL_DINGTALK_WEBHOOK_URL` / `DBX_APPROVAL_DINGTALK_SECRET` | Optional DingTalk robot (secret enables signed requests) |
 | `DBX_APPROVAL_FEISHU_WEBHOOK_URL` / `DBX_APPROVAL_FEISHU_SECRET` | Optional Feishu/Lark robot (secret enables signed requests) |
 | `DBX_GOVERNANCE_MODE` | `observe` (default) allows unclassified routes; `enforce` denies them and enforces the route permission table |
@@ -586,13 +587,15 @@ POST /api/approvals
   "connection_id": "conn-id",
   "database": "app",
   "sql": "ALTER TABLE users ADD COLUMN age int",
-  "justification": "add age column"
+  "justification": "add age column",
+  "execution_mode": "submitter"
 }
 
 GET  /api/approvals?mine=1&status=pending
 GET  /api/approvals/{id}
 POST /api/approvals/{id}/approve   {"comment": "ok"}
 POST /api/approvals/{id}/reject    {"comment": "no"}
+POST /api/approvals/{id}/execute
 POST /api/approvals/{id}/execute-token
 
 GET    /api/approval-templates
@@ -619,13 +622,27 @@ DELETE /api/approval-templates/{id}
   current step the caller may decide. `GET /api/approvals/{id}` returns the
   steps and recorded votes; it is limited to the requester, administrators, and
   actors who may decide a step.
-- Only the requester can obtain the execution token, only after approval, and
-  only once per token store; the raw token is returned once and expires after 5
-  minutes. Execution must present it together with the same binding.
-- An approved DDL token also satisfies the resource scope: a role with
-  `query:write` but without `query:ddl` may execute the approved statement.
-  Rules are re-evaluated first and the token is consumed only after the scope
-  check passes.
+- The request stores the authoritative statement list and an `execution_mode`:
+  - `submitter` (default): the requester calls
+    `POST /api/approvals/{id}/execute`; the server runs the stored statements
+    with the requester's session (so `save_password=false` works). One approval
+    executes at most once; the outcome is `executed` or `execution_failed`.
+  - `last_approver`: the approver who completes the last step triggers the same
+    server-side execution.
+  - `auto`: the server executes immediately after the last approval.
+  `last_approver` and `auto` need `save_password=true`; creation fails with
+  `APPROVAL_EXECUTION_MODE_REQUIRES_SAVED_CREDENTIAL` otherwise. The default
+  for requests that omit the field comes from `DBX_APPROVAL_EXECUTION_MODE`.
+- Execution re-evaluates every rule and re-binds the stored statements,
+  connection configuration, database, policy bundle, and rule IDs. A `block`
+  fails with `POLICY_DENIED`; any drift fails with
+  `APPROVAL_BINDING_MISMATCH`. An approved DDL request also satisfies the
+  resource scope: a role with `query:write` but without `query:ddl` may execute
+  it.
+- The one-time token endpoint remains for CLI/MCP/external clients. Only the
+  requester can obtain it, only after approval, and only once per token store;
+  the raw token is returned once and expires after 5 minutes. Execution must
+  present it together with the same binding.
 - `approval.created`, `approval.step_pending`, `approval.step_approved`,
   `approval.approved`, and `approval.rejected` are delivered to every configured
   channel: the generic webhook (signed with `x-dbx-approval-signature` when

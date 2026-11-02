@@ -1685,6 +1685,7 @@ async fn serve() -> Result<(), String> {
         .route("/approvals/{request_id}", get(routes::approvals::get_request))
         .route("/approvals/{request_id}/approve", post(routes::approvals::approve))
         .route("/approvals/{request_id}/reject", post(routes::approvals::reject))
+        .route("/approvals/{request_id}/execute", post(routes::approvals::execute_request))
         .route("/approvals/{request_id}/execute-token", post(routes::approvals::issue_execute_token))
         .route("/approval-templates", get(routes::approvals::list_templates).post(routes::approvals::create_template))
         .route(

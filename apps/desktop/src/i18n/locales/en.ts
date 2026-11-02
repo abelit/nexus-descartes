@@ -10303,6 +10303,12 @@ export default {
       templateInvalidJson: "Steps must be valid JSON",
       templateCreate: "Publish template",
       templateDelete: "Delete",
+      executeNow: "Execute request",
+      executed: "Approved SQL executed",
+      executedBy: "Executed by {user}",
+      executionModeSubmitter: "Submitter executes",
+      executionModeLastApprover: "Last approver executes",
+      executionModeAuto: "Auto execute",
     },
     audit: {
       title: "Audit Log",

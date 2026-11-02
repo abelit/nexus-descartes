@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Copy, KeyRound, LoaderCircle, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
+import { Check, Copy, KeyRound, LoaderCircle, Play, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,26 @@ function stepLabel(step: ApprovalStep): string {
 
 function stepModeLabel(step: ApprovalStep): string {
   return step.mode === "all" ? t("settings.approvals.stepModeAll") : t("settings.approvals.stepModeAny");
+}
+
+function executionModeLabel(request: ApprovalRequest): string {
+  if (request.execution_mode === "auto") return t("settings.approvals.executionModeAuto");
+  if (request.execution_mode === "last_approver") return t("settings.approvals.executionModeLastApprover");
+  return t("settings.approvals.executionModeSubmitter");
+}
+
+async function execute(request: ApprovalRequest) {
+  busyId.value = request.id;
+  try {
+    await approvalsApi.executeApproval(request.id);
+    toast(t("settings.approvals.executed"));
+    await refresh();
+  } catch (executeError) {
+    toast(formatError(executeError));
+    await refresh();
+  } finally {
+    busyId.value = "";
+  }
 }
 
 async function decide(request: ApprovalRequest, decision: "approve" | "reject") {
@@ -128,9 +148,9 @@ async function copyToken() {
 }
 
 function statusClass(status: string): string {
-  if (status === "approved") return "border-green-500/50 text-green-600 dark:text-green-400";
-  if (status === "rejected") return "border-destructive/50 text-destructive";
-  if (status === "pending") return "border-amber-500/50 text-amber-600 dark:text-amber-400";
+  if (status === "approved" || status === "executed") return "border-green-500/50 text-green-600 dark:text-green-400";
+  if (status === "rejected" || status === "execution_failed") return "border-destructive/50 text-destructive";
+  if (status === "pending" || status === "executing") return "border-amber-500/50 text-amber-600 dark:text-amber-400";
   return "border-border text-muted-foreground";
 }
 
@@ -249,9 +269,14 @@ onMounted(() => {
           <span class="text-xs text-muted-foreground">· {{ formatTime(request.created_at_ms) }}</span>
           <span class="text-xs text-muted-foreground"> · {{ request.connection_id }}{{ request.database ? ` / ${request.database}` : "" }} </span>
           <Badge v-for="rule in request.rule_ids" :key="rule" variant="outline">{{ rule }}</Badge>
+          <Badge variant="outline">{{ executionModeLabel(request) }}</Badge>
+          <span v-if="request.executed_by" class="text-xs text-muted-foreground">
+            {{ t("settings.approvals.executedBy", { user: request.executed_by }) }}
+          </span>
         </div>
         <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/40 p-2 font-mono text-xs">{{ request.sql_text }}</pre>
         <p v-if="request.justification" class="text-xs text-muted-foreground">{{ request.justification }}</p>
+        <p v-if="request.execution_error" class="text-xs text-destructive">{{ request.execution_error }}</p>
         <div class="flex flex-wrap items-center gap-1.5">
           <span class="text-xs text-muted-foreground">
             {{ t("settings.approvals.stepProgress", { current: request.current_step_no, total: request.step_count }) }}
@@ -280,6 +305,10 @@ onMounted(() => {
           </Button>
         </div>
         <div v-if="request.status === 'approved' && scope === 'mine'" class="flex justify-end gap-1.5">
+          <Button v-if="request.execution_mode === 'submitter'" size="sm" class="gap-1" :disabled="busyId === request.id" @click="execute(request)">
+            <Play class="h-3.5 w-3.5" />
+            {{ t("settings.approvals.executeNow") }}
+          </Button>
           <Button variant="outline" size="sm" class="gap-1" :disabled="busyId === request.id" @click="issueToken(request)">
             <KeyRound class="h-3.5 w-3.5" />
             {{ t("settings.approvals.issueToken") }}
