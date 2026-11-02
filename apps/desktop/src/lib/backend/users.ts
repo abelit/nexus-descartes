@@ -11,6 +11,7 @@ export interface LocalUser {
   last_login_at?: string | null;
   roles: string[];
   permissions: string[];
+  bindings?: UserBinding[];
 }
 
 export interface LocalRole {
@@ -37,11 +38,30 @@ export interface RoleInput {
   permissions: string[];
 }
 
+export interface RoleScope {
+  scope_type: "global" | "connection" | "connection_group";
+  scope_id?: string | null;
+}
+
+export interface UserBinding {
+  role_code: string;
+  scope_type: string;
+  scope_id?: string | null;
+}
+
+export interface ConnectionGroup {
+  id: string;
+  name: string;
+  parent_id?: string | null;
+  connection_ids: string[];
+}
+
 export interface CreateUserInput {
   email: string;
   display_name: string;
   password: string;
   role: string;
+  scope?: RoleScope;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -66,7 +86,7 @@ export function createUser(input: CreateUserInput): Promise<LocalUser> {
   });
 }
 
-export function updateUser(userId: string, patch: { status?: string; role?: string; display_name?: string }): Promise<LocalUser> {
+export function updateUser(userId: string, patch: { status?: string; role?: string; display_name?: string; scope?: RoleScope }): Promise<LocalUser> {
   return request<LocalUser>(`/api/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -114,4 +134,28 @@ export function updateRole(code: string, input: RoleInput): Promise<LocalRole> {
 
 export function deleteRole(code: string): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/api/roles/${encodeURIComponent(code)}`, { method: "DELETE" });
+}
+
+export function listConnectionGroups(): Promise<ConnectionGroup[]> {
+  return request<ConnectionGroup[]>("/api/connection-groups");
+}
+
+export function createConnectionGroup(name: string, parentId?: string | null): Promise<ConnectionGroup> {
+  return request<ConnectionGroup>("/api/connection-groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, parent_id: parentId || null }),
+  });
+}
+
+export function deleteConnectionGroup(groupId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/connection-groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+}
+
+export function setConnectionGroupMembers(groupId: string, connectionIds: string[]): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/connection-groups/${encodeURIComponent(groupId)}/members`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connection_ids: connectionIds }),
+  });
 }

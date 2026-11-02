@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/composables/useToast";
 import { formatError } from "@/lib/backend/errorUtils";
 import * as usersApi from "@/lib/backend/users";
-import type { LocalRole, LocalUser, UserSession } from "@/lib/backend/users";
+import type { ConnectionGroup, LocalRole, LocalUser, UserSession } from "@/lib/backend/users";
+import { useConnectionStore } from "@/stores/connectionStore";
 
 const { t } = useI18n();
 const { toast } = useToast();
@@ -35,8 +36,10 @@ const PERMISSIONS = [
   "admin:plugins",
 ];
 
+const connectionStore = useConnectionStore();
 const users = ref<LocalUser[]>([]);
 const roles = ref<LocalRole[]>([]);
+const groups = ref<ConnectionGroup[]>([]);
 const loading = ref(false);
 const error = ref("");
 const busyUserId = ref("");
@@ -45,6 +48,12 @@ const draftEmail = ref("");
 const draftName = ref("");
 const draftPassword = ref("");
 const draftRole = ref("viewer");
+const draftScopeType = ref<"global" | "connection" | "connection_group">("global");
+const draftScopeId = ref("");
+
+const groupDraft = ref({ name: "", parentId: "" });
+const editingGroupId = ref("");
+const groupMembersDraft = ref<string[]>([]);
 
 const sessionsUserId = ref("");
 const sessions = ref<UserSession[]>([]);
@@ -67,6 +76,7 @@ async function refresh() {
   try {
     users.value = await usersApi.listUsers();
     roles.value = await usersApi.listRoles();
+    groups.value = await usersApi.listConnectionGroups();
   } catch (loadError) {
     error.value = formatError(loadError);
     users.value = [];
@@ -87,11 +97,14 @@ async function createUser() {
       display_name: draftName.value.trim(),
       password: draftPassword.value,
       role: draftRole.value,
+      scope: draftScopeType.value === "global" ? undefined : { scope_type: draftScopeType.value, scope_id: draftScopeId.value },
     });
     draftEmail.value = "";
     draftName.value = "";
     draftPassword.value = "";
     draftRole.value = "viewer";
+    draftScopeType.value = "global";
+    draftScopeId.value = "";
     await refresh();
   } catch (createError) {
     toast(formatError(createError));
@@ -267,6 +280,62 @@ async function deleteRole(role: LocalRole) {
   }
 }
 
+function connectionName(connectionId?: string | null): string {
+  if (!connectionId) return "—";
+  return connectionStore.connections.find((connection) => connection.id === connectionId)?.name ?? connectionId;
+}
+
+function groupName(groupId?: string | null): string {
+  if (!groupId) return "—";
+  return groups.value.find((group) => group.id === groupId)?.name ?? groupId;
+}
+
+function scopeLabel(user: LocalUser): string {
+  const binding = user.bindings?.[0];
+  if (!binding || binding.scope_type === "global") return t("settings.identity.scopeGlobal");
+  if (binding.scope_type === "connection") return connectionName(binding.scope_id);
+  return groupName(binding.scope_id);
+}
+
+async function createGroup() {
+  if (!groupDraft.value.name.trim()) return;
+  try {
+    await usersApi.createConnectionGroup(groupDraft.value.name.trim(), groupDraft.value.parentId || null);
+    groupDraft.value = { name: "", parentId: "" };
+    await refresh();
+  } catch (groupError) {
+    toast(formatError(groupError));
+  }
+}
+
+async function deleteGroup(group: ConnectionGroup) {
+  try {
+    await usersApi.deleteConnectionGroup(group.id);
+    if (editingGroupId.value === group.id) editingGroupId.value = "";
+    await refresh();
+  } catch (groupError) {
+    toast(formatError(groupError));
+  }
+}
+
+function editGroupMembers(group: ConnectionGroup) {
+  editingGroupId.value = editingGroupId.value === group.id ? "" : group.id;
+  groupMembersDraft.value = [...group.connection_ids];
+}
+
+function toggleGroupMember(connectionId: string) {
+  groupMembersDraft.value = groupMembersDraft.value.includes(connectionId) ? groupMembersDraft.value.filter((value) => value !== connectionId) : [...groupMembersDraft.value, connectionId];
+}
+
+async function saveGroupMembers(group: ConnectionGroup) {
+  try {
+    await usersApi.setConnectionGroupMembers(group.id, groupMembersDraft.value);
+    await refresh();
+  } catch (groupError) {
+    toast(formatError(groupError));
+  }
+}
+
 function roleLabel(code: string): string {
   return roles.value.find((role) => role.code === code)?.name ?? code;
 }
@@ -309,6 +378,21 @@ onMounted(() => {
         <select v-model="draftRole" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
           <option v-for="role in roles" :key="role.code" :value="role.code">{{ role.name }}</option>
         </select>
+        <select v-model="draftScopeType" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
+          <option value="global">{{ t("settings.identity.scopeGlobal") }}</option>
+          <option value="connection">{{ t("settings.identity.scopeConnection") }}</option>
+          <option value="connection_group">{{ t("settings.identity.scopeGroup") }}</option>
+        </select>
+        <select v-if="draftScopeType === 'connection'" v-model="draftScopeId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
+          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
+          <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
+            {{ connection.name }}
+          </option>
+        </select>
+        <select v-if="draftScopeType === 'connection_group'" v-model="draftScopeId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
+          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
+          <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
+        </select>
         <Button size="sm" :disabled="loading" @click="createUser">{{ t("settings.identity.create") }}</Button>
       </div>
       <p class="text-xs text-muted-foreground">{{ t("settings.identity.passwordHint") }}</p>
@@ -344,6 +428,9 @@ onMounted(() => {
                 <option v-for="role in roles" :key="role.code" :value="role.code">{{ role.name }}</option>
               </select>
               <Badge v-else variant="outline">{{ roleLabel(user.roles[0] ?? "admin") }}</Badge>
+              <div class="mt-1 truncate text-[11px] text-muted-foreground" :title="scopeLabel(user)">
+                {{ scopeLabel(user) }}
+              </div>
             </td>
             <td class="px-3 py-2">
               <Badge variant="outline" :class="user.status === 'active' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'">
@@ -401,6 +488,49 @@ onMounted(() => {
         <Button size="sm" variant="outline" class="h-6 px-1.5" @click="revokeSession(session)">
           <Trash2 class="h-3 w-3" />
         </Button>
+      </div>
+    </div>
+
+    <div class="space-y-2 rounded-lg border border-border/60 p-3">
+      <div class="text-sm font-medium">{{ t("settings.identity.connectionGroups") }}</div>
+      <p class="text-xs text-muted-foreground">{{ t("settings.identity.connectionGroupsHint") }}</p>
+      <div class="flex flex-wrap gap-2">
+        <Input v-model="groupDraft.name" class="h-8 w-44" :placeholder="t('settings.identity.groupName')" />
+        <select v-model="groupDraft.parentId" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
+          <option value="">{{ t("settings.identity.groupNoParent") }}</option>
+          <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
+        </select>
+        <Button size="sm" variant="outline" @click="createGroup">{{ t("settings.identity.createGroup") }}</Button>
+      </div>
+      <div v-for="group in groups" :key="group.id" class="space-y-1 rounded-md border border-border/40 p-2 text-sm">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="truncate font-medium">
+              {{ group.name }}
+              <span v-if="group.parent_id" class="text-xs text-muted-foreground">({{ groupName(group.parent_id) }})</span>
+            </div>
+            <div class="truncate text-xs text-muted-foreground">{{ group.connection_ids.length }} {{ t("settings.identity.groupMembers") }}</div>
+          </div>
+          <div class="flex gap-1">
+            <Button size="sm" variant="outline" class="h-7 px-1.5" @click="editGroupMembers(group)">
+              <Pencil class="h-3.5 w-3.5" />
+            </Button>
+            <Button size="sm" variant="outline" class="h-7 px-1.5 text-destructive" @click="deleteGroup(group)">
+              <Trash2 class="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        <div v-if="editingGroupId === group.id" class="space-y-2">
+          <div class="grid max-h-40 grid-cols-2 gap-1 overflow-auto text-xs sm:grid-cols-3">
+            <span v-for="connection in connectionStore.connections" :key="connection.id" class="flex items-center gap-1.5">
+              <input type="checkbox" :aria-label="connection.name" :checked="groupMembersDraft.includes(connection.id)" @change="toggleGroupMember(connection.id)" />
+              <span class="truncate">{{ connection.name }}</span>
+            </span>
+          </div>
+          <div class="flex justify-end">
+            <Button size="sm" @click="saveGroupMembers(group)">{{ t("settings.identity.saveRole") }}</Button>
+          </div>
+        </div>
       </div>
     </div>
 
