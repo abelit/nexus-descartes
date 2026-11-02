@@ -5,7 +5,13 @@
 //! and the rule IDs that required approval. Editing any of them invalidates the
 //! token, and a token only satisfies the rule it was issued for.
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+/// Upper bound on template steps. Each step is one approval round; keeping the
+/// number small stops a misconfigured template from producing an approval chain
+/// nobody can finish.
+pub const MAX_APPROVAL_STEPS: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ApprovalStatus {
@@ -45,6 +51,168 @@ impl ApprovalStatus {
     }
 }
 
+/// How one approval step is decided. `All` is a countersign: every approver
+/// resolved for the step must approve; `Any` needs a single approval.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalStepMode {
+    #[default]
+    Any,
+    All,
+}
+
+impl ApprovalStepMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::All => "all",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "any" => Some(Self::Any),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+/// One step of a template document. `roles` and `users` are resolved to a
+/// concrete user snapshot when a request is created.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalStepSpec {
+    #[serde(default)]
+    pub mode: ApprovalStepMode,
+    #[serde(default)]
+    pub roles: Vec<String>,
+    #[serde(default)]
+    pub users: Vec<String>,
+}
+
+/// A stored approval template. A request created without an explicit template
+/// uses the most specific enabled one for its connection, falling back to the
+/// built-in single-step behaviour.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalTemplate {
+    pub id: String,
+    pub name: String,
+    pub scope_type: String,
+    pub scope_id: String,
+    pub steps: Vec<ApprovalStepSpec>,
+    pub sla_secs: Option<i64>,
+    pub enabled: bool,
+    pub created_by: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApprovalStepStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Skipped,
+}
+
+impl ApprovalStepStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "approved" => Some(Self::Approved),
+            "rejected" => Some(Self::Rejected),
+            "skipped" => Some(Self::Skipped),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalStep {
+    pub id: String,
+    pub request_id: String,
+    pub step_no: i64,
+    pub mode: ApprovalStepMode,
+    pub status: ApprovalStepStatus,
+    pub approver_roles: Vec<String>,
+    pub approver_users: Vec<String>,
+    /// Users who could decide this step when the request was created. For an
+    /// `all` step every one of them must approve; for `any` it is informational.
+    pub required_user_ids: Vec<String>,
+    pub decided_by: Option<String>,
+    pub decided_at_ms: Option<i64>,
+    pub comment: String,
+}
+
+impl ApprovalStep {
+    /// Whether `actor` may decide this step. Roles and users are resolved to
+    /// `required_user_ids` when the request is created, and only that snapshot
+    /// may vote: granting someone a role later must not widen an approval that
+    /// is already in flight. An empty approver list is the built-in single-step
+    /// default, open to any holder of `approval:act`.
+    pub fn allows(&self, actor_id: &str, _actor_roles: &[String]) -> bool {
+        if self.approver_roles.is_empty() && self.approver_users.is_empty() {
+            return true;
+        }
+        self.required_user_ids.iter().any(|user| user == actor_id)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApprovalVote {
+    Approve,
+    Reject,
+}
+
+impl ApprovalVote {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "approve" => Some(Self::Approve),
+            "reject" => Some(Self::Reject),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalStepDecision {
+    pub id: String,
+    pub request_id: String,
+    pub step_id: String,
+    pub step_no: i64,
+    pub actor_id: String,
+    pub decision: ApprovalVote,
+    pub comment: String,
+    pub created_at_ms: i64,
+}
+
+/// What one vote did to the request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalDecisionOutcome {
+    pub step_no: i64,
+    pub step_status: ApprovalStepStatus,
+    /// `pending` while later steps remain, `approved` on the last step,
+    /// `rejected` when the vote rejected the request.
+    pub request_status: ApprovalStatus,
+    pub step_completed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApprovalRequest {
     pub id: String,
@@ -62,6 +230,11 @@ pub struct ApprovalRequest {
     pub policy_bundle_hash: Option<String>,
     pub justification: String,
     pub request_hash: String,
+    /// Template the request was created from, empty for the built-in default.
+    pub template_id: String,
+    /// 1-based position of the approval round that is currently open.
+    pub current_step_no: i64,
+    pub step_count: i64,
     pub expires_at_ms: Option<i64>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
@@ -123,6 +296,120 @@ pub fn request_hash(binding: &ApprovalBinding<'_>) -> String {
         "rule_ids": rule_ids,
     });
     hex_sha256(canonical.to_string().as_bytes())
+}
+
+/// Parses a template document. Both the bare array and the `{"steps": [...]}`
+/// wrapper are accepted so the API can store a small JSON object.
+pub fn parse_steps_document(raw: &str) -> Result<Vec<ApprovalStepSpec>, String> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Document {
+        List(Vec<ApprovalStepSpec>),
+        Wrapped { steps: Vec<ApprovalStepSpec> },
+    }
+    let document: Document =
+        serde_json::from_str(raw).map_err(|error| format!("APPROVAL_TEMPLATE_INVALID: {error}"))?;
+    let steps = match document {
+        Document::List(steps) => steps,
+        Document::Wrapped { steps } => steps,
+    };
+    validate_steps(&steps)?;
+    Ok(steps)
+}
+
+pub fn steps_document_json(steps: &[ApprovalStepSpec]) -> Result<String, String> {
+    serde_json::to_string(&serde_json::json!({ "steps": steps })).map_err(|error| error.to_string())
+}
+
+pub fn validate_steps(steps: &[ApprovalStepSpec]) -> Result<(), String> {
+    if steps.is_empty() {
+        return Err("APPROVAL_TEMPLATE_EMPTY: at least one step is required".to_string());
+    }
+    if steps.len() > MAX_APPROVAL_STEPS {
+        return Err(format!(
+            "APPROVAL_TEMPLATE_INVALID: at most {MAX_APPROVAL_STEPS} steps are allowed, got {}",
+            steps.len()
+        ));
+    }
+    for (index, step) in steps.iter().enumerate() {
+        let step_no = index + 1;
+        if step.roles.iter().any(|role| role.trim().is_empty()) || step.users.iter().any(|user| user.trim().is_empty())
+        {
+            return Err(format!("APPROVAL_TEMPLATE_INVALID: step {step_no} has a blank approver"));
+        }
+        let has_role = step.roles.iter().any(|role| !role.trim().is_empty());
+        let has_user = step.users.iter().any(|user| !user.trim().is_empty());
+        if !has_role && !has_user {
+            return Err(format!("APPROVAL_TEMPLATE_INVALID: step {step_no} has no approvers"));
+        }
+    }
+    Ok(())
+}
+
+/// Turns template steps into the concrete steps of one request. Role
+/// membership is snapshotted here so later role edits cannot silently widen or
+/// deadlock an approval that is already in flight.
+pub fn materialize_approval_steps(
+    request_id: &str,
+    requester_id: &str,
+    specs: &[ApprovalStepSpec],
+    role_members: &std::collections::HashMap<String, Vec<String>>,
+) -> Result<Vec<ApprovalStep>, String> {
+    let mut steps = Vec::with_capacity(specs.len());
+    for (index, spec) in specs.iter().enumerate() {
+        let mut roles: Vec<String> =
+            spec.roles.iter().map(|role| role.trim().to_string()).filter(|role| !role.is_empty()).collect();
+        roles.sort();
+        roles.dedup();
+        let mut users: Vec<String> =
+            spec.users.iter().map(|user| user.trim().to_string()).filter(|user| !user.is_empty()).collect();
+        users.sort();
+        users.dedup();
+        let mut required: Vec<String> = users.clone();
+        for role in &roles {
+            required.extend(role_members.get(role).cloned().unwrap_or_default());
+        }
+        required.sort();
+        required.dedup();
+        required.retain(|user| user != requester_id);
+        if required.is_empty() {
+            return Err(format!(
+                "APPROVAL_STEP_NO_APPROVER: step {} has no approver other than the requester",
+                index + 1
+            ));
+        }
+        steps.push(ApprovalStep {
+            id: uuid::Uuid::new_v4().to_string(),
+            request_id: request_id.to_string(),
+            step_no: i64::try_from(index + 1).unwrap_or(i64::MAX),
+            mode: spec.mode,
+            status: ApprovalStepStatus::Pending,
+            approver_roles: roles,
+            approver_users: users,
+            required_user_ids: required,
+            decided_by: None,
+            decided_at_ms: None,
+            comment: String::new(),
+        });
+    }
+    Ok(steps)
+}
+
+/// The built-in single step: any holder of `approval:act` may decide.
+pub fn default_approval_step(request_id: &str) -> ApprovalStep {
+    ApprovalStep {
+        id: uuid::Uuid::new_v4().to_string(),
+        request_id: request_id.to_string(),
+        step_no: 1,
+        mode: ApprovalStepMode::Any,
+        status: ApprovalStepStatus::Pending,
+        approver_roles: Vec::new(),
+        approver_users: Vec::new(),
+        required_user_ids: Vec::new(),
+        decided_by: None,
+        decided_at_ms: None,
+        comment: String::new(),
+    }
 }
 
 /// Digest of the ordered statement list that the approver reviewed.
@@ -259,5 +546,33 @@ mod tests {
         assert_ne!(raw, hash);
         assert_eq!(hash, sha256_hex(raw.as_bytes()));
         assert_eq!(hash.len(), 64);
+    }
+
+    fn step(roles: &[&str], users: &[&str], required: &[&str]) -> ApprovalStep {
+        ApprovalStep {
+            id: "s1".to_string(),
+            request_id: "r1".to_string(),
+            step_no: 1,
+            mode: ApprovalStepMode::Any,
+            status: ApprovalStepStatus::Pending,
+            approver_roles: roles.iter().map(|role| role.to_string()).collect(),
+            approver_users: users.iter().map(|user| user.to_string()).collect(),
+            required_user_ids: required.iter().map(|user| user.to_string()).collect(),
+            decided_by: None,
+            decided_at_ms: None,
+            comment: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_listed_step_only_accepts_the_creation_snapshot() {
+        let listed = step(&["dba"], &[], &["bob"]);
+        assert!(listed.allows("bob", &["dba".to_string()]));
+        // A role holder who was not in the snapshot cannot join an in-flight
+        // approval, and a snapshot member can vote even after losing the role.
+        assert!(!listed.allows("mallory", &["dba".to_string()]));
+        assert!(listed.allows("bob", &[]));
+        // The built-in default step stays open to any `approval:act` holder.
+        assert!(step(&[], &[], &[]).allows("anyone", &[]));
     }
 }

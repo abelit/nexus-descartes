@@ -1682,9 +1682,15 @@ async fn serve() -> Result<(), String> {
     // tokens additionally require `approval:act` inside the handlers.
     let api = api
         .route("/approvals", get(routes::approvals::list_requests).post(routes::approvals::create_request))
+        .route("/approvals/{request_id}", get(routes::approvals::get_request))
         .route("/approvals/{request_id}/approve", post(routes::approvals::approve))
         .route("/approvals/{request_id}/reject", post(routes::approvals::reject))
-        .route("/approvals/{request_id}/execute-token", post(routes::approvals::issue_execute_token));
+        .route("/approvals/{request_id}/execute-token", post(routes::approvals::issue_execute_token))
+        .route("/approval-templates", get(routes::approvals::list_templates).post(routes::approvals::create_template))
+        .route(
+            "/approval-templates/{template_id}",
+            put(routes::approvals::update_template).delete(routes::approvals::delete_template),
+        );
 
     // Local users and roles. Each handler checks `admin:users`; the router
     // layer above only establishes the session.
@@ -1841,61 +1847,64 @@ async fn serve() -> Result<(), String> {
     // resumed from the last acknowledged sequence.
     #[cfg(feature = "enterprise-audit")]
     if audit_enabled_from_env() {
-        if let Some(export_config) = dbx_core::audit::exporter::AuditExporterConfig::from_env() {
-            let export_storage = web_state.app.storage.clone();
-            let export_shutdown = server_shutdown.clone();
-            let export_url = export_config.url.clone();
-            tokio::spawn(async move {
-                let client =
-                    reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap_or_default();
-                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10));
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                loop {
-                    tokio::select! {
-                        _ = ticker.tick() => {
-                            let last = export_storage
-                                .audit_export_state("http_jsonl".to_string())
-                                .await
-                                .ok()
-                                .flatten()
-                                .unwrap_or(0);
-                            let events = match export_storage.audit_events_after(last, 500).await {
-                                Ok(events) => events,
-                                Err(error) => {
-                                    tracing::warn!("Audit export read failed: {error}");
-                                    continue;
-                                }
-                            };
-                            if events.is_empty() {
-                                continue;
-                            }
-                            let batch = match dbx_core::audit::exporter::sign_batch(
-                                &events,
-                                export_config.hmac_key.as_deref(),
-                            ) {
-                                Ok(batch) => batch,
-                                Err(error) => {
-                                    tracing::warn!("Audit export batch failed: {error}");
-                                    continue;
-                                }
-                            };
-                            match dbx_core::audit::exporter::post_batch(&client, &export_config, &batch).await {
-                                Ok(()) => {
-                                    if let Err(error) = export_storage
-                                        .set_audit_export_state("http_jsonl".to_string(), batch.last_seq)
-                                        .await
-                                    {
-                                        tracing::warn!("Audit export cursor was not stored: {error}");
+        match dbx_core::audit::exporter::AuditExporter::from_env() {
+            Ok(Some(exporter)) => {
+                let sink_name = exporter.sink_name().to_string();
+                tracing::info!("Audit export sink `{sink_name}` is enabled");
+                let export_storage = web_state.app.storage.clone();
+                let export_shutdown = server_shutdown.clone();
+                tokio::spawn(async move {
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(10))
+                        .build()
+                        .unwrap_or_default();
+                    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10));
+                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    loop {
+                        tokio::select! {
+                            _ = ticker.tick() => {
+                                let last = export_storage
+                                    .audit_export_state(sink_name.clone())
+                                    .await
+                                    .ok()
+                                    .flatten()
+                                    .unwrap_or(0);
+                                let events = match export_storage.audit_events_after(last, 500).await {
+                                    Ok(events) => events,
+                                    Err(error) => {
+                                        tracing::warn!("Audit export read failed: {error}");
+                                        continue;
                                     }
+                                };
+                                if events.is_empty() {
+                                    continue;
                                 }
-                                Err(error) => tracing::warn!("Audit export delivery failed: {error}"),
+                                let batch = match exporter.sign_batch(&events) {
+                                    Ok(batch) => batch,
+                                    Err(error) => {
+                                        tracing::warn!("Audit export batch failed: {error}");
+                                        continue;
+                                    }
+                                };
+                                match exporter.deliver(&client, &events, &batch).await {
+                                    Ok(()) => {
+                                        if let Err(error) = export_storage
+                                            .set_audit_export_state(sink_name.clone(), batch.last_seq)
+                                            .await
+                                        {
+                                            tracing::warn!("Audit export cursor was not stored: {error}");
+                                        }
+                                    }
+                                    Err(error) => tracing::warn!("Audit export delivery failed: {error}"),
+                                }
                             }
+                            _ = export_shutdown.cancelled() => break,
                         }
-                        _ = export_shutdown.cancelled() => break,
                     }
-                }
-            });
-            tracing::info!("Audit export to {export_url} is enabled");
+                });
+            }
+            Ok(None) => {}
+            Err(error) => tracing::error!("Audit export is disabled: {error}"),
         }
     }
 

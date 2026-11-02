@@ -801,6 +801,28 @@ impl Storage {
         .await
     }
 
+    /// Active users holding a role through an unexpired binding. Used to
+    /// snapshot approval-step membership when a request is created.
+    pub async fn active_user_ids_for_role(&self, role_code: String) -> Result<Vec<String>, String> {
+        self.with_conn(move |conn| {
+            let now = now_rfc3339();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT DISTINCT rb.principal_id FROM role_bindings rb \
+                     JOIN users u ON u.id = rb.principal_id \
+                     WHERE rb.principal_type = 'user' AND rb.role_code = ?1 AND u.status = 'active' \
+                       AND (rb.expires_at IS NULL OR rb.expires_at > ?2) \
+                     ORDER BY rb.principal_id",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(params![role_code, now], |row| row.get::<_, String>(0))
+                .map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
     /// Role codes bound to a user that have not expired.
     pub async fn role_codes_for_user(&self, user_id: String) -> Result<Vec<String>, String> {
         self.with_conn(move |conn| {

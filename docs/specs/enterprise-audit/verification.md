@@ -72,9 +72,10 @@ Ran `dbx-web` with `DBX_PASSWORD`, `DBX_AUDIT_BOOTSTRAP_TOKEN`,
   the operation.
 - Local MCP and the CLI install a sink through `LocalBackend` and record with
   `source=mcp` / `source=cli`; the desktop installs a sink and flushes on exit.
-- External export is HTTP JSON only; PostgreSQL/SLS/OSS sinks are not
-  implemented. Segment deletion exists as an explicit, dual-gated prune
-  (checkpoint + export), never automatic.
+- External export supports signed HTTP JSON and a PostgreSQL sink (TLS, one row
+  per event, `ON CONFLICT DO NOTHING`). SLS/OSS ingestion is expected through a
+  collector behind the HTTP sink. Segment deletion exists as an explicit,
+  dual-gated prune (checkpoint + export), never automatic.
 - Audit access is gated by session roles (`audit:read` / `audit:export` /
   `audit:verify`); the bootstrap token or loopback remains as the automation
   fallback until the first local user logs in.

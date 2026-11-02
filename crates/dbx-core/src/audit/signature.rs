@@ -10,6 +10,11 @@ const BLOCK_SIZE: usize = 64;
 
 /// Hex-encoded HMAC-SHA256 of `message` under `key`.
 pub fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
+    hex(&hmac_sha256_bytes(key, message))
+}
+
+/// Raw HMAC-SHA256 of `message` under `key`.
+pub fn hmac_sha256_bytes(key: &[u8], message: &[u8]) -> [u8; 32] {
     let mut normalized_key = [0u8; BLOCK_SIZE];
     if key.len() > BLOCK_SIZE {
         let digest = Sha256::digest(key);
@@ -33,7 +38,10 @@ pub fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
     let mut outer = Sha256::new();
     outer.update(outer_pad);
     outer.update(inner_digest);
-    hex(&outer.finalize())
+    let digest = outer.finalize();
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&digest);
+    output
 }
 
 fn hex(bytes: &[u8]) -> String {

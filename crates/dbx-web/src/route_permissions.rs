@@ -48,6 +48,8 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("governance/simulate", MethodClass::Any, Permission::QueryRead),
     // Approval reads; mutations additionally check `approval:act`.
     ("approvals", MethodClass::Any, Permission::ApprovalRead),
+    // Template reads; writes additionally check `policy:publish`.
+    ("approval-templates", MethodClass::Any, Permission::ApprovalRead),
     // Policy reads; write/publish are checked in the handlers.
     ("policies", MethodClass::Any, Permission::PolicyRead),
     // Read-only metadata and UI support endpoints.

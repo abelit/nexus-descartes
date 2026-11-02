@@ -2330,6 +2330,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-postgres",
+ "tokio-postgres-rustls",
  "tokio-util",
  "uuid",
  "webpki-roots 0.26.11",

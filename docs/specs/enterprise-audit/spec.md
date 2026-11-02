@@ -43,8 +43,13 @@ identity, `full` SQL retention by default, and delivery of the full phase set.
 
 - `DBX_AUDIT_EXPORT_URL` pushes signed JSON envelopes every 10s: range, count,
   and the events. `x-dbx-audit-signature` is HMAC-SHA256 over the exact body.
+- `DBX_AUDIT_EXPORT_POSTGRES_URL` writes the same batches into PostgreSQL (one
+  row per event plus the full JSONB body) over TLS; it takes precedence when
+  both sinks are configured.
 - Delivery is at-least-once and resumes from `audit_export_state`; receivers
-  deduplicate on `event_id`.
+  deduplicate on `event_id` (the PostgreSQL sink uses `ON CONFLICT DO NOTHING`).
+- SLS/OSS ingestion is expected through a collector behind the HTTP sink; the
+  exporter does not implement vendor-specific signatures.
 - Segment deletion stays manual; retention only warns.
 
 ## Non-goals
