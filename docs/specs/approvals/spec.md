@@ -33,7 +33,7 @@ plan: `.claude/plans/dms-dbx-mutable-bear.md`.
 ## Non-goals
 
 - Multi-step / countersigned approval templates and notifications.
-- Tokens are accepted on the single-statement path and on script/batch
-  execution (`X-DBX-Approval-Token` with a request created from the full
-  `statements` list). Explicit `use_transaction` batches and manual
-  transactions still treat `require_approval` as a hard stop.
+- Tokens are accepted on the single-statement path, script/batch execution, and
+  explicit `use_transaction` batches (`X-DBX-Approval-Token` with a request
+  created from the full `statements` list). Manual transactions still treat
+  `require_approval` as a hard stop.

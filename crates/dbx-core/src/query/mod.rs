@@ -4271,6 +4271,21 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     // effects. Other callers that share the transaction kernel (schema-diff
     // deploy, imports) document a mixed-outcome-on-failure behaviour instead, so
     // they are deliberately not capped here.
+    // Batch/fast paths never reach the single-statement funnel. A batch-level
+    // approval token is bound to the complete statement list and consumed here;
+    // `policy_approved` then stops the per-statement funnel from asking again.
+    let audit_actor_id = crate::audit::current_audit_context().map(|context| context.actor.id);
+    let approval_consumed = crate::governance::authorize_batch(
+        state,
+        connection_id,
+        database,
+        schema,
+        &statements,
+        options.approval_token.as_deref(),
+        audit_actor_id.as_deref(),
+    )
+    .await?;
+
     if options.use_transaction == Some(true) && statements.len() > 1 {
         if batch_transaction_ddl_is_unrollbackable(db_type, &statements) {
             return Err(
@@ -4287,25 +4302,12 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
             schema,
             options.catalog.as_deref(),
             options.timeout_secs,
+            approval_consumed,
         )
         .await?;
         return Ok(vec![result.into()]);
     }
 
-    // Batch/fast paths never reach the single-statement funnel. A batch-level
-    // approval token is bound to the complete statement list and consumed here;
-    // `policy_approved` then stops the per-statement funnel from asking again.
-    let audit_actor_id = crate::audit::current_audit_context().map(|context| context.actor.id);
-    let approval_consumed = crate::governance::authorize_batch(
-        state,
-        connection_id,
-        database,
-        schema,
-        &statements,
-        options.approval_token.as_deref(),
-        audit_actor_id.as_deref(),
-    )
-    .await?;
     let options = QueryExecutionOptions { approval_token: None, policy_approved: approval_consumed, ..options };
 
     if is_sqlserver {
@@ -5526,6 +5528,7 @@ pub async fn execute_statements_with_transaction_option(
             schema,
             None,
             timeout_secs,
+            false,
         )
         .await
         .map_err(|error| error.into_legacy_string())?;
@@ -6187,7 +6190,7 @@ pub async fn execute_statements_in_transaction(
     schema: Option<&str>,
     catalog: Option<&str>,
 ) -> Result<db::QueryResult, String> {
-    execute_statements_in_transaction_typed(state, connection_id, database, statements, schema, catalog, None)
+    execute_statements_in_transaction_typed(state, connection_id, database, statements, schema, catalog, None, false)
         .await
         .map_err(QueryExecutionError::into_legacy_string)
 }
@@ -6201,6 +6204,7 @@ pub async fn execute_statements_in_transaction_typed(
     schema: Option<&str>,
     catalog: Option<&str>,
     timeout_secs: Option<u64>,
+    policy_approved: bool,
 ) -> Result<db::QueryResult, QueryExecutionError> {
     let sql_ctx = statements.first().map(|s| s.as_str()).unwrap_or("");
     let pool_database = query_pool_database(database, catalog);
@@ -6218,6 +6222,7 @@ pub async fn execute_statements_in_transaction_typed(
         schema,
         catalog,
         timeout_secs,
+        policy_approved,
     )
     .await
 }
@@ -6242,12 +6247,14 @@ pub async fn execute_statements_in_transaction_on_pool(
         schema,
         catalog,
         None,
+        false,
     )
     .await
     .map_err(QueryExecutionError::into_legacy_string)
 }
 
 /// Execute a transaction on an already-resolved pool without erasing typed failures.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_statements_in_transaction_on_pool_typed(
     state: &AppState,
     pool_key: &str,
@@ -6257,12 +6264,28 @@ pub async fn execute_statements_in_transaction_on_pool_typed(
     schema: Option<&str>,
     catalog: Option<&str>,
     timeout_secs: Option<u64>,
+    policy_approved: bool,
 ) -> Result<db::QueryResult, QueryExecutionError> {
     let db_type = connection_database_type(state, connection_id).await;
 
     // Read-only check: intercept all transaction paths before dispatching
     check_read_only_for_connection_multi(state, pool_key, statements).await?;
-    crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
+    if policy_approved {
+        // A batch token already satisfied the require-approval rules; block
+        // rules were re-checked before it was consumed.
+        let actor_id = crate::audit::current_audit_context().map(|context| context.actor.id);
+        crate::governance::authorize_connection_scope(
+            state,
+            actor_id.as_deref(),
+            connection_id,
+            Some(database),
+            statements,
+            db_type,
+        )
+        .await?;
+    } else {
+        crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
+    }
 
     let start = std::time::Instant::now();
     let mysql_catalog_dialect = connection_mysql_catalog_dialect(state, connection_id).await;

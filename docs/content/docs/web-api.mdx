@@ -608,10 +608,13 @@ POST /api/approvals/{id}/execute-token
 - For a script/batch, pass `statements` (the server-side split list) when
   creating the request; the token then binds the complete ordered list and is
   sent as `X-DBX-Approval-Token` on `/api/query/execute-script` or
-  `/api/query/execute-multi`. A `block` anywhere still stops the batch.
+  `/api/query/execute-multi`, including `use_transaction` batches. A `block`
+  anywhere still stops the batch.
 
-The consume-and-execute wiring in the query path is the next step; until then
-the token API is used by clients that validate before calling execution.
+The query path consumes the token: it re-evaluates every rule (a `block` still
+wins), verifies the binding, marks the token used, and only then executes the
+authorized statement list. A spent token cannot be replayed, and changing the
+SQL, connection configuration, or published policy invalidates it.
 
 ### Retention and segment deletion
 
