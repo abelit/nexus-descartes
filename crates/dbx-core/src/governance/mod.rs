@@ -265,6 +265,28 @@ pub async fn enforce_statements_for_connection(
     enforce_statement_list(&config, connection_id, database, config.db_type, statements)
 }
 
+/// If an approved, not-yet-executed request already covers exactly these
+/// statements for this actor, return its id. Query paths use it to answer
+/// "approval is already granted, execute the ticket" instead of asking the
+/// user to request approval a second time.
+pub async fn ready_approval_hint(
+    state: &AppState,
+    actor_id: Option<&str>,
+    connection_id: &str,
+    database: &str,
+    statements: &[String],
+) -> Option<String> {
+    let actor_id = actor_id.filter(|id| !id.starts_with("system") && !id.contains(':'))?;
+    let digest = approval::statements_digest(statements);
+    state
+        .storage
+        .approved_approval_for_execution(actor_id.to_string(), connection_id.to_string(), database.to_string(), digest)
+        .await
+        .ok()
+        .flatten()
+        .map(|request| request.id)
+}
+
 /// Authorizes a whole batch: every statement is evaluated with the compiled
 /// policy, a `block` anywhere stops the batch, and `require_approval` rules are
 /// satisfied by one token bound to the complete statement list.
@@ -346,6 +368,11 @@ pub async fn authorize_batch(
     required_rule_ids.sort();
     required_rule_ids.dedup();
     let (Some(raw_token), Some(actor_id)) = (approval_token, actor_id) else {
+        if let Some(approval_id) = ready_approval_hint(state, actor_id, connection_id, database, statements).await {
+            return Err(format!(
+                "APPROVAL_READY: approval {approval_id} is already approved; execute it with POST /api/approvals/{approval_id}/execute or the approval center"
+            ));
+        }
         return Err(format!(
             "POLICY_APPROVAL_REQUIRED: {} statement(s) require approval (rules {})",
             statements.len(),

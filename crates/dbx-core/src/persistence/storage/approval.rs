@@ -356,6 +356,39 @@ impl Storage {
         .await
     }
 
+    /// Finds an approved, not-yet-executed request that matches exactly this
+    /// requester/connection/database/statement list. The query path uses it to
+    /// tell the user "approval {id} is ready, execute it" instead of a bare
+    /// `POLICY_APPROVAL_REQUIRED` after they have already been approved.
+    pub async fn approved_approval_for_execution(
+        &self,
+        requester_id: String,
+        connection_id: String,
+        database: String,
+        digest: String,
+    ) -> Result<Option<ApprovalRequest>, String> {
+        self.with_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM approval_requests \
+                     WHERE status = 'approved' AND requester_id = ?1 AND connection_id = ?2 AND database = ?3 \
+                     ORDER BY created_at_ms DESC LIMIT 50",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(params![requester_id, connection_id, database], row_to_request)
+                .map_err(|error| error.to_string())?;
+            for row in rows {
+                let request = row.map_err(|error| error.to_string())?;
+                if crate::governance::approval::statements_digest(&request.statements) == digest {
+                    return Ok(Some(request));
+                }
+            }
+            Ok(None)
+        })
+        .await
+    }
+
     pub async fn approval_steps_for_request(&self, request_id: String) -> Result<Vec<ApprovalStep>, String> {
         self.with_conn(move |conn| {
             let mut stmt = conn
@@ -1192,6 +1225,35 @@ mod tests {
         assert_eq!(loaded.executed_by.as_deref(), Some("bob"));
         assert_eq!(loaded.executed_at_ms, Some(12));
         assert!(loaded.execution_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_approved_request_is_found_by_requester_connection_and_digest() {
+        let storage = storage().await;
+        let request = request("r1", ApprovalStatus::Approved);
+        let digest = request.sql_digest.clone();
+        storage.create_approval_request(request).await.unwrap();
+
+        let found = storage
+            .approved_approval_for_execution("alice".to_string(), "conn".to_string(), "app".to_string(), digest.clone())
+            .await
+            .unwrap();
+        assert_eq!(found.map(|request| request.id), Some("r1".to_string()));
+        assert!(storage
+            .approved_approval_for_execution("bob".to_string(), "conn".to_string(), "app".to_string(), digest.clone())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(storage
+            .approved_approval_for_execution(
+                "alice".to_string(),
+                "conn".to_string(),
+                "app".to_string(),
+                "other".to_string()
+            )
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

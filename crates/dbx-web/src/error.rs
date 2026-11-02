@@ -74,6 +74,7 @@ fn policy_status(message: &str) -> Option<StatusCode> {
         return Some(StatusCode::FORBIDDEN);
     }
     const CONFLICT_PREFIXES: &[&str] = &[
+        "APPROVAL_READY",
         "APPROVAL_TOKEN_EXPIRED",
         "APPROVAL_TOKEN_ALREADY_USED",
         "APPROVAL_NOT_PENDING",

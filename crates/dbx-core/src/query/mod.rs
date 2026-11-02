@@ -3086,6 +3086,24 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
                         _ => Err(String::new()),
                     };
                     if let Err(error) = approval {
+                        if error.is_empty() {
+                            let actor_id = audit_context.as_ref().map(|context| context.actor.id.as_str());
+                            if let Some(approval_id) = crate::governance::ready_approval_hint(
+                                state,
+                                actor_id,
+                                connection_id,
+                                database,
+                                &[sql.to_string()],
+                            )
+                            .await
+                            {
+                                let message = format!(
+                                    "APPROVAL_READY: approval {approval_id} is already approved; execute it with POST /api/approvals/{approval_id}/execute or the approval center"
+                                );
+                                record_denial(&message);
+                                return Err(message.into());
+                            }
+                        }
                         let detail = if error.is_empty() { String::new() } else { format!(" ({error})") };
                         let message = format!(
                             "POLICY_APPROVAL_REQUIRED: {} (rule {}){detail}",
