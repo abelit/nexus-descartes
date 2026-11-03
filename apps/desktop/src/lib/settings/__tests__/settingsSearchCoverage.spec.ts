@@ -26,6 +26,7 @@ const excludedComponents: Record<string, string> = {
   CloudSyncSelectionDialog: "Per-operation conflict/import selection, not sync configuration",
   ChangelogPanel: "Release notes, not settings",
   ConnectionGroupBadge: "Decorative connection group indicator",
+  ApprovalRequestDialog: "Per-execution approval request form, not a persisted setting",
 };
 const excludedLabels: Record<string, string> = {
   "settings.syncSavedPassword": "Saved-credential status, not an editable field",

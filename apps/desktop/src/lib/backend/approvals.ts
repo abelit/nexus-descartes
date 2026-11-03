@@ -88,7 +88,7 @@ export function getApproval(id: string): Promise<ApprovalDetail> {
   return request<ApprovalDetail>(`/api/approvals/${encodeURIComponent(id)}`);
 }
 
-export function createApproval(input: { connection_id: string; database: string; sql: string; justification?: string; template_id?: string; execution_mode?: "submitter" | "last_approver" | "auto" }): Promise<ApprovalRequest> {
+export function createApproval(input: { connection_id: string; database: string; schema_name?: string; sql: string; justification?: string; template_id?: string; execution_mode?: "submitter" | "last_approver" | "auto" }): Promise<ApprovalRequest> {
   return request<ApprovalRequest>("/api/approvals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

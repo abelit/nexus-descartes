@@ -262,6 +262,7 @@ const TabSwitcherDialog = defineAsyncComponent(() => import("@/components/tabs/T
 const QueryEditorDdlViewDialog = defineAsyncComponent(() => import("@/components/objects/DdlViewDialog.vue"));
 const QueryEditorObjectSourceDialog = defineAsyncComponent(() => import("@/components/objects/ObjectSourceDialog.vue"));
 const OracleTypeManagementDialog = defineAsyncComponent(() => import("@/components/objects/OracleTypeManagementDialog.vue"));
+const ApprovalRequestDialog = defineAsyncComponent(() => import("@/components/security/ApprovalRequestDialog.vue"));
 
 type AiAssistantHandle = {
   openPluginConversation: (request: AiPluginConversationRequest) => void;
@@ -1125,6 +1126,15 @@ const connectionRequiredTabId = ref<string | null>(null);
 const pendingToolbarExecutionSnapshot = ref<SqlExecutionSnapshot & { tabId?: string }>();
 const sqlExecutionDangerStore = useSqlExecutionDangerStore();
 const productionSafetyStore = useProductionSafetyStore();
+interface ApprovalRequiredExecution {
+  tabId: string;
+  connectionId: string;
+  database: string;
+  schema?: string;
+  sql: string;
+  detail: string;
+}
+const approvalRequiredExecution = ref<ApprovalRequiredExecution | null>(null);
 
 function promptActiveDatabaseSelection(tabId?: string) {
   const tab = tabId ? queryStore.tabs.find((candidate) => candidate.id === tabId) : activeTab.value;
@@ -1177,6 +1187,9 @@ const {
   // A dialog-parked execution reports its real outcome here, not from tryExecute
   // (#11962): that call returned as soon as the dialog opened.
   onDeferredExecutionSettled: (outcome) => settleDeferredAiSqlAction(outcome),
+  onApprovalRequired: (request) => {
+    approvalRequiredExecution.value = request;
+  },
 });
 
 function captureActiveEditorExecutionSnapshot(tabId: string) {
@@ -6128,6 +6141,20 @@ onUnmounted(() => {
         :dialect="queryEditorDdlDialect"
       />
       <McpSqlApprovalDialog v-if="isDesktop && !isDetachedWindowContext" />
+      <ApprovalRequestDialog
+        :open="approvalRequiredExecution !== null"
+        :request="approvalRequiredExecution"
+        @update:open="
+          (open) => {
+            if (!open) approvalRequiredExecution = null;
+          }
+        "
+        @created="
+          () => {
+            approvalRequiredExecution = null;
+          }
+        "
+      />
       <QueryEditorObjectSourceDialog
         v-if="queryEditorObjectSourceTarget"
         v-model:open="showQueryEditorObjectSourceDialog"

@@ -227,7 +227,9 @@ impl AssetScopeSnapshot {
         permission: &str,
         approval_authorized: bool,
     ) -> Option<AssetMatch> {
-        if self.has_global_permission(permission) {
+        if self.has_global_permission(permission)
+            || (approval_authorized && permission == "query:ddl" && self.has_global_permission("query:write"))
+        {
             return Some(AssetMatch { broad: true, grant_ids: Vec::new() });
         }
         let mut matched = AssetMatch::default();
@@ -624,6 +626,16 @@ mod tests {
             authorize_statement(&snapshot, "conn", "app", Some("public"), "CALL do_something()", db_type, false)
                 .unwrap_err();
         assert!(unproven.starts_with("ASSET_SCOPE_UNPROVEN"), "{unproven}");
+    }
+
+    #[test]
+    fn approval_allows_a_global_operator_to_submit_and_execute_ddl() {
+        let mut snapshot = make_snapshot(Vec::new());
+        snapshot.global_roles = vec!["operator".to_string()];
+        assert!(snapshot.permits("conn", Some("app"), None, None, "query:ddl", false).is_none());
+        assert!(snapshot.permits("conn", Some("app"), None, None, "query:ddl", true).is_some());
+        // Approval only substitutes query:write for query:ddl.
+        assert!(snapshot.permits("conn", Some("app"), None, None, "query:read", false).is_some());
     }
 
     #[test]

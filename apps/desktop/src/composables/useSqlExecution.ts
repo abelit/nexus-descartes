@@ -163,6 +163,14 @@ function firstQueryExecutionError(tab: Pick<QueryTab, "result" | "results">) {
   return results.find((result) => isQueryExecutionErrorResult(result));
 }
 
+function approvalRequiredDetail(tab: Pick<QueryTab, "result" | "results">): string | undefined {
+  const failure = firstQueryExecutionError(tab);
+  if (!failure) return undefined;
+  const detail = failure.error?.detail ?? String(failure.rows?.[0]?.[0] ?? "");
+  const trimmed = detail.trim();
+  return /^(POLICY_APPROVAL_REQUIRED|APPROVAL_REQUIRED):/i.test(trimmed) ? trimmed : undefined;
+}
+
 export function useSqlExecution(deps: {
   activeTab: ComputedRef<QueryTab | undefined>;
   activeConnection: ComputedRef<ConnectionConfig | undefined>;
@@ -182,6 +190,11 @@ export function useSqlExecution(deps: {
    * dismissed → `not-started`. Hosts that do not track the request ignore it.
    */
   onDeferredExecutionSettled?: (outcome: SqlExecutionOutcome) => void;
+  /**
+   * A high-risk rule parked the statement for approval. The host shows a
+   * request form pre-filled with the reviewed connection/database/schema/SQL.
+   */
+  onApprovalRequired?: (request: { tabId: string; connectionId: string; database: string; schema?: string; sql: string; detail: string }) => void;
 }) {
   const { t } = useI18n();
   const queryStore = useQueryStore();
@@ -590,6 +603,19 @@ export function useSqlExecution(deps: {
     const elapsed = Date.now() - start;
     const failure = firstQueryExecutionError(currentTab);
     const success = !failure;
+    if (failure) {
+      const approvalDetail = approvalRequiredDetail(currentTab);
+      if (approvalDetail) {
+        deps.onApprovalRequired?.({
+          tabId: currentTab.id,
+          connectionId: currentTab.connectionId,
+          database: currentTab.database,
+          schema: currentTab.schema,
+          sql,
+          detail: approvalDetail,
+        });
+      }
+    }
     historyStore.add({
       connection_id: currentTab.connectionId,
       connection_name: connName,
