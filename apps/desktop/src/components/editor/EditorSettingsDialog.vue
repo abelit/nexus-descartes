@@ -347,9 +347,7 @@ import { DEFAULT_SQL_SNIPPETS } from "@/lib/sql/sqlCompletion";
 import AiProviderLogo from "@/components/icons/AiProviderLogo.vue";
 import AppLogo from "@/components/icons/AppLogo.vue";
 import ChangelogPanel from "@/components/settings/ChangelogPanel.vue";
-import AuditLog from "@/components/security/AuditLog.vue";
 import UsersRoles from "@/components/security/UsersRoles.vue";
-import ApprovalCenter from "@/components/security/ApprovalCenter.vue";
 import PolicyEditor from "@/components/security/PolicyEditor.vue";
 import SettingsTransferPanel from "@/components/settings/SettingsTransferPanel.vue";
 import McpCapabilityBrowser from "@/components/settings/McpCapabilityBrowser.vue";
@@ -589,6 +587,9 @@ const props = defineProps<{
   jdbcUpdateAvailable?: boolean;
   mcpUpdateAvailable?: boolean;
   pluginUpdateCount?: number;
+  showGovernanceLink?: boolean;
+  showUsersRoles?: boolean;
+  showPolicies?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -601,6 +602,7 @@ const emit = defineEmits<{
   "open-mcp-settings": [];
   "open-update-center": [];
   "ai-config-deep-link-handled": [];
+  "open-governance": [];
   logout: [];
 }>();
 
@@ -13667,6 +13669,14 @@ LIMIT 100;</pre>
             </section>
 
             <section v-else-if="activeSettingsTab === 'security' && isWeb" data-settings-search-id="security" :class="['flex flex-col gap-5 py-2', settingsSearchTargetClass('security')]">
+              <div v-if="showGovernanceLink" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <div class="min-w-0 space-y-0.5">
+                  <div class="text-sm font-medium">{{ t("governance.title") }}</div>
+                  <p class="text-xs text-muted-foreground">{{ t("governance.approvals") }} · {{ t("governance.audit") }}</p>
+                </div>
+                <Button variant="outline" size="sm" @click="emit('open-governance')">{{ t("governance.openGovernance") }}</Button>
+              </div>
+
               <div class="space-y-3">
                 <Label class="text-base">{{ t("auth.changePassword") }}</Label>
                 <p class="text-sm text-muted-foreground">
@@ -13693,19 +13703,11 @@ LIMIT 100;</pre>
                 </div>
               </div>
 
-              <div class="border-t border-border/60 pt-5">
-                <AuditLog />
-              </div>
-
-              <div class="border-t border-border/60 pt-5">
+              <div v-if="showUsersRoles !== false" class="border-t border-border/60 pt-5">
                 <UsersRoles />
               </div>
 
-              <div class="border-t border-border/60 pt-5">
-                <ApprovalCenter />
-              </div>
-
-              <div class="border-t border-border/60 pt-5">
+              <div v-if="showPolicies !== false" class="border-t border-border/60 pt-5">
                 <PolicyEditor />
               </div>
             </section>

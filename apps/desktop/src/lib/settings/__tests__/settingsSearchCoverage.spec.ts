@@ -27,6 +27,7 @@ const excludedComponents: Record<string, string> = {
   ChangelogPanel: "Release notes, not settings",
   ConnectionGroupBadge: "Decorative connection group indicator",
   ApprovalRequestDialog: "Per-execution approval request form, not a persisted setting",
+  GovernanceCenter: "Top-level governance workspace, not a settings form",
 };
 const excludedLabels: Record<string, string> = {
   "settings.syncSavedPassword": "Saved-credential status, not an editable field",

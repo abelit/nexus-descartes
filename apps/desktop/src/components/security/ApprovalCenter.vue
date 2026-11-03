@@ -67,6 +67,7 @@ async function execute(request: ApprovalRequest) {
   try {
     await approvalsApi.executeApproval(request.id);
     toast(t("settings.approvals.executed"));
+    window.dispatchEvent(new Event("dbx:approvals-changed"));
     await refresh();
   } catch (executeError) {
     toast(formatError(executeError));
@@ -81,6 +82,7 @@ async function decide(request: ApprovalRequest, decision: "approve" | "reject") 
   try {
     await approvalsApi.decideApproval(request.id, decision, comments.value[request.id] ?? "");
     comments.value[request.id] = "";
+    window.dispatchEvent(new Event("dbx:approvals-changed"));
     await refresh();
   } catch (decisionError) {
     toast(formatError(decisionError));

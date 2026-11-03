@@ -2,7 +2,34 @@
 import { computed, ref, onMounted, onBeforeUnmount, h, nextTick, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronsRight, DatabaseZap, FilePlus2, Moon, Sun, SunMoon, History, Bot, ArrowLeftRight, FileCode, BookMarked, GitCompareArrows, TableProperties, Settings, LogOut, CloudDownload, Package, PlugZap, FileDown, FolderTree, Pin, PinOff, CalendarClock, Waypoints, RefreshCw } from "@lucide/vue";
+import {
+  ChevronsRight,
+  DatabaseZap,
+  FilePlus2,
+  Moon,
+  Sun,
+  SunMoon,
+  History,
+  Bot,
+  ArrowLeftRight,
+  FileCode,
+  BookMarked,
+  GitCompareArrows,
+  TableProperties,
+  Settings,
+  LogOut,
+  CloudDownload,
+  Package,
+  PlugZap,
+  FileDown,
+  FolderTree,
+  Pin,
+  PinOff,
+  CalendarClock,
+  Waypoints,
+  RefreshCw,
+  ShieldCheck,
+} from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import LightDropdown, { type LightDropdownItem } from "@/components/ui/LightDropdown.vue";
@@ -43,6 +70,9 @@ const props = defineProps<{
   showDriverStore: boolean;
   showPluginCenter: boolean;
   showSettingsPage: boolean;
+  showGovernance?: boolean;
+  governanceActive?: boolean;
+  pendingApprovalCount?: number;
   checkingUpdates: boolean;
   updateVersion?: string;
   hasUpdateAvailable: boolean;
@@ -70,6 +100,7 @@ const emit = defineEmits<{
   "toggle-sql-file-panel": [];
   "open-github": [];
   "open-settings": [];
+  "open-governance": [];
   "open-driver-store": [];
   "open-plugin-center": [];
   "check-updates": [];
@@ -834,6 +865,26 @@ const toolbarStyle = computed(() => {
       <AppLogo class="h-5 w-5 rounded shrink-0 pointer-events-none" />
       <span class="font-bold text-xs tracking-tight text-foreground/90 translate-y-px">DBX</span>
     </a>
+
+    <Tooltip v-if="showGovernance">
+      <TooltipTrigger as-child>
+        <Button variant="ghost" size="icon" class="toolbar-action-button relative h-8 w-8 shrink-0" :class="{ 'toolbar-action-button--active bg-accent': governanceActive }" :aria-label="t('toolbar.governance')" @click="emit('open-governance')">
+          <ShieldCheck class="toolbar-action-icon h-4 w-4" :class="{ 'toolbar-action-icon--active': governanceActive }" />
+          <span v-if="governanceActive" class="toolbar-panel-status" aria-hidden="true" />
+          <span
+            v-if="(pendingApprovalCount ?? 0) > 0"
+            class="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-medium leading-none text-white ring-2 ring-background"
+            :aria-label="t('toolbar.pendingApprovals', { count: pendingApprovalCount ?? 0 })"
+            :title="t('toolbar.pendingApprovals', { count: pendingApprovalCount ?? 0 })"
+          >
+            {{ (pendingApprovalCount ?? 0) > 99 ? "99+" : pendingApprovalCount }}
+          </span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {{ (pendingApprovalCount ?? 0) > 0 ? t("toolbar.pendingApprovals", { count: pendingApprovalCount ?? 0 }) : t("toolbar.governance") }}
+      </TooltipContent>
+    </Tooltip>
 
     <Tooltip>
       <TooltipTrigger as-child>

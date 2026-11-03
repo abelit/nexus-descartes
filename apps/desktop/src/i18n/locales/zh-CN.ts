@@ -1027,6 +1027,8 @@ export default withEnglishFallback({
     logoutConfirm: "确定要退出登录吗？",
   },
   toolbar: {
+    governance: "安全治理",
+    pendingApprovals: "有 {count} 条待你审批",
     fileEncoding: "文件编码",
     encodingAuto: "自动",
     immediateSync: "立即同步",
@@ -9964,6 +9966,15 @@ export default withEnglishFallback({
     exportDiffKind: "差异类型",
     exportChangedFields: "变更明细",
     exportDiffSuccess: "差异导出成功：{path}",
+  },
+  governance: {
+    title: "安全治理",
+    description: "审批工单与服务端审计日志。入口按权限显示；审批始终绑定审核时的 SQL、连接和规则。",
+    approvals: "审批中心",
+    audit: "审计日志",
+    openSecuritySettings: "用户、角色与策略",
+    openGovernance: "打开安全治理",
+    noPermission: "当前角色没有访问该治理视图的权限。",
   },
   settings: {
     historyRetentionLimit: "查询历史保留条数",

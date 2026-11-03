@@ -205,6 +205,8 @@ const groupExecutableSqlMayContainDml = computed(() => mayContainDmlStatement(gr
         @close-plugin-center="toolbar.closePluginCenter()"
         @activate-driver-store="toolbar.activateDriverStore()"
         @close-driver-store="toolbar.closeDriverStore()"
+        @activate-governance="toolbar.activateGovernance()"
+        @close-governance="toolbar.closeGovernance()"
         @save-all-tabs="toolbar.saveAllTabs()"
       />
     </Teleport>

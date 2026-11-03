@@ -5,7 +5,8 @@ import { describeConfigUpdateBlock, type UpdateBlockingConfigState, type UpdateC
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, defineAsyncComponent, provide } from "vue";
 import { MCP_CALL_HISTORY_OPEN_EVENT, type McpCallHistoryRequest } from "@/lib/mcp/mcpCallHistory";
 import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
-import { checkStartupAuthentication, logoutWeb, type StartupAuthentication } from "@/lib/startup/startupAuthentication";
+import { checkStartupAuthentication, logoutWeb, type AuthActor, type StartupAuthentication } from "@/lib/startup/startupAuthentication";
+import * as approvalsApi from "@/lib/backend/approvals";
 import { markStartupPhase } from "@/lib/startup/startupTiming";
 import { clearStartupPreloadRetry } from "@/lib/startup/startupPreloadRecovery";
 import { useI18n } from "vue-i18n";
@@ -263,6 +264,7 @@ const QueryEditorDdlViewDialog = defineAsyncComponent(() => import("@/components
 const QueryEditorObjectSourceDialog = defineAsyncComponent(() => import("@/components/objects/ObjectSourceDialog.vue"));
 const OracleTypeManagementDialog = defineAsyncComponent(() => import("@/components/objects/OracleTypeManagementDialog.vue"));
 const ApprovalRequestDialog = defineAsyncComponent(() => import("@/components/security/ApprovalRequestDialog.vue"));
+const GovernanceCenter = defineAsyncComponent(() => import("@/components/security/GovernanceCenter.vue"));
 
 type AiAssistantHandle = {
   openPluginConversation: (request: AiPluginConversationRequest) => void;
@@ -442,9 +444,19 @@ const { mcpUpdateAvailable, refreshMcpUpdateStatus, handleMcpStatusChanged, appl
 const drawDesktopWindowFrame = shouldDrawDesktopWindowFrame(isMacOS(), isDesktop, isWindows());
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 let updateCheckTimer: ReturnType<typeof setInterval> | undefined;
+let approvalBadgeTimer: ReturnType<typeof setInterval> | undefined;
 const needsAuth = ref(!isDesktop && (startupProps.startupAuthentication?.required ?? true));
 const authenticated = ref(isDesktop || (startupProps.startupAuthentication?.authenticated ?? false));
 const setupRequired = ref(!isDesktop && (startupProps.startupAuthentication?.setup_required ?? false));
+const authActor = ref<AuthActor | null>(startupProps.startupAuthentication?.actor ?? null);
+const effectivePermissions = computed(() => new Set(authActor.value?.permissions ?? []));
+const hasGovernancePermission = (permission: string) => !isDesktop && effectivePermissions.value.has(permission);
+const canApprovals = computed(() => hasGovernancePermission("approval:read") || hasGovernancePermission("approval:act"));
+const canAudit = computed(() => hasGovernancePermission("audit:read"));
+const canManageUsers = computed(() => hasGovernancePermission("admin:users"));
+const canReadPolicies = computed(() => hasGovernancePermission("policy:read"));
+const canOpenSecuritySettings = computed(() => canManageUsers.value || canReadPolicies.value);
+const showGovernanceEntry = computed(() => canApprovals.value || canAudit.value);
 const { isMaximized: windowMaximized, isFullscreen: windowFullscreen } = useWindowControls();
 // The Rust side injects this flag into the main window only when a compositing manager is
 // running (see create_linux_main_window); detached-tab and plugin windows never get it.
@@ -489,12 +501,17 @@ const pluginCenterTabOpen = ref(false);
 const pluginCenterActive = ref(false);
 const pluginCenterFocus = ref<PluginCenterFocus | null>(null);
 const connectionPluginProvider = ref<PluginCenterFocus | null>(null);
-const settingsReturnSurface = ref<"query" | "driverStore" | "pluginCenter" | "welcome">("welcome");
+const governanceTabOpen = ref(false);
+const governanceActive = ref(false);
+const governanceInitialTab = ref<"approvals" | "audit">("approvals");
+const pendingApprovalCount = ref(0);
+const settingsReturnSurface = ref<"query" | "driverStore" | "pluginCenter" | "governance" | "welcome">("welcome");
 const immediateSyncing = ref(false);
 const showDriverStore = computed(() => driverStoreTabOpen.value && driverStoreActive.value);
 const showPluginCenter = computed(() => pluginCenterTabOpen.value && pluginCenterActive.value);
 const showSettingsPage = computed(() => Boolean(settingsPageTabOpen.value && settingsStore.settingsPageActive));
-const isSpecialPageActive = computed(() => !isDetachedWindowContext && (driverStoreActive.value || pluginCenterActive.value || settingsStore.settingsPageActive));
+const showGovernancePage = computed(() => governanceTabOpen.value && governanceActive.value);
+const isSpecialPageActive = computed(() => !isDetachedWindowContext && (driverStoreActive.value || pluginCenterActive.value || governanceActive.value || settingsStore.settingsPageActive));
 const showQuickOpen = ref(false);
 const quickOpenForceContent = ref(false);
 const showTabSwitcher = ref(false);
@@ -1262,6 +1279,9 @@ const specialPageTabs = computed(() => ({
   driverStoreOpen: driverStoreTabOpen.value,
   driverStoreActive: driverStoreActive.value,
   driverUpdateCount: showDriverStoreUpdateBadge.value,
+  governanceOpen: governanceTabOpen.value,
+  governanceActive: governanceActive.value,
+  governancePendingCount: pendingApprovalCount.value,
 }));
 provide(GROUP_TAB_BAR_PORTAL, createGroupTabBarPortal(isSpecialPageActive));
 provide(EDITOR_TOOLBAR_ACTIONS, {
@@ -1304,6 +1324,8 @@ provide(EDITOR_TOOLBAR_ACTIONS, {
   closePluginCenter: closePluginCenterPage,
   activateDriverStore: () => openDriverStorePage(),
   closeDriverStore: closeDriverStorePage,
+  activateGovernance: () => openGovernancePage(),
+  closeGovernance: closeGovernancePage,
 });
 
 // Upstream "preview changes" entry: dormant until the group toolbar wires the
@@ -1425,7 +1447,7 @@ function openSettings(initialTab = "appearance", initialSection?: string) {
   settingsInitialSection.value = initialSection;
   settingsNavigationRequestId.value += 1;
   if (!settingsStore.settingsPageActive) {
-    settingsReturnSurface.value = showDriverStore.value ? "driverStore" : showPluginCenter.value ? "pluginCenter" : activeTab.value ? "query" : "welcome";
+    settingsReturnSurface.value = showDriverStore.value ? "driverStore" : showPluginCenter.value ? "pluginCenter" : showGovernancePage.value ? "governance" : activeTab.value ? "query" : "welcome";
   }
   activateSettingsPage();
 }
@@ -1463,14 +1485,71 @@ async function openImmediateSync() {
   }
 }
 
-type MainContentSurface = "query" | "settings" | "driverStore" | "pluginCenter";
+type MainContentSurface = "query" | "settings" | "driverStore" | "pluginCenter" | "governance";
 
 function activateMainContentSurface(surface: MainContentSurface) {
   settingsStore.settingsPageActive = surface === "settings";
   driverStoreActive.value = surface === "driverStore";
   pluginCenterActive.value = surface === "pluginCenter";
+  governanceActive.value = surface === "governance";
   lastFocusedSidebarSurface.value = false;
 }
+
+function defaultGovernanceTab(): "approvals" | "audit" {
+  return canApprovals.value ? "approvals" : "audit";
+}
+
+async function refreshPendingApprovalCount() {
+  if (!canApprovals.value) {
+    pendingApprovalCount.value = 0;
+    return;
+  }
+  try {
+    pendingApprovalCount.value = (await approvalsApi.listApprovals({ status: "pending", assigned: true })).length;
+  } catch {
+    pendingApprovalCount.value = 0;
+  }
+}
+
+function handleApprovalsChanged() {
+  void refreshPendingApprovalCount();
+}
+
+function openGovernancePage(tab?: "approvals" | "audit") {
+  if (!showGovernanceEntry.value) return;
+  const selected = tab ?? defaultGovernanceTab();
+  governanceInitialTab.value = selected === "audit" && !canAudit.value ? defaultGovernanceTab() : selected;
+  governanceTabOpen.value = true;
+  activateMainContentSurface("governance");
+  void refreshPendingApprovalCount();
+}
+
+function closeGovernancePage() {
+  governanceTabOpen.value = false;
+  if (settingsPageTabOpen.value) {
+    activateMainContentSurface("settings");
+    return;
+  }
+  if (pluginCenterTabOpen.value) {
+    activateMainContentSurface("pluginCenter");
+    return;
+  }
+  if (driverStoreTabOpen.value) {
+    activateMainContentSurface("driverStore");
+    return;
+  }
+  activateMainContentSurface("query");
+}
+
+watch(showGovernanceEntry, (allowed) => {
+  if (!allowed) {
+    governanceTabOpen.value = false;
+    if (governanceActive.value) activateMainContentSurface("query");
+    pendingApprovalCount.value = 0;
+    return;
+  }
+  void refreshPendingApprovalCount();
+});
 
 watch(
   () => settingsStore.settingsNavigationRequest,
@@ -1514,6 +1593,10 @@ function activateOpenSpecialPageFallback() {
   }
   if (pluginCenterTabOpen.value) {
     activateMainContentSurface("pluginCenter");
+    return;
+  }
+  if (governanceTabOpen.value) {
+    activateMainContentSurface("governance");
   }
 }
 
@@ -1535,6 +1618,10 @@ function finishCloseSettingsPage() {
   }
   if (settingsReturnSurface.value === "pluginCenter" && pluginCenterTabOpen.value) {
     activateMainContentSurface("pluginCenter");
+    return;
+  }
+  if (settingsReturnSurface.value === "governance" && governanceTabOpen.value) {
+    activateMainContentSurface("governance");
     return;
   }
   if (driverStoreTabOpen.value) {
@@ -1573,6 +1660,8 @@ function closeDriverStorePage() {
   // disappear together with Driver Manager.
   if (pluginCenterTabOpen.value) {
     activateMainContentSurface("pluginCenter");
+  } else if (governanceTabOpen.value) {
+    activateMainContentSurface("governance");
   } else if (settingsPageTabOpen.value) {
     activateMainContentSurface("settings");
   } else {
@@ -1595,6 +1684,8 @@ function closePluginCenterPage() {
   pluginCenterFocus.value = null;
   if (driverStoreTabOpen.value) {
     activateMainContentSurface("driverStore");
+  } else if (governanceTabOpen.value) {
+    activateMainContentSurface("governance");
   } else if (settingsPageTabOpen.value) {
     activateMainContentSurface("settings");
   } else {
@@ -5055,11 +5146,18 @@ async function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-function onLoginSuccess() {
+async function onLoginSuccess() {
   authenticated.value = true;
   setupRequired.value = false;
   needsAuth.value = true;
   window.history.replaceState(null, "", webPath("/"));
+  try {
+    const data = await checkStartupAuthentication();
+    authActor.value = data.actor ?? null;
+    void refreshPendingApprovalCount();
+  } catch {
+    authActor.value = null;
+  }
   void initApp();
 }
 
@@ -5072,6 +5170,10 @@ async function handleWebLogout() {
   } finally {
     authenticated.value = false;
     needsAuth.value = true;
+    authActor.value = null;
+    pendingApprovalCount.value = 0;
+    governanceTabOpen.value = false;
+    governanceActive.value = false;
     const target = webPath("/login");
     if (window.location.pathname === target) {
       window.location.reload();
@@ -5335,6 +5437,7 @@ onMounted(async () => {
   window.addEventListener(OBJECT_BROWSER_SEARCH_FOCUS_EVENT, focusRequestedObjectBrowserSearch);
   window.addEventListener("dbx-mcp-status-changed", handleMcpStatusChanged);
   window.addEventListener("dbx:ai-run-notify", handleAiRunNotify);
+  window.addEventListener("dbx:approvals-changed", handleApprovalsChanged);
   if (isDesktop) {
     document.addEventListener("contextmenu", handleContextMenu);
   }
@@ -5357,9 +5460,14 @@ onMounted(async () => {
         needsAuth.value = data.required;
         authenticated.value = data.authenticated;
         setupRequired.value = data.setup_required;
+        authActor.value = data.actor ?? null;
       } catch {
         /* server unreachable */
       }
+    }
+    void refreshPendingApprovalCount();
+    if (!approvalBadgeTimer) {
+      approvalBadgeTimer = setInterval(() => void refreshPendingApprovalCount(), 60_000);
     }
     if (needsAuth.value && !authenticated.value) {
       history.replaceState(null, "", webPath("/login"));
@@ -5415,6 +5523,10 @@ onUnmounted(() => {
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
   }
+  if (approvalBadgeTimer) {
+    clearInterval(approvalBadgeTimer);
+    approvalBadgeTimer = undefined;
+  }
   window.removeEventListener("keydown", handleNativeSelectAll, true);
   modifierDoubleTapSearch.reset();
   window.removeEventListener("pointerdown", modifierDoubleTapSearch.cancel, true);
@@ -5436,6 +5548,7 @@ onUnmounted(() => {
   window.removeEventListener(OBJECT_BROWSER_SEARCH_FOCUS_EVENT, focusRequestedObjectBrowserSearch);
   window.removeEventListener("dbx-mcp-status-changed", handleMcpStatusChanged);
   window.removeEventListener("dbx:ai-run-notify", handleAiRunNotify);
+  window.removeEventListener("dbx:approvals-changed", handleApprovalsChanged);
   window.removeEventListener("beforeunload", handleWebBeforeUnload);
   document.removeEventListener("contextmenu", handleContextMenu);
   window.clearTimeout(sqlLibraryFlyAnimationTimer);
@@ -5471,6 +5584,9 @@ onUnmounted(() => {
           :show-driver-store="showDriverStore"
           :show-plugin-center="showPluginCenter"
           :show-settings-page="showSettingsPage"
+          :show-governance="showGovernanceEntry"
+          :governance-active="showGovernancePage"
+          :pending-approval-count="pendingApprovalCount"
           :checking-updates="checkingAllUpdates"
           :has-update-available="toolbarHasUpdateAvailable"
           :is-downloading-update="isDownloadingUpdate"
@@ -5495,6 +5611,7 @@ onUnmounted(() => {
           @toggle-sql-file-panel="toggleRightSidebarPanel('sqlFile')"
           @open-github="openGitHub"
           @open-settings="openSettings(showMcpSettingsUpdateBadge ? 'mcp' : 'appearance')"
+          @open-governance="openGovernancePage()"
           @open-driver-store="openDriverStorePage"
           @open-plugin-center="openPluginCenterPage()"
           @check-updates="handleToolbarUpdateClick"
@@ -5545,6 +5662,8 @@ onUnmounted(() => {
                 :plugin-center-active="pluginCenterActive"
                 :settings-page-open="settingsPageTabOpen"
                 :settings-page-active="settingsStore.settingsPageActive"
+                :governance-open="governanceTabOpen"
+                :governance-active="governanceActive"
                 :agent-driver-update-count="toolbarAgentDriverUpdateCount"
                 :detached-drop-target="detachedDropTargetTabId !== null"
                 :can-detach-tabs="isDesktop"
@@ -5552,10 +5671,12 @@ onUnmounted(() => {
                 :tab-bar-collapsed="tabBarCollapsed"
                 @activate-driver-store="openDriverStorePage"
                 @activate-plugin-center="openPluginCenterPage(pluginCenterFocus)"
+                @activate-governance="openGovernancePage()"
                 @activate-settings-page="activateSettingsPage"
                 @activate-tab="activateQueryTab"
                 @close-driver-store="closeDriverStorePage"
                 @close-plugin-center="closePluginCenterPage"
+                @close-governance="closeGovernancePage"
                 @close-settings-page="closeSettingsPage"
                 @save-tab="handleSaveTab"
                 @discard-tab-close="handleDiscardPendingTabClose"
@@ -5583,6 +5704,17 @@ onUnmounted(() => {
                   @new-connection="openPluginConnectionDialog"
                   @plugin-runtime-replaced="refreshPluginWorkbenches"
                 />
+                <GovernanceCenter
+                  v-if="governanceTabOpen"
+                  v-show="governanceActive"
+                  :initial-tab="governanceInitialTab"
+                  :can-approvals="canApprovals"
+                  :can-audit="canAudit"
+                  :can-open-security-settings="canOpenSecuritySettings"
+                  :pending-approval-count="pendingApprovalCount"
+                  class="flex-1 min-h-0"
+                  @open-security-settings="openSettings('security')"
+                />
                 <EditorSettingsPage
                   v-if="settingsPageTabOpen"
                   v-show="settingsStore.settingsPageActive"
@@ -5603,6 +5735,9 @@ onUnmounted(() => {
                   :jdbc-update-available="toolbarJdbcUpdateAvailable"
                   :mcp-update-available="toolbarMcpUpdateAvailable"
                   :plugin-update-count="componentUpdates.pluginUpdateCount.value"
+                  :show-governance-link="showGovernanceEntry"
+                  :show-users-roles="canManageUsers"
+                  :show-policies="canReadPolicies"
                   class="flex-1 min-h-0"
                   @update:open="(open: boolean) => (open ? activateSettingsPage() : finishCloseSettingsPage())"
                   @check-updates="checkAllUpdates"
@@ -5618,6 +5753,7 @@ onUnmounted(() => {
                     openPluginCenterPage({ pluginId: 'cc-switch' });
                   "
                   @open-mcp-settings="openSettings('mcp')"
+                  @open-governance="openGovernancePage()"
                   @ai-config-deep-link-handled="settingsAiConfigDraft = null"
                   @logout="handleWebLogout"
                 />
@@ -5646,7 +5782,7 @@ onUnmounted(() => {
                 </DialogContent>
               </Dialog>
               <div
-                v-show="!driverStoreActive && !pluginCenterActive && !settingsStore.settingsPageActive"
+                v-show="!driverStoreActive && !pluginCenterActive && !governanceActive && !settingsStore.settingsPageActive"
                 class="flex min-h-0 min-w-0 flex-1"
                 :class="activeTab?.mode === 'plugin-workbench' && isVerticalTabPlacement ? (settingsStore.editorSettings.tabPlacement === 'right' ? 'flex-row-reverse' : 'flex-row') : 'flex-col'"
               >

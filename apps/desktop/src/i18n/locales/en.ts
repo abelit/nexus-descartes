@@ -1091,6 +1091,8 @@ export default {
     logoutConfirm: "Are you sure you want to log out?",
   },
   toolbar: {
+    governance: "Security governance",
+    pendingApprovals: "{count} approval(s) awaiting you",
     fileEncoding: "File encoding",
     encodingAuto: "Auto",
     immediateSync: "Sync now",
@@ -9998,6 +10000,15 @@ export default {
     exportDiffKind: "Diff Type",
     exportChangedFields: "Changed Fields",
     exportDiffSuccess: "Diffs exported: {path}",
+  },
+  governance: {
+    title: "Security governance",
+    description: "Approval tickets and the server-side audit trail. Entries are permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.",
+    approvals: "Approvals",
+    audit: "Audit log",
+    openSecuritySettings: "Users, roles & policies",
+    openGovernance: "Open security governance",
+    noPermission: "Your role does not grant access to this governance view.",
   },
   settings: {
     historyRetentionLimit: "Query history retention",

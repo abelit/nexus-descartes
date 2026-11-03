@@ -10,6 +10,8 @@ import { formatError } from "@/lib/backend/errorUtils";
 import * as auditApi from "@/lib/backend/audit";
 import type { AuditChainReport, AuditEvent } from "@/lib/backend/audit";
 
+const props = defineProps<{ sessionAuthorized?: boolean }>();
+
 const { t } = useI18n();
 const { toast } = useToast();
 
@@ -170,7 +172,7 @@ onMounted(() => {
       <p class="text-sm text-muted-foreground">{{ t("settings.audit.description") }}</p>
     </div>
 
-    <div class="space-y-2 rounded-lg border border-border/60 p-3">
+    <div v-if="!props.sessionAuthorized" class="space-y-2 rounded-lg border border-border/60 p-3">
       <div class="flex items-center gap-2 text-sm font-medium">
         <KeyRound class="h-4 w-4" />
         {{ t("settings.audit.accessToken") }}
