@@ -252,14 +252,16 @@ impl AssetScopeSnapshot {
     }
 
     /// Parent nodes stay visible when a narrower grant exists beneath them, so
-    /// the user can navigate to a granted table.
+    /// the user can navigate to a granted table. A database/schema/table grant
+    /// names its connection explicitly; asking `grant_covers` with an unknown
+    /// database would hide the connection the grant belongs to.
     pub fn can_navigate_connection(&self, connection_id: &str) -> bool {
         if self.has_global_permission("connection:read") {
             return true;
         }
         self.grants.iter().any(|grant| {
             role_grants_permission(&grant.role_code, "connection:read")
-                && self.grant_covers(grant, connection_id, None, None, None)
+                && self.grant_connection_matches(grant, connection_id)
         })
     }
 
@@ -556,6 +558,8 @@ mod tests {
         assert!(snapshot.permits("conn", Some("app"), Some("public"), Some("orders"), "query:write", false).is_none());
         // A table grant never covers the whole database.
         assert!(snapshot.permits("conn", Some("app"), Some("public"), None, "query:read", false).is_none());
+        assert!(snapshot.can_navigate_connection("conn"));
+        assert!(!snapshot.can_navigate_connection("other-conn"));
         assert!(snapshot.can_navigate_database("conn", "app"));
         assert!(snapshot.can_navigate_schema("conn", "app", "public"));
     }

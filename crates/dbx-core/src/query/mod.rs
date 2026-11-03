@@ -5773,7 +5773,8 @@ async fn execute_statements_inner(
     };
 
     if !policy_approved {
-        crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
+        crate::governance::enforce_statements_for_connection(state, connection_id, database, schema, statements)
+            .await?;
     }
     let mut total_affected: u64 = 0;
     let start = std::time::Instant::now();
@@ -6371,7 +6372,8 @@ pub async fn execute_statements_in_transaction_on_pool_typed(
         )
         .await?;
     } else {
-        crate::governance::enforce_statements_for_connection(state, connection_id, database, statements).await?;
+        crate::governance::enforce_statements_for_connection(state, connection_id, database, schema, statements)
+            .await?;
     }
 
     let start = std::time::Instant::now();
@@ -7498,8 +7500,14 @@ pub async fn execute_in_manual_transaction_with_options(
     };
     let started = std::time::Instant::now();
     if let Some(connection_id) = audit_connection_id.as_ref() {
-        crate::governance::enforce_statements_for_connection(state, connection_id, database, &[sql.to_string()])
-            .await?;
+        crate::governance::enforce_statements_for_connection(
+            state,
+            connection_id,
+            database,
+            schema,
+            &[sql.to_string()],
+        )
+        .await?;
     }
     let result =
         execute_in_manual_transaction_with_options_inner(state, txn_session_id, sql, database, schema, options).await;

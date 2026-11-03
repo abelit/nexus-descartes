@@ -217,6 +217,7 @@ pub async fn enforce_statements_for_connection(
     state: &AppState,
     connection_id: &str,
     database: &str,
+    schema: Option<&str>,
     statements: &[String],
 ) -> Result<(), String> {
     if statements.is_empty() {
@@ -235,7 +236,7 @@ pub async fn enforce_statements_for_connection(
         actor_id.as_deref(),
         connection_id,
         Some(database),
-        None,
+        schema,
         statements,
         Some(config.db_type),
         false,
