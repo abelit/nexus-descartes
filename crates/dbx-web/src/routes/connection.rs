@@ -70,6 +70,11 @@ async fn authorize_connection_request(
     if !dbx_core::governance::assets::actor_is_managed(actor) {
         return Ok(None);
     }
+    // Global connection managers may test a draft before saving it. Only
+    // asset-scoped users are forced onto the stored endpoint.
+    if dbx_core::identity::has_permission(&actor.roles, dbx_core::identity::Permission::ConnectionWrite) {
+        return Ok(None);
+    }
     let stored = state
         .app
         .storage
