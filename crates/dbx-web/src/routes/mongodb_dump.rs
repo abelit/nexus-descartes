@@ -5,8 +5,10 @@ use std::time::Duration;
 use axum::{
     extract::{Multipart, Path, State},
     response::Sse,
-    Json,
+    Extension, Json,
 };
+use dbx_core::audit::Actor;
+use dbx_core::governance::assets::{actor_is_managed, load_asset_snapshot};
 use dbx_core::{
     mongodb_dump::{
         self, MongoDatabaseDumpProgress, MongoDatabaseDumpRequest, MongoDatabaseRestoreRequest, MongoDumpFormat,
@@ -33,8 +35,18 @@ pub struct CatalogRequest {
 
 pub async fn catalog(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(request): Json<CatalogRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    if actor_is_managed(&actor) {
+        let snapshot = load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot.permits(&request.connection_id, Some(&request.database), None, None, "query:read", false).is_none()
+        {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: the MongoDB database is outside the user's asset grants",
+            ));
+        }
+    }
     let catalog = mongodb_dump::inspect_mongodb_database_dump(&state.app, &request.connection_id, &request.database)
         .await
         .map_err(AppError::from)?;
@@ -354,11 +366,21 @@ async fn start_task(state: Arc<WebState>, task: Task) -> Result<Json<serde_json:
 
 pub async fn start_dump(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<DumpWrapper>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut request = body.request;
     if request.format != MongoDumpFormat::Archive {
         return Err(AppError::from("Web database exports use MongoDB archive format".to_string()));
+    }
+    if actor_is_managed(&actor) {
+        let snapshot = load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot.permits(&request.connection_id, Some(&request.database), None, None, "query:read", false).is_none()
+        {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: a whole-database dump needs a database or connection grant",
+            ));
+        }
     }
     let tmp = state.data_dir.join("tmp");
     tokio::fs::create_dir_all(&tmp).await.map_err(|e| AppError::from(e.to_string()))?;
@@ -372,8 +394,23 @@ pub async fn start_dump(
 
 pub async fn start_restore(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<RestoreWrapper>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    if actor_is_managed(&actor) {
+        let snapshot = load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        let required = if body.request.drop_existing { "query:ddl" } else { "query:write" };
+        let allowed = |permission: &str| {
+            snapshot
+                .permits(&body.request.connection_id, Some(&body.request.database), None, None, permission, false)
+                .is_some()
+        };
+        if !allowed("import:data") || !allowed(required) {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: a whole-database restore needs a database or connection import grant",
+            ));
+        }
+    }
     start_task(state, Task::Restore(body.request)).await
 }
 

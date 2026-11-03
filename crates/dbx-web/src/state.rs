@@ -187,6 +187,7 @@ impl WebState {
         token: String,
         user: &User,
         roles: Vec<String>,
+        asset_roles: Vec<String>,
         client_ip: Option<String>,
         user_agent: Option<String>,
     ) -> SessionActor {
@@ -213,6 +214,7 @@ impl WebState {
             display_name: user.display_name.clone(),
             kind: dbx_core::audit::ActorKind::Human,
             roles,
+            asset_roles,
             tenant_id: None,
             session_id: Some(token.clone()),
             auth_method: "local_password".to_string(),
@@ -363,11 +365,13 @@ impl WebState {
             return None;
         }
         let roles = self.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default();
+        let asset_roles = self.app.storage.asset_role_codes_for_user(user.id.clone()).await.unwrap_or_default();
         let actor = Actor {
             id: user.id.clone(),
             display_name: user.display_name,
             kind: dbx_core::audit::ActorKind::Human,
             roles,
+            asset_roles,
             tenant_id: None,
             session_id: Some(token.to_string()),
             auth_method: "local_password".to_string(),

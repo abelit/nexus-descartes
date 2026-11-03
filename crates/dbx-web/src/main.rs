@@ -1699,6 +1699,8 @@ async fn serve() -> Result<(), String> {
         .route("/users", get(routes::users::list_users).post(routes::users::create_user))
         .route("/users/{user_id}", patch(routes::users::update_user))
         .route("/users/{user_id}/password", post(routes::users::reset_user_password))
+        .route("/users/{user_id}/bindings", get(routes::users::list_bindings).post(routes::users::create_binding))
+        .route("/users/{user_id}/bindings/{binding_id}", delete(routes::users::delete_binding))
         .route("/users/{user_id}/sessions", get(routes::users::list_user_sessions))
         .route("/users/{user_id}/sessions/revoke", post(routes::users::revoke_user_sessions))
         .route("/users/{user_id}/sessions/{session_id}", delete(routes::users::revoke_user_session))

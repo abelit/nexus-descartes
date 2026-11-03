@@ -307,6 +307,25 @@ impl WebState {
         ConnectionResponse::with_jdbc_dialect(response_config, jdbc_dialect)
     }
 
+    /// Response for one actor: asset-scoped users never receive stored secrets,
+    /// even when the global password viewer is enabled. They connect through
+    /// the server-held config instead.
+    pub fn connection_response_for(
+        &self,
+        actor: &dbx_core::audit::Actor,
+        config: ConnectionConfig,
+    ) -> ConnectionResponse {
+        let global_manager =
+            dbx_core::identity::has_permission(&actor.roles, dbx_core::identity::Permission::ConnectionWrite);
+        let managed = dbx_core::governance::assets::actor_is_managed(actor);
+        if !managed {
+            return self.connection_response(config);
+        }
+        let response_config = if self.password_viewer_enabled && global_manager { config } else { redact(&config) };
+        let jdbc_dialect = jdbc_dialect_hint(&response_config);
+        ConnectionResponse::with_jdbc_dialect(response_config, jdbc_dialect)
+    }
+
     pub async fn resolve_connection_credentials(&self, config: ConnectionConfig) -> Result<ConnectionConfig, AppError> {
         if !contains_reference(&serde_json::to_value(&config).unwrap()) {
             return Ok(config);
@@ -481,6 +500,7 @@ mod tests {
         state.app.storage.save_connections(std::slice::from_ref(&original)).await.unwrap();
         let Json(mut listed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -514,6 +534,7 @@ mod tests {
         assert_eq!(state.app.storage.load_connections().await.unwrap()[0].password, "replacement");
         let Json(mut listed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -548,6 +569,7 @@ mod tests {
 
         let Json(mut listed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -576,6 +598,7 @@ mod tests {
         Arc::get_mut(&mut state).unwrap().password_viewer_enabled = true;
         let Json(viewed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -588,6 +611,7 @@ mod tests {
 
         let Json(mut listed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -608,6 +632,7 @@ mod tests {
         .unwrap();
         let Json(listed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -633,6 +658,7 @@ mod tests {
         .unwrap();
         let Json(listed) = connection::load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             axum::extract::Query(Default::default()),
         )
@@ -696,12 +722,14 @@ mod tests {
         let browser = redact(&original);
         let _ = connection::test_connection(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             Json(ConnectRequest { config: browser.clone(), client_attempt: None }),
         )
         .await
         .unwrap();
         let _ = connection::connect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(ConnectRequest { config: browser.clone(), client_attempt: None }),
         )
@@ -713,6 +741,7 @@ mod tests {
         draft.one_time = true;
         let _ = connection::connect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(ConnectRequest { config: draft, client_attempt: None }),
         )

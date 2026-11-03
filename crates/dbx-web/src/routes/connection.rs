@@ -6,7 +6,8 @@ use async_stream::stream;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
 use dbx_core::connection::{
     connection_configs_pool_equivalent, connection_configs_session_credentials_compatible, AppState, PoolKind,
 };
@@ -44,6 +45,48 @@ struct NoSaveRuntimeSecrets {
 struct SessionCredentialWrites {
     primary: Option<SessionCredentialWriteToken>,
     purposes: Vec<PurposeSessionCredentialWriteToken>,
+}
+
+async fn require_connection_navigation(state: &WebState, actor: &Actor, connection_id: &str) -> Result<(), AppError> {
+    if !dbx_core::governance::assets::actor_is_managed(actor) {
+        return Ok(());
+    }
+    let snapshot =
+        dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+    if !snapshot.can_navigate_connection(connection_id) {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the connection is outside the user's asset grants"));
+    }
+    Ok(())
+}
+
+/// A managed user may only connect with the server's saved configuration for
+/// a connection they can navigate to. Honouring the request body would let them
+/// redirect a granted connection id to another host.
+async fn authorize_connection_request(
+    state: &WebState,
+    actor: &Actor,
+    config: &ConnectionConfig,
+) -> Result<Option<ConnectionConfig>, AppError> {
+    if !dbx_core::governance::assets::actor_is_managed(actor) {
+        return Ok(None);
+    }
+    let stored = state
+        .app
+        .storage
+        .load_connections()
+        .await
+        .map_err(AppError::from)?
+        .into_iter()
+        .find(|saved| saved.id == config.id);
+    let Some(stored) = stored else {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: managed users may only connect to saved connections"));
+    };
+    let snapshot =
+        dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+    if !snapshot.can_navigate_connection(&stored.id) {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the connection is outside the user's asset grants"));
+    }
+    Ok(Some(stored))
 }
 
 fn connection_credential_owner(state: &WebState, headers: &HeaderMap) -> String {
@@ -449,9 +492,14 @@ async fn run_prepared_temporary_connection_test(
 
 pub async fn test_connection(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<ConnectRequest>,
 ) -> Result<Json<String>, AppError> {
-    let config = state.resolve_connection_credentials(body.config).await?;
+    let config = match authorize_connection_request(&state, &actor, &body.config).await? {
+        Some(config) => config,
+        None => body.config,
+    };
+    let config = state.resolve_connection_credentials(config).await?;
     run_temporary_connection_test(&state.app, config, false)
         .await
         .map(|result| Json(result.message))
@@ -460,9 +508,14 @@ pub async fn test_connection(
 
 pub async fn test_connection_with_info(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<ConnectRequest>,
 ) -> Result<Json<ConnectionTestResult>, AppError> {
-    let config = state.resolve_connection_credentials(body.config).await?;
+    let config = match authorize_connection_request(&state, &actor, &body.config).await? {
+        Some(config) => config,
+        None => body.config,
+    };
+    let config = state.resolve_connection_credentials(config).await?;
     run_temporary_connection_test(&state.app, config, true).await.map(Json).map_err(AppError::from)
 }
 
@@ -484,10 +537,15 @@ pub async fn test_ssh_tunnel(
 
 pub async fn connect_db(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     Json(body): Json<ConnectRequest>,
 ) -> Result<Json<String>, AppError> {
-    let config = state.resolve_connection_credentials(body.config).await?;
+    let config = match authorize_connection_request(&state, &actor, &body.config).await? {
+        Some(config) => config,
+        None => body.config,
+    };
+    let config = state.resolve_connection_credentials(config).await?;
     // 演示模式：只允许连接已保存的连接，端点身份以存储为准，防止伪造 body
     // 配置把服务器拨向任意主机（见 demo 模块）。
     if state.demo_mode {
@@ -601,8 +659,10 @@ pub async fn connect_db(
 
 pub async fn connected_database_info(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<ConnectionIdentifierQuoteRequest>,
 ) -> Result<Json<Option<DatabaseConnectionInfo>>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     state
         .app
         .connection_database_info(&body.connection_id, body.database.as_deref())
@@ -613,8 +673,10 @@ pub async fn connected_database_info(
 
 pub async fn save_connection_database_info(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<SaveConnectionDatabaseInfoRequest>,
 ) -> Result<Json<()>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     state
         .app
         .save_connection_database_info(&body.connection_id, body.database_info)
@@ -667,8 +729,10 @@ pub async fn lock_connection_writes(
 
 pub async fn connection_write_unlock_state(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<ConnectionIdentifierQuoteRequest>,
 ) -> Result<Json<WriteUnlockStateResponse>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     Ok(Json(WriteUnlockStateResponse {
         remaining_ms: state.app.write_unlock_windows.remaining_ms(&body.connection_id).await,
     }))
@@ -676,10 +740,15 @@ pub async fn connection_write_unlock_state(
 
 pub async fn connection_final_proxy_port(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     Json(body): Json<ConnectRequest>,
 ) -> Result<Json<u16>, AppError> {
-    let runtime_config = state.resolve_connection_credentials(body.config).await?.canonicalized();
+    let config = match authorize_connection_request(&state, &actor, &body.config).await? {
+        Some(config) => config,
+        None => body.config,
+    };
+    let runtime_config = state.resolve_connection_credentials(config).await?.canonicalized();
     if !runtime_config.has_effective_transport_layers() {
         return Err(AppError::from("Connection has no configured transport layers".to_string()));
     }
@@ -746,9 +815,11 @@ pub async fn connection_final_proxy_port(
 
 pub async fn disconnect_db(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     Json(body): Json<DisconnectRequest>,
 ) -> Result<Json<()>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     let app = &state.app;
     let permit = super::pl_debug::claim_mutation(
         &state,
@@ -783,8 +854,10 @@ pub async fn disconnect_db(
 
 pub async fn check_connection_health(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<DisconnectRequest>,
 ) -> Result<Json<()>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     state.app.check_connection_health(&body.connection_id).await.map_err(AppError::from)?;
     Ok(Json(()))
 }
@@ -793,8 +866,10 @@ pub async fn check_connection_health(
 /// has a pool, without probing, mutating, or triggering a reconnect (#4339).
 pub async fn connection_is_open(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<DisconnectRequest>,
 ) -> Result<Json<bool>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     Ok(Json(state.app.is_connection_open(&body.connection_id).await))
 }
 
@@ -906,8 +981,10 @@ pub fn start_connection_idle_sweeper(state: &Arc<WebState>) {
 
 pub async fn prewarm_connection(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<PrewarmConnectionRequest>,
 ) -> Result<Json<()>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     let database = body.database.as_deref().filter(|value| !value.is_empty());
     let catalog = body.catalog.as_deref().filter(|value| !value.is_empty());
     let client_session_id = body.client_session_id.as_deref().filter(|value| !value.is_empty());
@@ -977,8 +1054,10 @@ pub async fn connection_identifier_quote(
 
 pub async fn close_database_connection(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<CloseDatabaseConnectionRequest>,
 ) -> Result<Json<bool>, AppError> {
+    require_connection_navigation(&state, &actor, &body.connection_id).await?;
     let database = body.database.trim();
     let database = if database.is_empty() { None } else { Some(database) };
     state.app.close_database_pool(&body.connection_id, database).await.map(Json).map_err(AppError::from)
@@ -1145,12 +1224,20 @@ pub struct LoadConnectionsQuery {
 
 pub async fn load_connections(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     Query(query): Query<LoadConnectionsQuery>,
 ) -> Result<Json<Vec<ConnectionResponse>>, AppError> {
     if let Some(visible) = query.legacy_sidebar_show_user_admin {
-        state.app.storage.migrate_sidebar_user_admin_visibility(visible).await?;
+        if dbx_core::identity::has_permission(&actor.roles, dbx_core::identity::Permission::AdminSettings) {
+            state.app.storage.migrate_sidebar_user_admin_visibility(visible).await?;
+        }
     }
+    let snapshot = if dbx_core::governance::assets::actor_is_managed(&actor) {
+        Some(dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await?)
+    } else {
+        None
+    };
     for _ in 0..3 {
         let allowed = {
             let current = state.app.configs.read().await;
@@ -1180,7 +1267,15 @@ pub async fn load_connections(
             })
             .await?;
         if let ConnectionConfigSyncAttempt::Applied((_, configs)) = attempt {
-            return Ok(Json(configs.into_iter().map(|config| state.connection_response(config)).collect()));
+            let visible = configs
+                .into_iter()
+                .filter(|config| match &snapshot {
+                    Some(snapshot) => snapshot.can_navigate_connection(&config.id),
+                    None => true,
+                })
+                .map(|config| state.connection_response_for(&actor, config))
+                .collect();
+            return Ok(Json(visible));
         }
     }
     Err(AppError::conflict("Connection configuration changed while loading; reload before trying again"))
@@ -1750,16 +1845,20 @@ mod tests {
 
         let legacy = test_connection(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             Json(ConnectRequest { config: config.clone(), client_attempt: None }),
         )
         .await
         .unwrap_or_else(|error| panic!("{}", error.message));
         assert_eq!(legacy.0, "Connection successful");
 
-        let detailed =
-            test_connection_with_info(State(state.clone()), Json(ConnectRequest { config, client_attempt: None }))
-                .await
-                .unwrap_or_else(|error| panic!("{}", error.message));
+        let detailed = test_connection_with_info(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            Json(ConnectRequest { config, client_attempt: None }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message));
         assert_eq!(detailed.0.message, "Connection successful");
         assert_eq!(detailed.0.database_info, None);
         assert!(state.app.configs.read().await.keys().all(|key| !key.starts_with("__test_")));
@@ -1787,10 +1886,14 @@ mod tests {
         let (state, dir) = test_web_state().await;
         let config = plugin_config("plugin-connect");
 
-        let error =
-            connect_db(State(state.clone()), HeaderMap::new(), Json(ConnectRequest { config, client_attempt: None }))
-                .await
-                .unwrap_err();
+        let error = connect_db(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Json(ConnectRequest { config, client_attempt: None }),
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(error.message, "Plugin connection is missing plugin_id");
         assert!(state.app.with_connection_pools(|pools| !pools.contains_key("plugin-connect")).await);
@@ -1857,18 +1960,33 @@ done
         config.plugin_connection_type = Some("sample".to_string());
 
         let request = || ConnectRequest { config: config.clone(), client_attempt: None };
-        let _ = connect_db(State(state.clone()), HeaderMap::new(), Json(request())).await.unwrap();
+        let _ = connect_db(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Json(request()),
+        )
+        .await
+        .unwrap();
         let old_handle = match state.app.pool_handle(&config.id).await.unwrap() {
             PoolKind::PluginConnection(handle) => handle,
             _ => panic!("expected a plugin pool"),
         };
-        let _ = connect_db(State(state.clone()), HeaderMap::new(), Json(request())).await.unwrap();
+        let _ = connect_db(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Json(request()),
+        )
+        .await
+        .unwrap();
         old_handle.disconnect().await.unwrap();
         let events = std::fs::read_to_string(plugin_dir.join("events.log")).unwrap();
         assert_eq!(events.lines().collect::<Vec<_>>(), ["connection/connect", "connection/connect"]);
 
         let _ = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: config.id.clone(), client_attempt: None }),
         )
@@ -1965,7 +2083,14 @@ done
         config.plugin_connection_type = Some("sample".to_string());
 
         let request = || ConnectRequest { config: config.clone(), client_attempt: None };
-        let _ = connect_db(State(state.clone()), HeaderMap::new(), Json(request())).await.unwrap();
+        let _ = connect_db(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Json(request()),
+        )
+        .await
+        .unwrap();
         let old_handle = match state.app.pool_handle(&config.id).await.unwrap() {
             PoolKind::PluginConnection(handle) => handle,
             _ => panic!("expected a plugin pool"),
@@ -1977,7 +2102,14 @@ done
         let abandoned = tokio::time::timeout(std::time::Duration::from_millis(300), old_handle.disconnect()).await;
         assert!(abandoned.is_err(), "the disconnect must still be in flight when the caller gives up");
 
-        let _ = connect_db(State(state.clone()), HeaderMap::new(), Json(request())).await.unwrap();
+        let _ = connect_db(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Json(request()),
+        )
+        .await
+        .unwrap();
         // Wait until the stale handler has actually finished before judging:
         // `disconnect-done` proves the late disconnect already ran.
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -2075,9 +2207,13 @@ done
         let admin_url = spawn_pulsar_clusters_server().await;
         let config = mq_config("pulsar-probe", &admin_url);
 
-        let result = test_connection(State(state.clone()), Json(ConnectRequest { config, client_attempt: None }))
-            .await
-            .unwrap_or_else(|error| panic!("{}", error.message));
+        let result = test_connection(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            Json(ConnectRequest { config, client_attempt: None }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{}", error.message));
         assert_eq!(result.0, "Connection successful");
 
         assert!(state.app.configs.read().await.keys().all(|key| !key.starts_with("__test_")));
@@ -2118,6 +2254,7 @@ done
         });
         let connect_error = connect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(ConnectRequest { config: invalid.clone(), client_attempt: None }),
         )
@@ -2139,6 +2276,7 @@ done
         }));
         let proxy_error = connection_final_proxy_port(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(ConnectRequest { config: invalid, client_attempt: None }),
         )
@@ -2426,6 +2564,7 @@ done
 
         let result = save_connection_database_info(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             Json(SaveConnectionDatabaseInfoRequest {
                 connection_id: config.id.clone(),
                 database_info: Some(database_info.clone()),
@@ -2500,6 +2639,7 @@ done
         let updated = mq_config("mq-conn", &spawn_pulsar_clusters_server().await);
         let result = connect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(ConnectRequest { config: updated.clone(), client_attempt: None }),
         )
@@ -2541,6 +2681,7 @@ done
         let result = dbx_core::session_credentials::with_credential_owner(Some("token-a".to_string()), async move {
             connect_db(
                 State(connect_guard),
+                axum::Extension(dbx_core::audit::Actor::bootstrap()),
                 headers_a,
                 Json(ConnectRequest { config: config.clone(), client_attempt: None }),
             )
@@ -2718,6 +2859,7 @@ done
 
         let result = connection_final_proxy_port(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             cookie_headers("token-a"),
             Json(ConnectRequest { config, client_attempt: None }),
         )
@@ -2750,6 +2892,7 @@ done
         // 无密码重连（配置里没带密码，应复用既有凭据）因目标文件缺失而失败。
         let result = connect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             headers_a,
             Json(ConnectRequest { config: config.clone(), client_attempt: None }),
         )
@@ -2763,17 +2906,68 @@ done
     }
 
     #[tokio::test]
+    async fn load_connections_hides_ungranted_connections_and_redacts_secrets() {
+        let (state, dir) = test_web_state().await;
+        let mut allowed = sqlite_config("conn-allowed", &dir.join("allowed.db").to_string_lossy());
+        allowed.password = "asset-secret".to_string();
+        let other = sqlite_config("conn-other", &dir.join("other.db").to_string_lossy());
+        state.app.storage.save_connections(&[allowed, other]).await.unwrap();
+        let user = state
+            .app
+            .storage
+            .create_user_scoped(
+                "scoped@example.com".to_string(),
+                "Scoped".to_string(),
+                dbx_core::identity::hash_password("password123").unwrap(),
+                "viewer".to_string(),
+                "connection".to_string(),
+                Some("conn-allowed".to_string()),
+                "admin".to_string(),
+            )
+            .await
+            .unwrap();
+        let actor = dbx_core::audit::Actor {
+            id: user.id.clone(),
+            display_name: "Scoped".to_string(),
+            kind: dbx_core::audit::ActorKind::Human,
+            roles: Vec::new(),
+            asset_roles: vec!["viewer".to_string()],
+            tenant_id: None,
+            session_id: None,
+            auth_method: "local_password".to_string(),
+        };
+        let response = load_connections(
+            State(state.clone()),
+            axum::Extension(actor),
+            HeaderMap::new(),
+            Query(super::LoadConnectionsQuery::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.0.len(), 1);
+        assert_eq!(response.0[0].config.id, "conn-allowed");
+        assert!(!response.0[0].config.password.contains("asset-secret"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn load_connections_migrates_visibility_only_for_an_explicit_client() {
         let (state, dir) = test_web_state().await;
         let mut config = sqlite_config("visibility", &dir.join("visibility.db").to_string_lossy());
         config.show_user_admin = None;
         state.app.storage.save_connections(&[config.clone()]).await.unwrap();
-        let _ = load_connections(State(state.clone()), HeaderMap::new(), Query(super::LoadConnectionsQuery::default()))
-            .await
-            .unwrap();
+        let _ = load_connections(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Query(super::LoadConnectionsQuery::default()),
+        )
+        .await
+        .unwrap();
         assert_eq!(state.app.storage.load_connections().await.unwrap()[0].show_user_admin, None);
         let _ = load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Query(super::LoadConnectionsQuery { legacy_sidebar_show_user_admin: Some(false) }),
         )
@@ -2784,6 +2978,7 @@ done
         state.app.storage.save_connections(&[config]).await.unwrap();
         let _ = load_connections(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Query(super::LoadConnectionsQuery { legacy_sidebar_show_user_admin: Some(false) }),
         )
@@ -2807,9 +3002,13 @@ done
             })
             .await;
 
-        let result =
-            load_connections(State(state.clone()), HeaderMap::new(), Query(super::LoadConnectionsQuery::default()))
-                .await;
+        let result = load_connections(
+            State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
+            HeaderMap::new(),
+            Query(super::LoadConnectionsQuery::default()),
+        )
+        .await;
         assert!(result.is_ok());
 
         let configs = state.app.configs.read().await;
@@ -3042,6 +3241,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: "conn".to_string(), client_attempt: None }),
         )
@@ -3073,6 +3273,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: "conn".to_string(), client_attempt: Some(1) }),
         )
@@ -3084,6 +3285,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: "conn".to_string(), client_attempt: Some(2) }),
         )
@@ -3116,6 +3318,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: "conn".to_string(), client_attempt: None }),
         )
@@ -3144,6 +3347,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: config.id.clone(), client_attempt: None }),
         )
@@ -3171,6 +3375,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: draft_id.to_string(), client_attempt: None }),
         )
@@ -3214,6 +3419,7 @@ done
 
         let result = disconnect_db(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(DisconnectRequest { connection_id: one_time.id.clone(), client_attempt: None }),
         )

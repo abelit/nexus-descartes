@@ -29,7 +29,9 @@ use crate::state::WebState;
 const TOKEN_TTL_MS: i64 = 5 * 60 * 1000;
 
 fn require(actor: &Actor, permission: Permission) -> Result<(), AppError> {
-    if dbx_core::identity::has_permission(&actor.roles, permission) {
+    let global = dbx_core::identity::has_permission(&actor.roles, permission);
+    let asset = permission.is_asset_scopeable() && dbx_core::identity::has_permission(&actor.asset_roles, permission);
+    if global || asset {
         Ok(())
     } else {
         Err(AppError::forbidden(format!("PERMISSION_DENIED: {}", permission.as_str())))
@@ -274,6 +276,23 @@ pub async fn create_request(
             "APPROVAL_EXECUTION_MODE_REQUIRES_SAVED_CREDENTIAL: this mode runs without the requester's session, so the connection password must be saved server-side",
         ));
     }
+    // Asking for approval still requires access to the target asset. DDL is
+    // allowed when the role grants query:write, because the approval covers the
+    // DDL capability.
+    if let Err(error) = dbx_core::governance::authorize_connection_scope(
+        &state.app,
+        Some(&actor.id),
+        &body.connection_id,
+        Some(&body.database),
+        body.schema_name.as_deref(),
+        &statements,
+        Some(config.db_type),
+        true,
+    )
+    .await
+    {
+        return Err(AppError::forbidden(format!("ASSET_ACCESS_DENIED: {error}")));
+    }
     let config_hash = dbx_core::governance::approval::connection_config_hash(&config);
     let hash = request_hash(&ApprovalBinding {
         connection_id: &body.connection_id,
@@ -373,7 +392,15 @@ pub async fn list_requests(
     require(&actor, Permission::ApprovalRead)?;
     let requester = query.mine.unwrap_or(false).then(|| actor.id.clone());
     let status = query.status.filter(|value| ApprovalStatus::parse(value).is_some());
-    let requests = state.app.storage.list_approval_requests(requester, status, 200).await.map_err(AppError::from)?;
+    let mut requests =
+        state.app.storage.list_approval_requests(requester, status, 200).await.map_err(AppError::from)?;
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        requests.retain(|request| {
+            request.requester_id == actor.id || snapshot.can_navigate_connection(&request.connection_id)
+        });
+    }
     let ids: Vec<String> = requests.iter().map(|request| request.id.clone()).collect();
     let steps = state.app.storage.approval_steps_for_requests(ids).await.map_err(AppError::from)?;
     let mut by_request: HashMap<String, Vec<ApprovalStep>> = HashMap::new();
@@ -410,8 +437,17 @@ pub async fn get_request(
     let steps = state.app.storage.approval_steps_for_request(request.id.clone()).await.map_err(AppError::from)?;
     // The requester, an administrator, and anyone who may decide a step can
     // see the full timeline.
+    let asset_visible = if dbx_core::governance::assets::actor_is_managed(&actor) {
+        dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id)
+            .await
+            .map(|snapshot| snapshot.can_navigate_connection(&request.connection_id))
+            .unwrap_or(false)
+    } else {
+        true
+    };
     let can_view = request.requester_id == actor.id
         || dbx_core::identity::has_permission(&actor.roles, Permission::AdminSettings)
+        || asset_visible
         || steps.iter().any(|step| step.allows(&actor.id, &actor.roles));
     if !can_view {
         return Err(AppError::forbidden("APPROVAL_FORBIDDEN: this request is not assigned to you"));
@@ -564,6 +600,7 @@ async fn run_approved_request(
         Some(&request.requester_id),
         &request.connection_id,
         Some(&request.database),
+        request.schema_name.as_deref(),
         &request.statements,
         Some(config.db_type),
         true,
@@ -580,11 +617,14 @@ async fn run_approved_request(
 
     let requester = state.app.storage.user_by_id(request.requester_id.clone()).await.ok().flatten();
     let roles = state.app.storage.role_codes_for_user(request.requester_id.clone()).await.unwrap_or_default();
+    let asset_roles =
+        state.app.storage.asset_role_codes_for_user(request.requester_id.clone()).await.unwrap_or_default();
     let requester_actor = Actor {
         id: request.requester_id.clone(),
         display_name: requester.map(|user| user.display_name).unwrap_or_else(|| request.requester_id.clone()),
         kind: ActorKind::Human,
         roles,
+        asset_roles,
         tenant_id: None,
         session_id: None,
         auth_method: "approval".to_string(),

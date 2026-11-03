@@ -7,7 +7,9 @@ use axum::extract::{Multipart, Path, State};
 use axum::http::{header, StatusCode};
 use axum::response::sse::Event;
 use axum::response::{Response, Sse};
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
+use dbx_core::governance::assets::{actor_is_managed, load_asset_snapshot};
 use dbx_core::mongodb_import_export::{
     self, MongoExportFormat, MongoExportProgress, MongoExportRequest, MongoExportStatus, MongoImportParseOptions,
     MongoImportPhase, MongoImportPreviewRequest, MongoImportProgress, MongoImportRequest, MongoImportStatus,
@@ -272,12 +274,25 @@ where
 
 pub async fn execute_import(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<ExecuteImportWrapper>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let started_at = Instant::now();
     let mut req = body.request;
     let file_path = validated_uploaded_import_path(&state.data_dir, &req.file_path)?;
     req.file_path = file_path.to_string_lossy().to_string();
+    if actor_is_managed(&actor) {
+        let snapshot = load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot
+            .permits(&req.connection_id, Some(&req.database), None, Some(&req.collection), "query:write", false)
+            .is_none()
+        {
+            cleanup_uploaded_import_source(&req.file_path).await;
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: the MongoDB collection is outside the user's asset grants",
+            ));
+        }
+    }
 
     if let Some(name) = dbx_core::query::connection_readonly_name(&state.app, &req.connection_id).await {
         cleanup_uploaded_import_source(&req.file_path).await;
@@ -431,9 +446,21 @@ pub struct CancelExportRequest {
 
 pub async fn start_export(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<StartExportRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut req = body.request;
+    if actor_is_managed(&actor) {
+        let snapshot = load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot
+            .permits(&req.connection_id, Some(&req.database), None, Some(&req.collection), "query:read", false)
+            .is_none()
+        {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: the MongoDB collection is outside the user's asset grants",
+            ));
+        }
+    }
     let export_id = req.export_id.clone();
     let tmp_dir = state.data_dir.join("tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| AppError::from(e.to_string()))?;
@@ -627,6 +654,7 @@ mod tests {
             }
             let Json(started) = start_export(
                 State(state.clone()),
+                axum::Extension(dbx_core::audit::Actor::bootstrap()),
                 Json(StartExportRequest {
                     request: MongoExportRequest {
                         export_id: id.clone(),
@@ -687,6 +715,7 @@ mod tests {
         let id = uuid::Uuid::new_v4().to_string();
         let Json(started) = execute_import(
             State(state.clone()),
+            axum::Extension(dbx_core::audit::Actor::bootstrap()),
             Json(ExecuteImportWrapper {
                 request: MongoImportRequest {
                     import_id: id.clone(),

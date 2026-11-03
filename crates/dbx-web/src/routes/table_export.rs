@@ -10,7 +10,8 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{header, StatusCode};
 use axum::response::{Response, Sse};
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
 use dbx_core::table_export::{self, ExportStatus, TableExportProgress, TableExportRequest};
 use futures::stream::Stream;
 use serde::Deserialize;
@@ -33,9 +34,19 @@ pub struct CancelExportRequest {
 
 pub async fn start_table_export(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<StartExportRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut req = body.request;
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        let database = req.database.as_str();
+        let schema = req.schema.as_deref().filter(|value| !value.is_empty()).unwrap_or(database);
+        if !snapshot.authorizes_table(&req.connection_id, database, schema, &req.table_name) {
+            return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the table is outside the user's asset grants"));
+        }
+    }
     dbx_core::query::mysql_data_charset_policy::check_export(&state.app, &req.connection_id, &req.format)
         .await
         .map_err(AppError::from)?;
@@ -77,39 +88,48 @@ pub async fn start_table_export(
 
     // Exports interleave async fetches with synchronous row formatting and
     // buffered disk writes; run them off the async workers (see spawn_export_task).
+    // Carry the request's audit context into the spawned export so generated-SQL
+    // audit events keep the signed-in actor.
+    let audit_context = dbx_core::audit::current_audit_context();
     dbx_core::export_runtime::spawn_export_task(async move {
-        let result = table_export::export_table_data_core(&app, &req, |progress| {
-            if matches!(progress.status, ExportStatus::Cancelled) {
-                cancelled_progress.store(true, Ordering::SeqCst);
-            }
-            if let Ok(json) = serde_json::to_string(&progress) {
-                let _ = tx.send(json);
-            }
-        })
-        .await;
+        let run = async move {
+            let result = table_export::export_table_data_core(&app, &req, |progress| {
+                if matches!(progress.status, ExportStatus::Cancelled) {
+                    cancelled_progress.store(true, Ordering::SeqCst);
+                }
+                if let Ok(json) = serde_json::to_string(&progress) {
+                    let _ = tx.send(json);
+                }
+            })
+            .await;
 
-        if let Err(e) = result {
-            let _ = tokio::fs::remove_file(&req.file_path).await;
-            state_clone.export_files.write().await.remove(&req.export_id);
-            let progress = TableExportProgress {
-                export_id: req.export_id.clone(),
-                table_name: req.table_name.clone(),
-                rows_exported: 0,
-                total_rows: None,
-                status: ExportStatus::Error,
-                error_message: Some(e),
-            };
-            if let Ok(json) = serde_json::to_string(&progress) {
-                let _ = tx.send(json);
+            if let Err(e) = result {
+                let _ = tokio::fs::remove_file(&req.file_path).await;
+                state_clone.export_files.write().await.remove(&req.export_id);
+                let progress = TableExportProgress {
+                    export_id: req.export_id.clone(),
+                    table_name: req.table_name.clone(),
+                    rows_exported: 0,
+                    total_rows: None,
+                    status: ExportStatus::Error,
+                    error_message: Some(e),
+                };
+                if let Ok(json) = serde_json::to_string(&progress) {
+                    let _ = tx.send(json);
+                }
+            } else if cancelled.load(Ordering::SeqCst) {
+                let _ = tokio::fs::remove_file(&req.file_path).await;
+                state_clone.export_files.write().await.remove(&req.export_id);
             }
-        } else if cancelled.load(Ordering::SeqCst) {
-            let _ = tokio::fs::remove_file(&req.file_path).await;
-            state_clone.export_files.write().await.remove(&req.export_id);
+
+            dbx_core::database_export::clear_export_cancelled(&req.export_id).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            state_clone.remove_sse_channel(&req.export_id).await;
+        };
+        match audit_context {
+            Some(context) => dbx_core::audit::with_audit_context(context, run).await,
+            None => run.await,
         }
-
-        dbx_core::database_export::clear_export_cancelled(&req.export_id).await;
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        state_clone.remove_sse_channel(&req.export_id).await;
     });
 
     Ok(Json(serde_json::json!({ "exportId": export_id })))

@@ -8,7 +8,8 @@ use axum::extract::{Path, State};
 use axum::http::{header, StatusCode};
 use axum::response::sse::{Event, Sse};
 use axum::response::Response;
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
 use dbx_core::database_export::{
     self, DatabaseExportOutputCompression, DatabaseExportRequest, ExportProgress, ExportStatus,
 };
@@ -33,9 +34,19 @@ pub struct CancelExportRequest {
 
 pub async fn start_database_export(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<StartExportRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut req = body.request;
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot.permits(&req.connection_id, Some(&req.database), None, None, "query:read", false).is_none() {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: a whole-database export needs a database or connection grant",
+            ));
+        }
+    }
     dbx_core::query::mysql_data_charset_policy::reject_operation(
         &state.app,
         &req.connection_id,

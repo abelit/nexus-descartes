@@ -1,7 +1,9 @@
 use crate::error::AppError;
 use crate::state::WebState;
 use axum::extract::State;
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
+use dbx_core::identity::Permission;
 use dbx_core::native_jobs::{
     NativeJobContext, NativeJobDetails, NativeJobList, NativeJobListRequest, NativeJobOperationStatus,
     NativeJobPreparedPlan, NativeJobRef, NativeJobReferenceCatalog, NativeJobReferenceListRequest, NativeJobRequest,
@@ -9,6 +11,34 @@ use dbx_core::native_jobs::{
 use dbx_core::schema::native_jobs as jobs;
 use serde::Deserialize;
 use std::sync::Arc;
+
+async fn require_job_database(
+    state: &WebState,
+    actor: &Actor,
+    scope: &dbx_core::native_jobs::NativeJobScope,
+    permission: &str,
+) -> Result<(), AppError> {
+    if !dbx_core::governance::assets::actor_is_managed(actor) {
+        return Ok(());
+    }
+    let snapshot =
+        dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+    if snapshot.permits(&scope.connection_id, Some(&scope.database), None, None, permission, false).is_none() {
+        return Err(AppError::forbidden(
+            "ASSET_ACCESS_DENIED: the native-job target is outside the user's asset grants",
+        ));
+    }
+    Ok(())
+}
+
+fn require_global_job_admin(actor: &Actor) -> Result<(), AppError> {
+    if dbx_core::governance::assets::actor_is_managed(actor)
+        && !dbx_core::identity::has_permission(&actor.roles, Permission::QueryDdl)
+    {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: native-job changes need a global query:ddl role"));
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,8 +61,19 @@ pub struct OperationRequest {
 
 pub async fn open_context(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(request): Json<ContextRequest>,
 ) -> Result<Json<NativeJobContext>, AppError> {
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot.permits(&request.connection_id, Some(&request.database), None, None, "query:read", false).is_none()
+        {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: the native-job target is outside the user's asset grants",
+            ));
+        }
+    }
     jobs::native_job_open_context_core(&state.app, &request.connection_id, &request.database)
         .await
         .map(Json)
@@ -40,32 +81,42 @@ pub async fn open_context(
 }
 pub async fn list(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(request): Json<NativeJobListRequest>,
 ) -> Result<Json<NativeJobList>, AppError> {
+    require_job_database(&state, &actor, &request.scope, "query:read").await?;
     jobs::native_job_list_core(&state.app, &request).await.map(Json).map_err(AppError::from)
 }
 pub async fn references(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(request): Json<NativeJobReferenceListRequest>,
 ) -> Result<Json<NativeJobReferenceCatalog>, AppError> {
+    require_job_database(&state, &actor, &request.scope, "query:read").await?;
     jobs::native_job_references_core(&state.app, &request).await.map(Json).map_err(AppError::from)
 }
 pub async fn read(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(target): Json<NativeJobRef>,
 ) -> Result<Json<NativeJobDetails>, AppError> {
+    require_job_database(&state, &actor, target.scope(), "query:read").await?;
     jobs::native_job_read_core(&state.app, &target).await.map(Json).map_err(AppError::from)
 }
 pub async fn prepare(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(mutation): Json<NativeJobRequest>,
 ) -> Result<Json<NativeJobPreparedPlan>, AppError> {
+    require_global_job_admin(&actor)?;
     jobs::native_job_prepare_core(&state.app, mutation).await.map(Json).map_err(AppError::from)
 }
 pub async fn apply(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(request): Json<ApplyRequest>,
 ) -> Result<Json<NativeJobOperationStatus>, AppError> {
+    require_global_job_admin(&actor)?;
     jobs::native_job_apply_core(state.app.clone(), &request.plan_id).map(Json).map_err(AppError::from)
 }
 pub async fn status(
@@ -105,7 +156,10 @@ mod tests {
         let (_dir, state) = setup().await;
         let request: ApplyRequest =
             serde_json::from_value(serde_json::json!({"planId":"missing-plan", "sql":"sensitive client SQL"})).unwrap();
-        let error = apply(State(state), Json(request)).await.err().unwrap();
+        let error = apply(State(state), axum::Extension(dbx_core::audit::Actor::bootstrap()), Json(request))
+            .await
+            .err()
+            .unwrap();
         assert_eq!(error.message, "native_job_preview_stale");
     }
 
@@ -127,7 +181,8 @@ mod tests {
             scope: NativeJobScope { connection_id: "c".into(), database: "".into(), context_id: "".into() },
             job_id: "9007199254740993".into(),
         };
-        let error = read(State(state), Json(target)).await.err().unwrap();
+        let error =
+            read(State(state), axum::Extension(dbx_core::audit::Actor::bootstrap()), Json(target)).await.err().unwrap();
         assert_eq!(error.message, "native_job_identity_invalid");
     }
 
@@ -138,7 +193,10 @@ mod tests {
             "scope": {"connectionId":"c", "database":"", "contextId":""}, "kind":"program"
         }))
         .unwrap();
-        let error = references(State(state), Json(request)).await.err().unwrap();
+        let error = references(State(state), axum::Extension(dbx_core::audit::Actor::bootstrap()), Json(request))
+            .await
+            .err()
+            .unwrap();
         assert_eq!(error.message, "native_job_identity_invalid");
     }
 
@@ -162,7 +220,10 @@ mod tests {
             "target":{"kind":"legacy","scope":context.scope,"jobId":"9007199254740993"},
             "definition":{"kind":"legacy","what":"private_call();","nextDate":"2026-10-21 10:20:30","interval":"NULL","enabled":false},
         })).unwrap();
-        let Json(preview) = prepare(State(state.clone()), Json(request)).await.unwrap();
+        let Json(preview) =
+            prepare(State(state.clone()), axum::Extension(dbx_core::audit::Actor::bootstrap()), Json(request))
+                .await
+                .unwrap();
         assert!(preview.target.is_none());
         assert_eq!(preview.scope, context.scope);
         assert_eq!(

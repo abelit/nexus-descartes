@@ -36,18 +36,32 @@ pub struct AuthActorView {
     pub id: String,
     pub display_name: String,
     pub roles: Vec<String>,
+    /// Roles that only apply inside asset grants.
+    pub asset_roles: Vec<String>,
     /// Effective permission codes, so the UI can hide actions it cannot use.
-    /// The server still enforces every one of them.
+    /// The server still enforces every one of them; asset-scopeable permissions
+    /// are shown even though the actual object check happens per request.
     pub permissions: Vec<String>,
 }
 
 impl From<&Actor> for AuthActorView {
     fn from(actor: &Actor) -> Self {
+        let mut permissions = dbx_core::identity::permissions_for_roles(&actor.roles);
+        for permission in dbx_core::identity::permissions_for_roles(&actor.asset_roles) {
+            if dbx_core::identity::Permission::parse(&permission)
+                .is_some_and(dbx_core::identity::Permission::is_asset_scopeable)
+            {
+                permissions.push(permission);
+            }
+        }
+        permissions.sort();
+        permissions.dedup();
         Self {
             id: actor.id.clone(),
             display_name: actor.display_name.clone(),
             roles: actor.roles.clone(),
-            permissions: dbx_core::identity::permissions_for_roles(&actor.roles),
+            asset_roles: actor.asset_roles.clone(),
+            permissions,
         }
     }
 }
@@ -113,6 +127,7 @@ fn anonymous_actor() -> Actor {
         display_name: "Unauthenticated".to_string(),
         kind: ActorKind::Bootstrap,
         roles: Vec::new(),
+        asset_roles: Vec::new(),
         tenant_id: None,
         session_id: None,
         auth_method: "local_password".to_string(),
@@ -238,7 +253,8 @@ pub async fn login(
 
     let token = uuid::Uuid::new_v4().to_string();
     let roles = state.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default();
-    let session = state.create_user_session(token.clone(), &user, roles, None, user_agent).await;
+    let asset_roles = state.app.storage.asset_role_codes_for_user(user.id.clone()).await.unwrap_or_default();
+    let session = state.create_user_session(token.clone(), &user, roles, asset_roles, None, user_agent).await;
     let actor = session.actor;
     let _ = state.app.storage.record_user_login(user.id.clone()).await;
     record_auth_event(&state, actor, AuditDecision::Allowed, AuditOutcome::Success, "login:success", hint.as_deref());
@@ -290,7 +306,7 @@ pub async fn setup(State(state): State<Arc<WebState>>, Json(body): Json<LoginReq
     // Auto-login: create session
     let token = uuid::Uuid::new_v4().to_string();
     let roles = vec!["admin".to_string()];
-    let session = state.create_user_session(token.clone(), &user, roles, None, None).await;
+    let session = state.create_user_session(token.clone(), &user, roles, Vec::new(), None, None).await;
     record_auth_event(
         &state,
         session.actor,
@@ -487,6 +503,7 @@ pub async fn auth_middleware(
                     display_name: claims.email.clone().unwrap_or_else(|| claims.sub.clone()),
                     kind: ActorKind::Human,
                     roles: dbx_core::identity::hilbert::roles_for_claims(&claims),
+                    asset_roles: Vec::new(),
                     tenant_id: None,
                     session_id: None,
                     auth_method: "hilbert_jwt".to_string(),

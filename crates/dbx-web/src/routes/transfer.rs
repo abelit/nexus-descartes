@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::response::sse::{Event, Sse};
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
+use dbx_core::governance::assets::AssetScopeSnapshot;
 use dbx_core::persistence::task_history::{TaskHistoryStorageError, TaskLifecycleOwner, TransferTaskJournal};
-use dbx_core::transfer::{self, TransferRequest, TransferStatus};
+use dbx_core::transfer::{self, TransferContent, TransferRequest, TransferStatus};
 use futures::stream::Stream;
 use serde::Deserialize;
 use tokio::time::{sleep, Duration};
@@ -82,8 +84,52 @@ pub struct PreviewTransferOwnershipRequest {
     pub request: TransferRequest,
 }
 
+fn require_transfer_assets(snapshot: &AssetScopeSnapshot, req: &TransferRequest) -> Result<(), AppError> {
+    let source_schema = Some(req.source_schema.as_str()).filter(|value| !value.trim().is_empty());
+    let target_schema = Some(req.target_schema.as_str()).filter(|value| !value.trim().is_empty());
+    let check = |connection_id: &str,
+                 database: &str,
+                 schema: Option<&str>,
+                 table: Option<&str>,
+                 permission: &str|
+     -> Result<(), AppError> {
+        if snapshot.permits(connection_id, Some(database), schema, table, permission, false).is_some() {
+            return Ok(());
+        }
+        Err(AppError::forbidden(
+            "ASSET_ACCESS_DENIED: the transfer source or target is outside the user's asset grants",
+        ))
+    };
+    let structure = req.content != TransferContent::DataOnly || req.create_table || req.drop_target_before_create;
+    if req.tables.is_empty() || req.objects.as_ref().is_some_and(|objects| !objects.is_empty()) {
+        check(&req.source_connection_id, &req.source_database, source_schema, None, "query:read")?;
+        check(
+            &req.target_connection_id,
+            &req.target_database,
+            target_schema,
+            None,
+            if structure { "query:ddl" } else { "query:write" },
+        )?;
+        check(&req.target_connection_id, &req.target_database, target_schema, None, "import:data")?;
+    } else {
+        for table in &req.tables {
+            check(&req.source_connection_id, &req.source_database, source_schema, Some(table), "query:read")?;
+            check(
+                &req.target_connection_id,
+                &req.target_database,
+                target_schema,
+                Some(table),
+                if structure { "query:ddl" } else { "query:write" },
+            )?;
+            check(&req.target_connection_id, &req.target_database, target_schema, Some(table), "import:data")?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn start_transfer(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<StartTransferRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let operation_timeout_secs = body.operation_timeout_secs;
@@ -91,6 +137,11 @@ pub async fn start_transfer(
     transfer::check_data_charset_transfer(&state.app, &req).await.map_err(AppError::from)?;
     transfer::validate_transfer_request(&req).map_err(AppError::from)?;
     transfer::validate_transfer_operation_timeout(operation_timeout_secs).map_err(AppError::from)?;
+    if !state.demo_mode && dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        require_transfer_assets(&snapshot, &req)?;
+    }
 
     // Demo mode skips connection-backed validation: the simulated web build may not
     // carry the requested connections, and the spawned task reports failures as
@@ -229,10 +280,16 @@ pub async fn start_transfer(
 
 pub async fn preview_transfer_ownership(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<PreviewTransferOwnershipRequest>,
 ) -> Result<Json<dbx_core::transfer::TransferOwnershipPreview>, AppError> {
     let req = body.request;
     transfer::validate_transfer_request(&req).map_err(AppError::from)?;
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        require_transfer_assets(&snapshot, &req)?;
+    }
     let source_db_type = transfer::get_db_type(&state.app, &req.source_connection_id).await.map_err(AppError::from)?;
     let target_db_type = transfer::get_db_type(&state.app, &req.target_connection_id).await.map_err(AppError::from)?;
     transfer::validate_transfer_database_pair(&req, &source_db_type, &target_db_type).map_err(AppError::from)?;
@@ -459,6 +516,7 @@ mod tests {
         let transfer_id = req.transfer_id.clone();
         let response = start_transfer(
             State(state.clone()),
+            Extension(dbx_core::audit::Actor::bootstrap()),
             Json(StartTransferRequest { request: req, operation_timeout_secs: None }),
         )
         .await
@@ -467,6 +525,7 @@ mod tests {
 
         let duplicate = start_transfer(
             State(state.clone()),
+            Extension(dbx_core::audit::Actor::bootstrap()),
             Json(StartTransferRequest { request: transfer_request("src", "dst", &dir), operation_timeout_secs: None }),
         )
         .await
@@ -539,6 +598,7 @@ mod tests {
         let transfer_id = req.transfer_id.clone();
         let _ = start_transfer(
             State(state.clone()),
+            Extension(dbx_core::audit::Actor::bootstrap()),
             Json(StartTransferRequest { request: req, operation_timeout_secs: None }),
         )
         .await

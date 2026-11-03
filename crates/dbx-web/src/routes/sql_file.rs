@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
-use axum::extract::{Multipart, Path as AxumPath, Query, State};
+use axum::extract::{Extension, Multipart, Path as AxumPath, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::sse::{Event, Sse};
 use axum::response::Response;
@@ -322,12 +322,26 @@ async fn preview_uploaded_sql_file_with_encoding(
 
 pub async fn execute_sql_file(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<dbx_core::audit::Actor>,
     headers: HeaderMap,
     Json(body): Json<SqlFileExecuteWrapper>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let req = body.request;
     if req.resolve_includes {
         return Err(AppError::from("Local SQL includes are only available in the desktop application".to_string()));
+    }
+    // A SQL file is an opaque script: it may switch databases with USE, so a
+    // narrower database/schema/table grant cannot bound what it touches.
+    // Require a connection-level write grant and let the per-statement funnel
+    // reject DDL when the role lacks `query:ddl`.
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        if snapshot.permits(&req.connection_id, None, None, None, "query:write", false).is_none() {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: SQL file execution needs a connection-level query:write grant",
+            ));
+        }
     }
     // The failure log of this run belongs to the session that started it: the
     // export/copy routes look it up by this owner, never by path (dbx#11619).
@@ -370,77 +384,87 @@ pub async fn execute_sql_file(
 
     let app = state.app.clone();
     let state_clone = state.clone();
+    // The import runs in a spawned task, which does not inherit task-local
+    // state. Carry the request's audit context explicitly so per-statement
+    // authorization can still identify the user.
+    let audit_context = dbx_core::audit::current_audit_context();
 
     tokio::spawn(async move {
-        let _managed_previews = managed_previews;
-        let started_at = std::time::Instant::now();
-        let mut failure_log = start_web_failure_log(&state_clone, &req, &file_paths).await;
-        state_clone.sql_file_failure_logs.register(
-            &log_owner,
-            &req.execution_id,
-            failure_log.path().map(Path::to_path_buf),
-            failure_log.status_probe(),
-        );
-        let mut counters = SqlFileFailureLogRunCounters::default();
-        let mut progress_emitter = SqlFileProgressEmitter::new(|progress| {
-            // The sink only queues; the writer task owns the disk, so a failing
-            // log can never break the import.
-            counters.observe(&progress);
-            failure_log.record(&progress);
-            send_sql_file_progress(&tx, progress);
-        });
-        progress_emitter.emit(build_sql_file_progress(
-            &req.execution_id,
-            SqlFileStatus::Started,
-            0,
-            0,
-            0,
-            0,
-            started_at,
-            "",
-            None,
-        ));
-        for file_path in &file_paths {
-            let upload_limit = sql_file_upload_limit(&state_clone).await;
-            match std::fs::metadata(file_path) {
-                Ok(meta) if meta.len() > upload_limit as u64 => {
-                    progress_emitter.emit(sql_file_error_progress(
-                        &req.execution_id,
-                        started_at,
-                        format!("File too large: {} bytes (max {} bytes)", meta.len(), upload_limit),
-                    ));
-                    cleanup_sql_file_execution(&state_clone, &req.execution_id).await;
-                    return;
+        let run = async move {
+            let _managed_previews = managed_previews;
+            let started_at = std::time::Instant::now();
+            let mut failure_log = start_web_failure_log(&state_clone, &req, &file_paths).await;
+            state_clone.sql_file_failure_logs.register(
+                &log_owner,
+                &req.execution_id,
+                failure_log.path().map(Path::to_path_buf),
+                failure_log.status_probe(),
+            );
+            let mut counters = SqlFileFailureLogRunCounters::default();
+            let mut progress_emitter = SqlFileProgressEmitter::new(|progress| {
+                // The sink only queues; the writer task owns the disk, so a failing
+                // log can never break the import.
+                counters.observe(&progress);
+                failure_log.record(&progress);
+                send_sql_file_progress(&tx, progress);
+            });
+            progress_emitter.emit(build_sql_file_progress(
+                &req.execution_id,
+                SqlFileStatus::Started,
+                0,
+                0,
+                0,
+                0,
+                started_at,
+                "",
+                None,
+            ));
+            for file_path in &file_paths {
+                let upload_limit = sql_file_upload_limit(&state_clone).await;
+                match std::fs::metadata(file_path) {
+                    Ok(meta) if meta.len() > upload_limit as u64 => {
+                        progress_emitter.emit(sql_file_error_progress(
+                            &req.execution_id,
+                            started_at,
+                            format!("File too large: {} bytes (max {} bytes)", meta.len(), upload_limit),
+                        ));
+                        cleanup_sql_file_execution(&state_clone, &req.execution_id).await;
+                        return;
+                    }
+                    Err(e) => {
+                        progress_emitter.emit(sql_file_error_progress(&req.execution_id, started_at, e.to_string()));
+                        cleanup_sql_file_execution(&state_clone, &req.execution_id).await;
+                        return;
+                    }
+                    _ => {}
                 }
-                Err(e) => {
-                    progress_emitter.emit(sql_file_error_progress(&req.execution_id, started_at, e.to_string()));
-                    cleanup_sql_file_execution(&state_clone, &req.execution_id).await;
-                    return;
-                }
-                _ => {}
             }
-        }
 
-        let file_path_refs: Vec<&Path> = file_paths.iter().map(PathBuf::as_path).collect();
-        // The core executor emits exactly one terminal Error with the latest
-        // cumulative counters before returning Err.
-        let _ = if is_zip_package {
-            execute_sql_file_zip_package_paths(&app, &req, &file_path_refs, token, started_at, |progress| {
-                progress_emitter.emit(progress);
-            })
-            .await
-        } else {
-            execute_sql_file_paths(&app, &req, &file_path_refs, token, started_at, |progress| {
-                progress_emitter.emit(progress);
-            })
-            .await
+            let file_path_refs: Vec<&Path> = file_paths.iter().map(PathBuf::as_path).collect();
+            // The core executor emits exactly one terminal Error with the latest
+            // cumulative counters before returning Err.
+            let _ = if is_zip_package {
+                execute_sql_file_zip_package_paths(&app, &req, &file_path_refs, token, started_at, |progress| {
+                    progress_emitter.emit(progress);
+                })
+                .await
+            } else {
+                execute_sql_file_paths(&app, &req, &file_path_refs, token, started_at, |progress| {
+                    progress_emitter.emit(progress);
+                })
+                .await
+            };
+
+            failure_log.finish(counters.summary(started_at.elapsed().as_millis() as u64)).await;
+            // Keep the log exportable, but let retention reclaim it once nothing writes.
+            state_clone.sql_file_failure_logs.mark_finished(&log_owner, &req.execution_id);
+            cleanup_sql_file_package_paths(&file_paths);
+            cleanup_sql_file_execution(&state_clone, &req.execution_id).await;
         };
-
-        failure_log.finish(counters.summary(started_at.elapsed().as_millis() as u64)).await;
-        // Keep the log exportable, but let retention reclaim it once nothing writes.
-        state_clone.sql_file_failure_logs.mark_finished(&log_owner, &req.execution_id);
-        cleanup_sql_file_package_paths(&file_paths);
-        cleanup_sql_file_execution(&state_clone, &req.execution_id).await;
+        match audit_context {
+            Some(context) => dbx_core::audit::with_audit_context(context, run).await,
+            None => run.await,
+        }
     });
 
     Ok(Json(serde_json::json!({ "executionId": execution_id })))
@@ -826,6 +850,7 @@ mod tests {
         .unwrap();
         let error = execute_sql_file(
             State(state.clone()),
+            Extension(dbx_core::audit::Actor::bootstrap()),
             HeaderMap::new(),
             Json(SqlFileExecuteWrapper { request, file_paths: vec![] }),
         )
@@ -929,6 +954,7 @@ mod tests {
         let headers = authenticated_state(&state, "session-restore").await;
         let response = execute_sql_file(
             State(state.clone()),
+            Extension(dbx_core::audit::Actor::bootstrap()),
             headers,
             Json(SqlFileExecuteWrapper { request, file_paths: vec![] }),
         )
@@ -964,6 +990,7 @@ mod tests {
         let headers = authenticated_state(&state, "session-existing").await;
         assert!(execute_sql_file(
             State(state.clone()),
+            Extension(dbx_core::audit::Actor::bootstrap()),
             headers,
             Json(SqlFileExecuteWrapper { request, file_paths: vec![] })
         )

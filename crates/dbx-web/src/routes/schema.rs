@@ -5,10 +5,119 @@ use crate::error::AppError;
 use crate::state::WebState;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
 use dbx_core::connection::AppState;
+use dbx_core::governance::assets::{actor_is_managed, load_asset_snapshot, AssetScopeSnapshot};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+/// Managed local users get a filtered view of metadata; unmanaged actors
+/// (bootstrap/system/service) keep the old behavior.
+async fn asset_snapshot(state: &WebState, actor: &Actor) -> Result<Option<AssetScopeSnapshot>, AppError> {
+    if !actor_is_managed(actor) {
+        return Ok(None);
+    }
+    load_asset_snapshot(&state.app, &actor.id).await.map(Some).map_err(AppError::from)
+}
+
+async fn require_table_access(state: &WebState, actor: &Actor, q: &SchemaQuery, table: &str) -> Result<(), AppError> {
+    let Some(snapshot) = asset_snapshot(state, actor).await? else {
+        return Ok(());
+    };
+    let database = q.database.as_deref().unwrap_or("");
+    let schema = q.schema.as_deref().filter(|value| !value.is_empty()).unwrap_or(database);
+    if table.is_empty() || !snapshot.authorizes_table(&q.connection_id, database, schema, table) {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the table is outside the user's asset grants"));
+    }
+    Ok(())
+}
+
+async fn require_connection_access(state: &WebState, actor: &Actor, connection_id: &str) -> Result<(), AppError> {
+    let Some(snapshot) = asset_snapshot(state, actor).await? else {
+        return Ok(());
+    };
+    if !snapshot.can_navigate_connection(connection_id) {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the connection is outside the user's asset grants"));
+    }
+    Ok(())
+}
+
+async fn require_database_access(
+    state: &WebState,
+    actor: &Actor,
+    connection_id: &str,
+    database: &str,
+) -> Result<(), AppError> {
+    let Some(snapshot) = asset_snapshot(state, actor).await? else {
+        return Ok(());
+    };
+    if !snapshot.can_navigate_database(connection_id, database) {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the database is outside the user's asset grants"));
+    }
+    Ok(())
+}
+
+async fn require_schema_access(
+    state: &WebState,
+    actor: &Actor,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+) -> Result<(), AppError> {
+    let Some(snapshot) = asset_snapshot(state, actor).await? else {
+        return Ok(());
+    };
+    // MySQL-family connections address the database as the schema; an empty
+    // schema selector must still match a table grant stored with that name.
+    let schema = if schema.is_empty() { database } else { schema };
+    if !snapshot.can_navigate_schema(connection_id, database, schema) {
+        return Err(AppError::forbidden("ASSET_ACCESS_DENIED: the schema is outside the user's asset grants"));
+    }
+    Ok(())
+}
+
+/// A mutation or schema-wide statement: the grant must cover the schema or a
+/// wider target. Table-only grants fail closed.
+async fn require_schema_ddl(
+    state: &WebState,
+    actor: &Actor,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+) -> Result<(), AppError> {
+    let Some(snapshot) = asset_snapshot(state, actor).await? else {
+        return Ok(());
+    };
+    let schema = (!schema.is_empty()).then_some(schema);
+    if snapshot.permits(connection_id, Some(database), schema, None, "query:ddl", false).is_none() {
+        return Err(AppError::forbidden(
+            "ASSET_ACCESS_DENIED: this change needs a schema, database, or connection grant with query:ddl",
+        ));
+    }
+    Ok(())
+}
+
+/// Schema-wide metadata that names every table in the schema. A table-only
+/// grant cannot bound it, so require coverage at schema or database level.
+async fn require_schema_read(
+    state: &WebState,
+    actor: &Actor,
+    connection_id: &str,
+    database: &str,
+    schema: &str,
+) -> Result<(), AppError> {
+    let Some(snapshot) = asset_snapshot(state, actor).await? else {
+        return Ok(());
+    };
+    let schema = (!schema.is_empty()).then_some(schema);
+    if snapshot.permits(connection_id, Some(database), schema, None, "query:read", false).is_none() {
+        return Err(AppError::forbidden(
+            "ASSET_ACCESS_DENIED: this schema-wide operation needs a schema or database grant",
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 pub struct SchemaQuery {
@@ -66,26 +175,43 @@ pub struct DatabaseStorageRequest {
 
 pub async fn list_databases(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let result = dbx_core::schema::list_databases_core(&state.app, &q.connection_id).await.map_err(AppError::from)?;
+    let mut result =
+        dbx_core::schema::list_databases_core(&state.app, &q.connection_id).await.map_err(AppError::from)?;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        result.retain(|database| snapshot.can_navigate_database(&q.connection_id, &database.name));
+    }
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
 }
 
 pub async fn list_database_metadata(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let result =
+    let mut result =
         dbx_core::schema::list_database_metadata_core(&state.app, &q.connection_id).await.map_err(AppError::from)?;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        result.retain(|database| snapshot.can_navigate_database(&q.connection_id, &database.name));
+    }
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
 }
 
 pub async fn list_database_storage(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(request): Json<DatabaseStorageRequest>,
 ) -> Result<Json<Vec<dbx_core::db::DatabaseStorageInfo>>, AppError> {
-    let result = dbx_core::schema::list_database_storage_core(&state.app, &request.connection_id, &request.databases)
+    let mut databases = request.databases;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        databases.retain(|database| snapshot.can_navigate_database(&request.connection_id, database));
+    }
+    if databases.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    let result = dbx_core::schema::list_database_storage_core(&state.app, &request.connection_id, &databases)
         .await
         .map_err(AppError::from)?;
     Ok(Json(result))
@@ -93,8 +219,10 @@ pub async fn list_database_storage(
 
 pub async fn list_xugu_tablespaces(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Vec<dbx_core::db::XuguTablespaceInfo>>, AppError> {
+    require_connection_access(&state, &actor, &q.connection_id).await?;
     let result = dbx_core::schema::list_xugu_tablespaces_core(&state.app, &q.connection_id, q.database.as_deref())
         .await
         .map_err(AppError::from)?;
@@ -103,9 +231,11 @@ pub async fn list_xugu_tablespaces(
 
 pub async fn get_sqlserver_completion_context(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<dbx_core::db::sqlserver::SqlServerCompletionContext>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
+    require_database_access(&state, &actor, &q.connection_id, database).await?;
     let result = dbx_core::schema::get_sqlserver_completion_context_core(&state.app, &q.connection_id, database)
         .await
         .map_err(AppError::from)?;
@@ -119,8 +249,10 @@ async fn external_doris_catalog(state: &Arc<WebState>, connection_id: &str, cata
 
 pub async fn list_doris_catalogs(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    require_connection_access(&state, &actor, &q.connection_id).await?;
     let result =
         dbx_core::schema::list_doris_catalogs_core(&state.app, &q.connection_id).await.map_err(AppError::from)?;
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
@@ -128,19 +260,25 @@ pub async fn list_doris_catalogs(
 
 pub async fn list_doris_catalog_databases(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let catalog = q.catalog.as_deref().unwrap_or("internal");
-    let result = dbx_core::schema::list_doris_catalog_databases_core(&state.app, &q.connection_id, catalog)
+    let mut result = dbx_core::schema::list_doris_catalog_databases_core(&state.app, &q.connection_id, catalog)
         .await
         .map_err(AppError::from)?;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        result.retain(|database| snapshot.can_navigate_database(&q.connection_id, &database.name));
+    }
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
 }
 
 pub async fn list_sqlserver_linked_servers(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    require_connection_access(&state, &actor, &q.connection_id).await?;
     let result = dbx_core::schema::list_sqlserver_linked_servers_core(&state.app, &q.connection_id)
         .await
         .map_err(AppError::from)?;
@@ -149,8 +287,10 @@ pub async fn list_sqlserver_linked_servers(
 
 pub async fn list_sqlserver_linked_server_catalogs(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    require_connection_access(&state, &actor, &q.connection_id).await?;
     let server = q.server.as_deref().unwrap_or("");
     let result = dbx_core::schema::list_sqlserver_linked_server_catalogs_core(&state.app, &q.connection_id, server)
         .await
@@ -160,8 +300,10 @@ pub async fn list_sqlserver_linked_server_catalogs(
 
 pub async fn list_sqlserver_linked_server_schemas(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Vec<String>>, AppError> {
+    require_connection_access(&state, &actor, &q.connection_id).await?;
     let server = q.server.as_deref().unwrap_or("");
     let catalog = q.catalog.as_deref().unwrap_or("");
     let result =
@@ -173,12 +315,13 @@ pub async fn list_sqlserver_linked_server_schemas(
 
 pub async fn list_sqlserver_linked_server_tables(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let server = q.server.as_deref().unwrap_or("");
     let catalog = q.catalog.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
-    let result = dbx_core::schema::list_sqlserver_linked_server_tables_core(
+    let mut result = dbx_core::schema::list_sqlserver_linked_server_tables_core(
         &state.app,
         &q.connection_id,
         server,
@@ -190,16 +333,21 @@ pub async fn list_sqlserver_linked_server_tables(
     )
     .await
     .map_err(AppError::from)?;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        result.retain(|table| snapshot.authorizes_table(&q.connection_id, catalog, schema, &table.name));
+    }
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
 }
 
 pub async fn get_sqlserver_column_metadata(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result =
         dbx_core::schema::get_sqlserver_column_metadata_core(&state.app, &q.connection_id, database, schema, table)
             .await
@@ -209,10 +357,12 @@ pub async fn get_sqlserver_column_metadata(
 
 pub async fn get_mysql_table_auto_increment(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Option<String>>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = dbx_core::schema::get_mysql_table_auto_increment_core(&state.app, &q.connection_id, database, table)
         .await
         .map_err(AppError::from)?;
@@ -221,10 +371,11 @@ pub async fn get_mysql_table_auto_increment(
 
 pub async fn list_schemas(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Vec<String>>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
-    let result = dbx_core::schema::list_schemas_core_with_visible_filter(
+    let mut result = dbx_core::schema::list_schemas_core_with_visible_filter(
         &state.app,
         &q.connection_id,
         database,
@@ -232,15 +383,20 @@ pub async fn list_schemas(
     )
     .await
     .map_err(AppError::from)?;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        result.retain(|schema| snapshot.can_navigate_schema(&q.connection_id, database, schema));
+    }
     Ok(Json(result))
 }
 
 pub async fn list_tables(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    let snapshot = asset_snapshot(&state, &actor).await?;
     let object_types = q.object_types.as_ref().map(|value| {
         value.split(',').map(str::trim).filter(|value| !value.is_empty()).map(str::to_string).collect::<Vec<_>>()
     });
@@ -262,6 +418,15 @@ pub async fn list_tables(
         )
         .await
         .map_err(AppError::from)?;
+        let mut result = result;
+        if let Some(snapshot) = &snapshot {
+            let fallback_schema = if schema.is_empty() { database } else { schema };
+            result.retain(|table| {
+                let object_schema =
+                    table.parent_schema.as_deref().filter(|value| !value.is_empty()).unwrap_or(fallback_schema);
+                snapshot.authorizes_table(&q.connection_id, database, object_schema, &table.name)
+            });
+        }
         return Ok(Json(serde_json::to_value(result).map_err(|error| AppError::from(error.to_string()))?));
     }
     let result = if let Some(catalog) = external_doris_catalog(&state, &q.connection_id, q.catalog.as_deref()).await {
@@ -293,11 +458,21 @@ pub async fn list_tables(
         .await
         .map_err(AppError::from)?
     };
+    let mut result = result;
+    if let Some(snapshot) = &snapshot {
+        let fallback_schema = if schema.is_empty() { database } else { schema };
+        result.retain(|table| {
+            let object_schema =
+                table.parent_schema.as_deref().filter(|value| !value.is_empty()).unwrap_or(fallback_schema);
+            snapshot.authorizes_table(&q.connection_id, database, object_schema, &table.name)
+        });
+    }
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
 }
 
 pub async fn list_objects(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.unwrap_or_default();
@@ -377,15 +552,30 @@ pub async fn list_objects(
         }
     })
     .await?;
+    let mut result = result;
+    if let Some(snapshot) = asset_snapshot(&state, &actor).await? {
+        result.retain(|object| {
+            let fallback_schema = if schema.is_empty() { database.as_str() } else { schema.as_str() };
+            let object_schema = object
+                .parent_schema
+                .as_deref()
+                .or(object.schema.as_deref())
+                .filter(|value| !value.is_empty())
+                .unwrap_or(fallback_schema);
+            snapshot.authorizes_table(&connection_id, &database, object_schema, &object.name)
+        });
+    }
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
 }
 
 pub async fn list_object_statistics(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_access(&state, &actor, &q.connection_id, database, schema).await?;
     let result = dbx_core::schema::list_object_statistics_core(&state.app, &q.connection_id, database, schema)
         .await
         .map_err(AppError::from)?;
@@ -394,10 +584,12 @@ pub async fn list_object_statistics(
 
 pub async fn list_completion_objects(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_access(&state, &actor, &q.connection_id, database, schema).await?;
     let result = dbx_core::schema::list_completion_objects_core(&state.app, &q.connection_id, database, schema)
         .await
         .map_err(AppError::from)?;
@@ -415,11 +607,13 @@ pub async fn completion_assistant_search(
 
 pub async fn get_object_source(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<dbx_core::db::ObjectSource>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let name = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, name).await?;
     let object_type = q.object_type.ok_or_else(|| AppError::from("Missing object_type".to_string()))?;
     let result = dbx_core::schema::get_object_source_core_with_options(
         &state.app,
@@ -439,8 +633,10 @@ pub async fn get_object_source(
 
 pub async fn get_event_info(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<dbx_core::db::MysqlEventInfo>, AppError> {
+    require_table_access(&state, &actor, &q, q.table.as_deref().unwrap_or("")).await?;
     let result = dbx_core::schema::get_event_info_core(
         &state.app,
         &q.connection_id,
@@ -475,8 +671,11 @@ pub async fn verify_oracle_type_data(
 
 pub async fn prepare_oracle_type_evolution(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(input): Json<dbx_core::db::OracleTypeEvolutionRequest>,
 ) -> Result<Json<dbx_core::db::OracleTypeEvolutionManifest>, AppError> {
+    require_schema_ddl(&state, &actor, &input.target.connection_id, &input.target.database, &input.target.owner)
+        .await?;
     Ok(Json(dbx_core::schema::prepare_oracle_type_evolution_core(&state.app, input).await?))
 }
 
@@ -585,11 +784,13 @@ pub async fn get_plugin_table_metadata(
 
 pub async fn list_columns(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     // Exact reads revalidate the current process contract and never reuse a
     // persisted ordinary/synonym-resolved snapshot as an editing baseline.
     if q.exact_identity.unwrap_or(false) {
@@ -645,10 +846,12 @@ pub async fn list_columns(
 
 pub async fn get_all_columns(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_read(&state, &actor, &q.connection_id, database, schema).await?;
     let result = dbx_core::schema::get_all_columns_core(&state.app, &q.connection_id, database, schema)
         .await
         .map_err(AppError::from)?;
@@ -657,9 +860,11 @@ pub async fn get_all_columns(
 
 pub async fn list_data_types(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
+    require_database_access(&state, &actor, &q.connection_id, database).await?;
     let result =
         dbx_core::schema::list_data_types_core(&state.app, &q.connection_id, database).await.map_err(AppError::from)?;
     Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
@@ -667,11 +872,13 @@ pub async fn list_data_types(
 
 pub async fn list_indexes(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     if q.exact_identity.unwrap_or(false) {
         let result = dbx_core::schema::exact_metadata::indexes(&state.app, &q.connection_id, database, schema, table)
             .await
@@ -711,11 +918,13 @@ pub async fn list_indexes(
 
 pub async fn list_reference_key_columns(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Vec<String>>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let catalog = external_doris_catalog(&state, &q.connection_id, q.catalog.as_deref()).await;
     let indexes = if let Some(catalog) = catalog.as_deref() {
         dbx_core::schema::list_doris_catalog_indexes_core(&state.app, &q.connection_id, catalog, database, table)
@@ -731,11 +940,13 @@ pub async fn list_reference_key_columns(
 
 pub async fn list_reference_keys(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Vec<dbx_core::schema::ReferenceKeyInfo>>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let catalog = external_doris_catalog(&state, &q.connection_id, q.catalog.as_deref()).await;
     let indexes = if let Some(catalog) = catalog.as_deref() {
         dbx_core::schema::list_doris_catalog_indexes_core(&state.app, &q.connection_id, catalog, database, table)
@@ -751,11 +962,13 @@ pub async fn list_reference_keys(
 
 pub async fn list_foreign_keys(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     if q.exact_identity.unwrap_or(false) {
         let result =
             dbx_core::schema::exact_metadata::foreign_keys(&state.app, &q.connection_id, database, schema, table)
@@ -796,10 +1009,12 @@ pub async fn list_foreign_keys(
 
 pub async fn list_foreign_keys_for_database(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_read(&state, &actor, &q.connection_id, database, schema).await?;
     let result = run_cancellable(
         &state,
         q.execution_id,
@@ -811,11 +1026,13 @@ pub async fn list_foreign_keys_for_database(
 
 pub async fn get_table_comment(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Option<String>>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = if q.exact_identity.unwrap_or(false) {
         dbx_core::schema::exact_metadata::comment(&state.app, &q.connection_id, database, schema, table).await
     } else if let Some(catalog) = external_doris_catalog(&state, &q.connection_id, q.catalog.as_deref()).await {
@@ -830,11 +1047,13 @@ pub async fn get_table_comment(
 
 pub async fn list_triggers(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = if q.exact_identity.unwrap_or(false) {
         dbx_core::schema::exact_metadata::triggers(&state.app, &q.connection_id, database, schema, table)
             .await
@@ -860,11 +1079,13 @@ pub async fn list_triggers(
 
 pub async fn list_constraints(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let _ = q.catalog.as_deref();
     let result = if q.exact_identity.unwrap_or(false) {
         dbx_core::schema::exact_metadata::constraints(&state.app, &q.connection_id, database, schema, table).await
@@ -877,11 +1098,13 @@ pub async fn list_constraints(
 
 pub async fn list_partitions(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = dbx_core::schema::list_partitions_core(&state.app, &q.connection_id, database, schema, table)
         .await
         .map_err(AppError::from)?;
@@ -890,11 +1113,13 @@ pub async fn list_partitions(
 
 pub async fn get_table_partition_status(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<dbx_core::schema::TablePartitionStatus>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     dbx_core::schema::table_partition_status_core(&state.app, &q.connection_id, database, schema, table)
         .await
         .map(Json)
@@ -903,11 +1128,13 @@ pub async fn get_table_partition_status(
 
 pub async fn get_table_partitioning(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<dbx_core::db::PgTablePartitioning>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     dbx_core::schema::get_table_partitioning_core(&state.app, &q.connection_id, database, schema, table)
         .await
         .map(Json)
@@ -916,11 +1143,13 @@ pub async fn get_table_partitioning(
 
 pub async fn list_invalid_indexes(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<Vec<String>>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     dbx_core::schema::list_invalid_indexes_core(&state.app, &q.connection_id, database, schema, table)
         .await
         .map(Json)
@@ -929,11 +1158,13 @@ pub async fn list_invalid_indexes(
 
 pub async fn list_subpartitions(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = dbx_core::schema::list_subpartitions_core(&state.app, &q.connection_id, database, schema, table)
         .await
         .map_err(AppError::from)?;
@@ -942,12 +1173,14 @@ pub async fn list_subpartitions(
 
 pub async fn get_ddl(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<String>, AppError> {
     let separate_indexes = q.separate_indexes.unwrap_or(false) && q.object_type.is_none();
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = if q.exact_identity.unwrap_or(false) {
         dbx_core::schema::exact_metadata::ddl(
             &state.app,
@@ -1011,10 +1244,12 @@ pub async fn get_ddl(
 
 pub async fn list_functions(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_access(&state, &actor, &q.connection_id, database, schema).await?;
     let result = dbx_core::schema::list_functions_core(&state.app, &q.connection_id, database, schema)
         .await
         .map_err(AppError::from)?;
@@ -1032,6 +1267,7 @@ pub struct RoutineSnapshotQuery {
 
 pub async fn load_schema_diff_routines(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(query): Query<RoutineSnapshotQuery>,
 ) -> Result<Json<dbx_core::schema::oracle_routines::RoutineSnapshot>, AppError> {
     let selected_routines = query
@@ -1041,6 +1277,14 @@ pub async fn load_schema_diff_routines(
         .transpose()
         .map_err(|error| AppError::from(format!("Invalid selected routine names: {error}")))?;
     let q = query.scope;
+    require_schema_access(
+        &state,
+        &actor,
+        &q.connection_id,
+        q.database.as_deref().unwrap_or(""),
+        q.schema.as_deref().unwrap_or(""),
+    )
+    .await?;
     let object_kinds = query
         .object_kinds
         .as_deref()
@@ -1067,8 +1311,10 @@ pub async fn load_schema_diff_routines(
 
 pub async fn prepare_oracle_routine_save(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(input): Json<dbx_core::schema::oracle_routines::OracleRoutineSaveInput>,
 ) -> Result<Json<dbx_core::schema::oracle_routines::RoutineOperationRecord>, AppError> {
+    require_schema_ddl(&state, &actor, &input.connection_id, &input.database, &input.identity.owner).await?;
     dbx_core::schema::oracle_routines::prepare_oracle_routine_save_core(&state.app, input)
         .await
         .map(Json)
@@ -1110,6 +1356,7 @@ pub struct ExecuteRoutineOperationRequest {
 
 pub async fn execute_oracle_routine_operation(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     headers: HeaderMap,
     Json(request): Json<ExecuteRoutineOperationRequest>,
 ) -> Result<Json<dbx_core::schema::oracle_routines::RoutineOperationRecord>, AppError> {
@@ -1119,6 +1366,14 @@ pub async fn execute_oracle_routine_operation(
         .observe(&request.operation_id)
         .operation
         .ok_or_else(|| AppError::from("Original routine operation is unavailable; do not replay"))?;
+    require_schema_ddl(
+        &state,
+        &actor,
+        &original.target.connection_id,
+        &original.target.database,
+        &original.target.schema,
+    )
+    .await?;
     let database = super::mcp_policy::ensure_sql(
         &state,
         &headers,
@@ -1209,10 +1464,12 @@ pub async fn list_sequences(
 
 pub async fn list_rules(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_access(&state, &actor, &q.connection_id, database, schema).await?;
     let result = dbx_core::schema::list_rules_core(&state.app, &q.connection_id, database, schema)
         .await
         .map_err(AppError::from)?;
@@ -1221,10 +1478,12 @@ pub async fn list_rules(
 
 pub async fn list_owners(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
+    require_schema_access(&state, &actor, &q.connection_id, database, schema).await?;
     let result = dbx_core::schema::list_owners_core(&state.app, &q.connection_id, database, schema)
         .await
         .map_err(AppError::from)?;
@@ -1233,11 +1492,13 @@ pub async fn list_owners(
 
 pub async fn get_table_owner(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
     let schema = q.schema.as_deref().unwrap_or("");
     let table = q.table.as_deref().unwrap_or("");
+    require_table_access(&state, &actor, &q, table).await?;
     let result = dbx_core::schema::get_table_owner_core(&state.app, &q.connection_id, database, schema, table)
         .await
         .map_err(AppError::from)?;
@@ -1246,9 +1507,11 @@ pub async fn get_table_owner(
 
 pub async fn list_extensions(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
+    require_schema_access(&state, &actor, &q.connection_id, database, q.schema.as_deref().unwrap_or("")).await?;
     let result = dbx_core::schema::list_extensions_core(&state.app, &q.connection_id, database, q.schema.as_deref())
         .await
         .map_err(AppError::from)?;
@@ -1257,9 +1520,11 @@ pub async fn list_extensions(
 
 pub async fn list_available_extensions(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
+    require_database_access(&state, &actor, &q.connection_id, database).await?;
     let result = dbx_core::schema::list_available_extensions_core(&state.app, &q.connection_id, database)
         .await
         .map_err(AppError::from)?;
@@ -1268,9 +1533,11 @@ pub async fn list_available_extensions(
 
 pub async fn list_event_triggers(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Query(q): Query<SchemaQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let database = q.database.as_deref().unwrap_or("");
+    require_database_access(&state, &actor, &q.connection_id, database).await?;
     let result = dbx_core::schema::list_event_triggers_core(&state.app, &q.connection_id, database)
         .await
         .map_err(AppError::from)?;

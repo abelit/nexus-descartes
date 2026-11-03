@@ -67,19 +67,25 @@ async fn validate_scope(state: &WebState, scope: Option<&ScopeInput>) -> Result<
             }
             Ok(("connection_group".to_string(), Some(id)))
         }
-        "database" => {
-            let id = scope_id.ok_or_else(|| AppError::bad_request("database scope requires scope_id"))?;
-            let (connection_id, database) = id
-                .split_once("::")
-                .ok_or_else(|| AppError::bad_request("database scope id must be '<connection_id>::<database>'"))?;
-            if database.trim().is_empty() {
-                return Err(AppError::bad_request("database scope requires a database name"));
+        "database" | "schema" | "table" => {
+            let id = scope_id.ok_or_else(|| AppError::bad_request("scope requires scope_id"))?;
+            let parts: Vec<&str> = id.split("::").collect();
+            let expected = match scope.scope_type.as_str() {
+                "database" => 2,
+                "schema" => 3,
+                _ => 4,
+            };
+            if parts.len() != expected || parts.iter().any(|part| part.trim().is_empty()) {
+                return Err(AppError::bad_request(format!(
+                    "{} scope id must be '<connection_id>::<database>::<schema>::<table>' with {} part(s)",
+                    scope.scope_type, expected
+                )));
             }
-            let exists = state.app.configs.read().await.contains_key(connection_id);
+            let exists = state.app.configs.read().await.contains_key(parts[0]);
             if !exists {
                 return Err(AppError::bad_request("unknown connection in scope"));
             }
-            Ok(("database".to_string(), Some(id)))
+            Ok((scope.scope_type.clone(), Some(id)))
         }
         other => Err(AppError::bad_request(format!("Unknown scope type '{other}'"))),
     }
@@ -444,6 +450,12 @@ pub async fn update_user(
         for existing in state.app.storage.role_codes_for_user(user.id.clone()).await.unwrap_or_default() {
             state.app.storage.unbind_role(user.id.clone(), existing).await.map_err(AppError::from)?;
         }
+        // A scope change replaces the legacy single binding. Asset grants are
+        // separate (possibly several); changing the legacy scope must not leave
+        // them granting the old target.
+        if body.scope.is_some() {
+            state.app.storage.delete_asset_grants_for_user(user.id.clone()).await.map_err(AppError::from)?;
+        }
         state
             .app
             .storage
@@ -586,5 +598,288 @@ pub async fn revoke_user_sessions(
     for session in live {
         let _ = storage.revoke_web_session(session.id).await;
     }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// ---------------------------------------------------------------------------
+// Asset grants (connection / database / schema / table)
+// ---------------------------------------------------------------------------
+
+use dbx_core::audit::{AuditContext, AuditDecision, AuditEventInsert, AuditOperation, AuditOutcome, AuditSource};
+use dbx_core::governance::assets::{AssetGrant, AssetTargetKind};
+
+#[derive(Debug, Serialize)]
+pub struct AssetGrantView {
+    pub id: String,
+    pub role_code: String,
+    pub target_kind: String,
+    pub connection_group_id: Option<String>,
+    pub connection_id: Option<String>,
+    pub database_name: Option<String>,
+    pub schema_name: Option<String>,
+    pub table_name: Option<String>,
+    pub name_pattern: bool,
+    pub expires_at: Option<String>,
+    pub granted_by: Option<String>,
+    pub reason: String,
+    pub created_at: String,
+}
+
+impl From<AssetGrant> for AssetGrantView {
+    fn from(grant: AssetGrant) -> Self {
+        Self {
+            id: grant.id,
+            role_code: grant.role_code,
+            target_kind: grant.target_kind.as_str().to_string(),
+            connection_group_id: grant.connection_group_id,
+            connection_id: grant.connection_id,
+            database_name: grant.database_name,
+            schema_name: grant.schema_name,
+            table_name: grant.table_name,
+            name_pattern: grant.name_pattern,
+            expires_at: grant.expires_at,
+            granted_by: grant.granted_by,
+            reason: grant.reason,
+            created_at: grant.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGrantRequest {
+    pub role_code: String,
+    pub target_kind: String,
+    #[serde(default)]
+    pub connection_group_id: Option<String>,
+    #[serde(default)]
+    pub connection_id: Option<String>,
+    #[serde(default)]
+    pub database_name: Option<String>,
+    #[serde(default)]
+    pub schema_name: Option<String>,
+    #[serde(default)]
+    pub table_name: Option<String>,
+    #[serde(default)]
+    pub name_pattern: bool,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub reason: String,
+}
+
+fn clean(value: Option<String>) -> Option<String> {
+    value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+}
+
+async fn validate_grant(
+    state: &WebState,
+    user_id: &str,
+    actor: &Actor,
+    body: CreateGrantRequest,
+) -> Result<AssetGrant, AppError> {
+    let target_kind = AssetTargetKind::parse(&body.target_kind).ok_or_else(|| {
+        AppError::bad_request("target_kind must be connection_group, connection, database, schema, or table")
+    })?;
+    if dbx_core::identity::role_permissions(&body.role_code).is_none() {
+        return Err(AppError::bad_request(format!("Unknown role '{}'", body.role_code)));
+    }
+    let connection_group_id = clean(body.connection_group_id);
+    let connection_id = clean(body.connection_id);
+    let database_name = clean(body.database_name);
+    let schema_name = clean(body.schema_name);
+    let table_name = clean(body.table_name);
+    let only = |allowed: bool, label: &str| -> Result<(), AppError> {
+        if allowed {
+            Ok(())
+        } else {
+            Err(AppError::bad_request(format!("{label} is not valid for this target_kind")))
+        }
+    };
+    match target_kind {
+        AssetTargetKind::ConnectionGroup => {
+            let group =
+                connection_group_id.as_ref().ok_or_else(|| AppError::bad_request("connection_group_id is required"))?;
+            let exists = state
+                .app
+                .storage
+                .list_connection_groups()
+                .await
+                .map_err(AppError::from)?
+                .iter()
+                .any(|g| &g.id == group);
+            if !exists {
+                return Err(AppError::bad_request("unknown connection group"));
+            }
+            only(
+                connection_id.is_none() && database_name.is_none() && schema_name.is_none() && table_name.is_none(),
+                "connection/database",
+            )?;
+        }
+        AssetTargetKind::Connection => {
+            let connection =
+                connection_id.as_ref().ok_or_else(|| AppError::bad_request("connection_id is required"))?;
+            if !state.app.configs.read().await.contains_key(connection) {
+                return Err(AppError::bad_request("unknown connection"));
+            }
+            only(
+                connection_group_id.is_none()
+                    && database_name.is_none()
+                    && schema_name.is_none()
+                    && table_name.is_none(),
+                "group/database",
+            )?;
+        }
+        AssetTargetKind::Database | AssetTargetKind::Schema | AssetTargetKind::Table => {
+            let connection =
+                connection_id.as_ref().ok_or_else(|| AppError::bad_request("connection_id is required"))?;
+            let is_mongo = {
+                let configs = state.app.configs.read().await;
+                match configs.get(connection) {
+                    Some(config) => config.db_type == dbx_core::models::connection::DatabaseType::MongoDb,
+                    None => return Err(AppError::bad_request("unknown connection")),
+                }
+            };
+            let database = database_name.as_ref().ok_or_else(|| AppError::bad_request("database_name is required"))?;
+            if database.is_empty() {
+                return Err(AppError::bad_request("database_name is required"));
+            }
+            only(connection_group_id.is_none(), "connection_group_id")?;
+            if is_mongo && target_kind == AssetTargetKind::Schema {
+                return Err(AppError::bad_request(
+                    "MongoDB connections have no schema level; grant a collection instead",
+                ));
+            }
+            if target_kind == AssetTargetKind::Schema || target_kind == AssetTargetKind::Table {
+                // MongoDB collections are addressed by database + collection:
+                // there is no schema level to store.
+                if schema_name.is_none() && !is_mongo {
+                    return Err(AppError::bad_request("schema_name is required"));
+                }
+            } else {
+                only(schema_name.is_none() && table_name.is_none(), "schema/table")?;
+            }
+            if target_kind == AssetTargetKind::Table {
+                if table_name.is_none() {
+                    return Err(AppError::bad_request("table_name is required"));
+                }
+            } else {
+                only(table_name.is_none(), "table_name")?;
+            }
+        }
+    }
+    if body.name_pattern && target_kind != AssetTargetKind::Table {
+        return Err(AppError::bad_request("name_pattern is only supported for table grants"));
+    }
+    if let Some(expires) = body.expires_at.as_deref() {
+        let parsed = chrono::DateTime::parse_from_rfc3339(expires)
+            .map_err(|_| AppError::bad_request("expires_at must be an RFC3339 timestamp"))?;
+        if parsed.timestamp_millis() <= chrono::Utc::now().timestamp_millis() {
+            return Err(AppError::bad_request("expires_at must be in the future"));
+        }
+    }
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    Ok(AssetGrant {
+        id: uuid::Uuid::new_v4().to_string(),
+        principal_type: "user".to_string(),
+        principal_id: user_id.to_string(),
+        role_code: body.role_code,
+        target_kind,
+        connection_group_id,
+        connection_id,
+        database_name,
+        schema_name,
+        table_name,
+        name_pattern: body.name_pattern,
+        expires_at: clean(body.expires_at),
+        granted_by: Some(actor.id.clone()),
+        reason: body.reason,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+fn record_grant_audit(state: &WebState, actor: &Actor, action: &str, grant: &AssetGrant) {
+    let context = dbx_core::audit::current_audit_context().unwrap_or_else(|| AuditContext {
+        actor: actor.clone(),
+        source: AuditSource::Web,
+        client_ip: None,
+        user_agent: None,
+        request_id: None,
+        execution_id: None,
+    });
+    let mut event =
+        AuditEventInsert::new(&context, AuditOperation::Admin, AuditDecision::Allowed, AuditOutcome::Success);
+    event.resource_type = Some("asset_grant".to_string());
+    event.resource_id = Some(grant.id.clone());
+    event.details_json = Some(
+        serde_json::json!({
+            "action": action,
+            "principal_id": grant.principal_id,
+            "role_code": grant.role_code,
+            "target_kind": grant.target_kind.as_str(),
+            "connection_id": grant.connection_id,
+            "database_name": grant.database_name,
+            "schema_name": grant.schema_name,
+            "table_name": grant.table_name,
+        })
+        .to_string(),
+    );
+    state.app.record_audit(event);
+}
+
+pub async fn list_bindings(
+    State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Vec<AssetGrantView>>, AppError> {
+    require(&actor, Permission::AdminUsers)?;
+    let grants = state.app.storage.asset_grants_for_user(user_id).await.map_err(AppError::from)?;
+    Ok(Json(grants.into_iter().map(AssetGrantView::from).collect()))
+}
+
+pub async fn create_binding(
+    State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
+    Path(user_id): Path<String>,
+    Json(body): Json<CreateGrantRequest>,
+) -> Result<Json<AssetGrantView>, AppError> {
+    require(&actor, Permission::AdminUsers)?;
+    state
+        .app
+        .storage
+        .user_by_id(user_id.clone())
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("user not found"))?;
+    let grant = validate_grant(&state, &user_id, &actor, body).await?;
+    state.app.storage.create_asset_grant(grant.clone()).await.map_err(AppError::from)?;
+    state.app.storage.revoke_user_sessions(user_id).await.map_err(AppError::from)?;
+    state.drop_user_sessions(&grant.principal_id).await;
+    record_grant_audit(&state, &actor, "created", &grant);
+    Ok(Json(AssetGrantView::from(grant)))
+}
+
+pub async fn delete_binding(
+    State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
+    Path((user_id, binding_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require(&actor, Permission::AdminUsers)?;
+    let grant = state
+        .app
+        .storage
+        .asset_grant_by_id(binding_id.clone())
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("binding not found"))?;
+    if grant.principal_id != user_id {
+        return Err(AppError::not_found("binding not found"));
+    }
+    if !state.app.storage.delete_asset_grant(binding_id, user_id.clone()).await.map_err(AppError::from)? {
+        return Err(AppError::not_found("binding not found"));
+    }
+    state.app.storage.revoke_user_sessions(user_id).await.map_err(AppError::from)?;
+    state.drop_user_sessions(&grant.principal_id).await;
+    record_grant_audit(&state, &actor, "deleted", &grant);
     Ok(Json(serde_json::json!({ "ok": true })))
 }

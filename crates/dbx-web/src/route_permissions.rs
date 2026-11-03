@@ -85,17 +85,37 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("import", MethodClass::Any, Permission::ImportData),
     ("transfer", MethodClass::Any, Permission::ExportData),
     // Connections
+    // Connecting/testing with a saved connection is a data-access operation:
+    // the handlers verify per-connection coverage and ignore client-supplied
+    // host/port for managed users. Mutating connection state stays write-only.
+    ("connection/disconnect", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/check-health", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/is-open", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/database-info", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/prewarm", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/close-database", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/final-proxy-port", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/session-credential-status", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/forget-session-credential", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/replace-nacos-session-credential", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/write-unlock/state", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/parameters", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/identifier-quote", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/test-ssh-tunnel", MethodClass::Any, Permission::ConnectionWrite),
+    ("connection/test-info", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/test", MethodClass::Any, Permission::ConnectionRead),
+    ("connection/connect", MethodClass::Any, Permission::ConnectionRead),
     ("connection/", MethodClass::Read, Permission::ConnectionRead),
     ("connection/", MethodClass::Write, Permission::ConnectionWrite),
     // SQL and schema
     ("query/", MethodClass::Read, Permission::QueryRead),
-    ("query/", MethodClass::Write, Permission::QueryWrite),
+    ("query/", MethodClass::Write, Permission::QueryRead),
     ("sql-file/", MethodClass::Read, Permission::QueryRead),
-    ("sql-file/", MethodClass::Write, Permission::QueryWrite),
+    ("sql-file/", MethodClass::Write, Permission::QueryRead),
     ("schema/", MethodClass::Read, Permission::QueryRead),
-    ("schema/", MethodClass::Write, Permission::QueryWrite),
+    ("schema/", MethodClass::Write, Permission::QueryRead),
     ("schema-diff/", MethodClass::Read, Permission::QueryRead),
-    ("schema-diff/", MethodClass::Write, Permission::QueryWrite),
+    ("schema-diff/", MethodClass::Write, Permission::QueryRead),
     ("pl-debug/", MethodClass::Read, Permission::QueryRead),
     ("pl-debug/", MethodClass::Write, Permission::QueryWrite),
     ("data-compare/", MethodClass::Read, Permission::QueryRead),
@@ -104,7 +124,9 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("redis/", MethodClass::Read, Permission::QueryRead),
     ("redis/", MethodClass::Write, Permission::QueryWrite),
     ("mongo", MethodClass::Read, Permission::QueryRead),
-    ("mongo", MethodClass::Write, Permission::QueryWrite),
+    // Mongo reads are POSTs with a query document; the handler checks
+    // `query:read`/`query:write`/`query:ddl` per operation and collection.
+    ("mongo", MethodClass::Write, Permission::QueryRead),
     ("mq", MethodClass::Read, Permission::QueryRead),
     ("mq", MethodClass::Write, Permission::QueryWrite),
     ("nacos/", MethodClass::Read, Permission::QueryRead),
@@ -202,7 +224,11 @@ pub async fn enforce_route_permissions(
     let mode = GovernanceMode::from_env();
     let actor = req.extensions().get::<Actor>().cloned();
     let has = |permission: Permission| {
-        actor.as_ref().is_some_and(|actor| dbx_core::identity::has_permission(&actor.roles, permission))
+        actor.as_ref().is_some_and(|actor| {
+            dbx_core::identity::has_permission(&actor.roles, permission)
+                || (permission.is_asset_scopeable()
+                    && dbx_core::identity::has_permission(&actor.asset_roles, permission))
+        })
     };
     let allowed = match access {
         RouteAccess::Classified(permission) => has(permission),
@@ -238,6 +264,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_data_permissions_accept_asset_roles() {
+        assert!(Permission::QueryRead.is_asset_scopeable());
+        assert!(Permission::QueryWrite.is_asset_scopeable());
+        assert!(Permission::QueryDdl.is_asset_scopeable());
+        assert!(Permission::ExportData.is_asset_scopeable());
+        assert!(Permission::ImportData.is_asset_scopeable());
+        assert!(Permission::ConnectionRead.is_asset_scopeable());
+        // Connection configuration writes stay global: a scoped role must not
+        // retarget or add a connection.
+        assert!(!Permission::ConnectionWrite.is_asset_scopeable());
+        assert!(!Permission::AuditRead.is_asset_scopeable());
+        assert!(!Permission::AdminUsers.is_asset_scopeable());
+        assert!(!Permission::PolicyPublish.is_asset_scopeable());
+    }
+
+    #[test]
     fn workspace_bootstrap_metadata_is_readable_by_every_user() {
         assert_eq!(
             classify(&Method::GET, "app-settings/web-capabilities"),
@@ -250,15 +292,25 @@ mod tests {
 
     #[test]
     fn execution_requires_write_and_listing_requires_read() {
-        assert_eq!(classify(&Method::POST, "query/execute"), RouteAccess::Classified(Permission::QueryWrite));
+        // Execution routes use a read floor; the gateway derives read/write/ddl
+        // per statement and asset grant.
+        assert_eq!(classify(&Method::POST, "query/execute"), RouteAccess::Classified(Permission::QueryRead));
         assert_eq!(classify(&Method::GET, "query/execute"), RouteAccess::Classified(Permission::QueryRead));
-        assert_eq!(classify(&Method::POST, "query/execute-script"), RouteAccess::Classified(Permission::QueryWrite));
+        assert_eq!(classify(&Method::POST, "query/execute-script"), RouteAccess::Classified(Permission::QueryRead));
+        assert_eq!(
+            classify(&Method::POST, "query/execute-conditional-update"),
+            RouteAccess::Classified(Permission::QueryRead)
+        );
     }
 
     #[test]
     fn connection_writes_are_not_reads() {
         assert_eq!(classify(&Method::GET, "connection/list"), RouteAccess::Classified(Permission::ConnectionRead));
         assert_eq!(classify(&Method::POST, "connection/save"), RouteAccess::Classified(Permission::ConnectionWrite));
+        // Connecting and testing a saved connection is a read-level data path;
+        // the handler checks asset coverage and uses the stored config.
+        assert_eq!(classify(&Method::POST, "connection/connect"), RouteAccess::Classified(Permission::ConnectionRead));
+        assert_eq!(classify(&Method::POST, "connection/test"), RouteAccess::Classified(Permission::ConnectionRead));
     }
 
     #[test]

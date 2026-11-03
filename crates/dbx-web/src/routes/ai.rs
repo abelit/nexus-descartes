@@ -536,32 +536,43 @@ pub async fn ai_agent_stream(
     let req_max_tokens = request.max_tokens;
     let is_agent_mode = body.mode == "agent";
     let tx2 = tx.clone();
+    // The agent runs on a dedicated runtime in a blocking thread, so the
+    // request's task-local audit context is not inherited. Re-scope it around
+    // the loop: every SQL call then carries the user's identity into the
+    // asset-scope check instead of falling back to "no actor".
+    let audit_context = dbx_core::audit::current_audit_context();
     tokio::task::spawn_blocking(move || {
         let rt =
             tokio::runtime::Builder::new_current_thread().enable_all().build().expect("failed to create agent runtime");
         rt.block_on(async move {
-            let result = run_agent_loop(
-                &req_config,
-                &req_system_prompt,
-                &req_messages,
-                &agent_ctx,
-                move |event: AgentEvent| {
-                    let json = serde_json::to_string(&event).unwrap_or_default();
-                    let _ = tx2.send(json);
-                },
-                &cancelled,
-                req_max_tokens,
-                req_task_contract.as_ref(),
-                is_agent_mode,
-            )
-            .await;
+            let run = async move {
+                let result = run_agent_loop(
+                    &req_config,
+                    &req_system_prompt,
+                    &req_messages,
+                    &agent_ctx,
+                    move |event: AgentEvent| {
+                        let json = serde_json::to_string(&event).unwrap_or_default();
+                        let _ = tx2.send(json);
+                    },
+                    &cancelled,
+                    req_max_tokens,
+                    req_task_contract.as_ref(),
+                    is_agent_mode,
+                )
+                .await;
 
-            if let Err(e) = result {
-                let error_event = AgentEvent::Error { message: e };
-                let _ = tx.send(serde_json::to_string(&error_event).unwrap_or_default());
+                if let Err(e) = result {
+                    let error_event = AgentEvent::Error { message: e };
+                    let _ = tx.send(serde_json::to_string(&error_event).unwrap_or_default());
+                }
+
+                dbx_core::ai::unregister_stream(&sid).await;
+            };
+            match audit_context {
+                Some(context) => dbx_core::audit::with_audit_context(context, run).await,
+                None => run.await,
             }
-
-            dbx_core::ai::unregister_stream(&sid).await;
         });
     });
 

@@ -5,7 +5,8 @@ use std::time::{Duration, Instant, SystemTime};
 use axum::body::Bytes;
 use axum::extract::{Multipart, Path, State};
 use axum::response::sse::{Event, Sse};
-use axum::Json;
+use axum::{Extension, Json};
+use dbx_core::audit::Actor;
 use dbx_core::table_import::{
     self, TableImportParseOptions, TableImportPhase, TableImportPreviewRequest, TableImportProgress,
     TableImportRequest, TableImportSourceFormat, TableImportStatus,
@@ -295,10 +296,28 @@ where
 
 pub async fn execute_import(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<ExecuteImportWrapper>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let started_at = Instant::now();
     let mut req = body.request;
+    if dbx_core::governance::assets::actor_is_managed(&actor) {
+        let snapshot =
+            dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        let permission = if req.create_table { "query:ddl" } else { "query:write" };
+        // MySQL has no separate schema: the database names the namespace.
+        let schema = if req.schema.trim().is_empty() { req.database.as_str() } else { req.schema.as_str() };
+        let allowed = if req.create_table {
+            snapshot.permits(&req.connection_id, Some(&req.database), Some(schema), None, permission, false)
+        } else {
+            snapshot.permits(&req.connection_id, Some(&req.database), Some(schema), Some(&req.table), permission, false)
+        };
+        if allowed.is_none() {
+            return Err(AppError::forbidden(
+                "ASSET_ACCESS_DENIED: the import target is outside the user's asset grants",
+            ));
+        }
+    }
     let file_path = validated_uploaded_import_path(&state.data_dir, &req.file_path)?;
     req.file_path = file_path.to_string_lossy().to_string();
 
@@ -324,52 +343,59 @@ pub async fn execute_import(
 
     let app = state.app.clone();
     let state_clone = state.clone();
+    let audit_context = dbx_core::audit::current_audit_context();
 
     tokio::spawn(async move {
-        let db_type = match transfer::get_db_type(&app, &req.connection_id).await {
-            Ok(t) => t,
-            Err(e) => {
-                send_import_progress(&tx, &failed_import_progress(&req.import_id, started_at, e));
-                if !req.retain_source {
-                    cleanup_uploaded_import_source(&req.file_path).await;
+        let run = async move {
+            let db_type = match transfer::get_db_type(&app, &req.connection_id).await {
+                Ok(t) => t,
+                Err(e) => {
+                    send_import_progress(&tx, &failed_import_progress(&req.import_id, started_at, e));
+                    if !req.retain_source {
+                        cleanup_uploaded_import_source(&req.file_path).await;
+                    }
+                    schedule_import_progress_cleanup(state_clone, req.import_id.clone());
+                    return;
                 }
-                schedule_import_progress_cleanup(state_clone, req.import_id.clone());
-                return;
-            }
-        };
+            };
 
-        let pool_key = match app.get_or_create_pool(&req.connection_id, Some(&req.database)).await {
-            Ok(k) => k,
-            Err(e) => {
-                send_import_progress(&tx, &failed_import_progress(&req.import_id, started_at, e));
-                if !req.retain_source {
-                    cleanup_uploaded_import_source(&req.file_path).await;
+            let pool_key = match app.get_or_create_pool(&req.connection_id, Some(&req.database)).await {
+                Ok(k) => k,
+                Err(e) => {
+                    send_import_progress(&tx, &failed_import_progress(&req.import_id, started_at, e));
+                    if !req.retain_source {
+                        cleanup_uploaded_import_source(&req.file_path).await;
+                    }
+                    schedule_import_progress_cleanup(state_clone, req.import_id.clone());
+                    return;
                 }
-                schedule_import_progress_cleanup(state_clone, req.import_id.clone());
-                return;
+            };
+
+            let tx_clone = tx.clone();
+            let result = table_import::import_table_file_core(
+                &app,
+                &req,
+                &db_type,
+                &pool_key,
+                |id: &str| {
+                    let id = id.to_string();
+                    Box::pin(async move { transfer::is_cancelled(&id).await })
+                },
+                |progress| send_import_progress(&tx_clone, &progress),
+            )
+            .await;
+
+            let _ = result;
+
+            if !req.retain_source {
+                cleanup_uploaded_import_source(&req.file_path).await;
             }
+            schedule_import_progress_cleanup(state_clone, req.import_id.clone());
         };
-
-        let tx_clone = tx.clone();
-        let result = table_import::import_table_file_core(
-            &app,
-            &req,
-            &db_type,
-            &pool_key,
-            |id: &str| {
-                let id = id.to_string();
-                Box::pin(async move { transfer::is_cancelled(&id).await })
-            },
-            |progress| send_import_progress(&tx_clone, &progress),
-        )
-        .await;
-
-        let _ = result;
-
-        if !req.retain_source {
-            cleanup_uploaded_import_source(&req.file_path).await;
+        match audit_context {
+            Some(context) => dbx_core::audit::with_audit_context(context, run).await,
+            None => run.await,
         }
-        schedule_import_progress_cleanup(state_clone, req.import_id.clone());
     });
 
     Ok(Json(serde_json::json!({ "importId": import_id })))
