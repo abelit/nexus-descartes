@@ -36,13 +36,29 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
 
 - `connection_groups` / `connection_group_members` are server-owned; the client
   sidebar layout is never an authorization source.
-- Role bindings carry `global`, `connection`, `connection_group`, or `database`
-  scope (database encoded as `<connection_id>::<database>`). Child groups
-  inherit a parent binding at authorization time via a recursive query.
-- Execution authorization: a local user with bindings may only touch covered
-  connections and must hold `query:read` / `query:write` / `query:ddl` for the
-  statement. Users without bindings keep role-only behavior. This check runs in
-  every governance mode (it is authorization, not observation).
+- Global roles stay in `role_bindings` (`scope_type='global'`). Non-global
+  targets live in `asset_grants`: `connection_group`, `connection`, `database`,
+  `schema`, or `table`, with optional table-name patterns (`*`/`?`) and
+  expiry. Legacy connection/database bindings are migrated into this table and
+  their old rows are removed in the same transaction.
+- A broader grant covers narrower objects; a table grant never covers a
+  database-wide operation. Multiple grants are unioned. Child groups inherit a
+  parent grant at authorization time via a recursive query.
+- Execution authorization: a local user must hold `query:read` /
+  `query:write` / `query:ddl` (chosen per statement risk) on every referenced
+  object. Statements whose objects cannot be proven require a connection,
+  database, or schema grant; table-only grants fail closed with
+  `ASSET_SCOPE_UNPROVEN`. This runs in every governance mode.
+- Visibility: `/api/connection/list` and `/api/schema/*` return only assets the
+  actor can navigate to; exact table metadata is denied outside the grant.
+  Saved passwords are redacted for asset-scoped users.
+- Users with no global binding and no asset grant are denied. Global roles are
+  used for non-data routes (audit, users, policy); asset roles satisfy the
+  data-route floors (`connection:read`, `query:*`, `export:data`, `import:data`,
+  `approval:read/act`) and are then checked per object. Connection
+  configuration writes stay global `connection:write`; an asset-scoped user can
+  connect/test only a saved, authorized connection and never retarget its host
+  or port.
 
 ## Custom roles and user administration
 
@@ -68,6 +84,8 @@ Issue: enterprise audit / access governance, Phase B. Tracking plan:
 | `POST` | `/api/users` | `admin:users` |
 | `PATCH` | `/api/users/{id}` | `admin:users` |
 | `POST` | `/api/users/{id}/sessions/revoke` | `admin:users` |
+| `GET`/`POST` | `/api/users/{id}/bindings` | `admin:users` |
+| `DELETE` | `/api/users/{id}/bindings/{binding_id}` | `admin:users` |
 | `GET` | `/api/roles` | `admin:users` |
 
 ## Non-goals

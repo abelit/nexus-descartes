@@ -694,6 +694,9 @@ POST /api/users/{user_id}/password
 GET /api/users/{user_id}/sessions
 DELETE /api/users/{user_id}/sessions/{session_id}
 POST /api/users/{user_id}/sessions/revoke
+GET  /api/users/{user_id}/bindings
+POST /api/users/{user_id}/bindings
+DELETE /api/users/{user_id}/bindings/{binding_id}
 GET /api/roles
 POST /api/roles
 PUT /api/roles/{code}
@@ -712,10 +715,35 @@ DELETE /api/roles/{code}
 
 `scope` defaults to `global`. A `connection` scope names one connection; a
 `connection_group` scope covers the group's connections and all descendant
-groups. A scoped binding only authorizes connections inside its scope, so the
-same role can be granted per team without a global grant. A `database` scope
-uses `scope_id` of the form `<connection_id>::<database>` and matches only that
-database on that connection.
+groups. A `database` scope uses `<connection_id>::<database>`, `schema` uses
+`<connection_id>::<database>::<schema>`, and `table` uses
+`<connection_id>::<database>::<schema>::<table>`. A table scope may instead be
+created through the bindings API with `name_pattern: true` and `*`/`?` in
+`table_name`.
+
+The bindings API adds more than one target to an existing user without replacing
+the others:
+
+```http
+POST /api/users/{user_id}/bindings
+{
+  "role_code": "viewer",
+  "target_kind": "table",
+  "connection_id": "conn-uuid",
+  "database_name": "app",
+  "schema_name": "public",
+  "table_name": "orders",
+  "name_pattern": false,
+  "expires_at": "2026-12-31T00:00:00Z",
+  "reason": "reporting"
+}
+```
+
+Broad grants cover narrower objects; a table grant never authorizes a
+database-wide operation, and multiple grants are unioned. `/api/connection/list`
+and `/api/schema/*` only return assets the actor can navigate to, and exact
+table metadata is denied outside the grant. Saved connection passwords are
+redacted for asset-scoped users; connections use the server-held config.
 
 All routes require `admin:users`. Disabling a user, changing their role, or
 resetting their password revokes their live sessions. The built-in `admin` user

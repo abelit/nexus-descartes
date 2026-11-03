@@ -22,9 +22,15 @@ The identity suite covers:
 - an expired role binding does not grant its role;
 - custom roles round-trip with their permissions, cannot reuse a built-in code,
   cannot be edited/deleted when built-in, and cannot be deleted while bound;
-- a group-scoped binding covers the group's connections and descendant groups
-  but not unrelated connections; a database-scoped binding matches only its
-  database on its connection; an unbound user keeps role-only behavior;
+- a group-scoped grant covers the group's connections and descendant groups
+  but not unrelated connections; database/schema/table grants match only their
+  target and broader grants cover narrower objects; a table grant never covers
+  a database-wide operation;
+- legacy non-global bindings migrate into `asset_grants` idempotently and their
+  old rows are removed, so deleting a grant cannot be undone by a stale row;
+- table-name patterns match within the granted scope; global roles cover all
+  objects; zero-grant users are denied; category/connection visibility keeps
+  parent nodes for a granted table but not unrelated databases/schemas;
 - a session row can be stored, found, listed, revoked, and expired rows are
   purged;
 - route classification: SQL execution requires `query:write`, listing requires
