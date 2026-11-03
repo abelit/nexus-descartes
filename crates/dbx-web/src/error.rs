@@ -62,6 +62,8 @@ fn policy_status(message: &str) -> Option<StatusCode> {
         "POLICY_DENIED:",
         "POLICY_APPROVAL_REQUIRED:",
         "APPROVAL_REQUIRED:",
+        "ASSET_ACCESS_DENIED:",
+        "ASSET_SCOPE_UNPROVEN:",
         "PERMISSION_DENIED:",
         "APPROVAL_TOKEN_UNKNOWN",
         "APPROVAL_TOKEN_WRONG_ACTOR",
@@ -129,6 +131,10 @@ mod tests {
         let denied = AppError::from("POLICY_DENIED: blocked by rule (rule x)".to_string());
         assert_eq!(denied.status, StatusCode::FORBIDDEN);
         let approval = AppError::from("POLICY_APPROVAL_REQUIRED: 1 statement(s) require approval".to_string());
+        let asset = AppError::from("ASSET_ACCESS_DENIED: the user's asset grants do not cover this object".to_string());
+        let scope = AppError::from("ASSET_SCOPE_UNPROVEN: objects cannot be proven".to_string());
+        assert_eq!(asset.status, StatusCode::FORBIDDEN);
+        assert_eq!(scope.status, StatusCode::FORBIDDEN);
         assert_eq!(approval.status, StatusCode::FORBIDDEN);
         let token = AppError::from("APPROVAL_TOKEN_BINDING_MISMATCH".to_string());
         assert_eq!(token.status, StatusCode::FORBIDDEN);
