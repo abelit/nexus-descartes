@@ -39,8 +39,37 @@ export interface RoleInput {
 }
 
 export interface RoleScope {
-  scope_type: "global" | "connection" | "connection_group" | "database";
+  scope_type: "global" | "connection" | "connection_group" | "database" | "schema" | "table";
   scope_id?: string | null;
+}
+
+export interface AssetGrant {
+  id: string;
+  role_code: string;
+  target_kind: "connection_group" | "connection" | "database" | "schema" | "table";
+  connection_group_id?: string | null;
+  connection_id?: string | null;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  name_pattern: boolean;
+  expires_at?: string | null;
+  granted_by?: string | null;
+  reason: string;
+  created_at: string;
+}
+
+export interface CreateAssetGrantInput {
+  role_code: string;
+  target_kind: AssetGrant["target_kind"];
+  connection_group_id?: string | null;
+  connection_id?: string | null;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  name_pattern?: boolean;
+  expires_at?: string | null;
+  reason?: string;
 }
 
 export interface UserBinding {
@@ -157,5 +186,23 @@ export function setConnectionGroupMembers(groupId: string, connectionIds: string
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ connection_ids: connectionIds }),
+  });
+}
+
+export function listAssetGrants(userId: string): Promise<AssetGrant[]> {
+  return request<AssetGrant[]>(`/api/users/${encodeURIComponent(userId)}/bindings`);
+}
+
+export function createAssetGrant(userId: string, input: CreateAssetGrantInput): Promise<AssetGrant> {
+  return request<AssetGrant>(`/api/users/${encodeURIComponent(userId)}/bindings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteAssetGrant(userId: string, grantId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}/bindings/${encodeURIComponent(grantId)}`, {
+    method: "DELETE",
   });
 }
