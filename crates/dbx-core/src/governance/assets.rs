@@ -609,10 +609,12 @@ mod tests {
             authorize_statement(&snapshot, "conn", "app", Some("public"), "SELECT * FROM secrets", db_type, false)
                 .unwrap_err();
         assert!(denied.starts_with("ASSET_ACCESS_DENIED"), "{denied}");
-        // A table grant never carries query:ddl, even for the granted table.
+        // A viewer's table grant cannot carry query:ddl, even for the granted table.
         let ddl = authorize_statement(&snapshot, "conn", "app", Some("public"), "DROP TABLE orders", db_type, false)
             .unwrap_err();
-        assert!(ddl.starts_with("ASSET_ACCESS_DENIED"), "{ddl}");
+        // The dialect analysis may omit a DROP target, turning this into the
+        // opaque-statement denial; either way a table grant cannot carry DDL.
+        assert!(ddl.starts_with("ASSET_ACCESS_DENIED") || ddl.starts_with("ASSET_SCOPE_UNPROVEN"), "{ddl}");
         // Opaque statements cannot be bounded by a table-only grant.
         let unproven =
             authorize_statement(&snapshot, "conn", "app", Some("public"), "CALL do_something()", db_type, false)

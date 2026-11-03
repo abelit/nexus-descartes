@@ -10277,7 +10277,7 @@ export default {
       scopeTable: "One table",
       scopeTableName: "Table name",
       accessTitle: "Asset access",
-      noGrants: "No asset grants. This user can only sign in until a global role or an asset grant is added.",
+      noGrants: "No asset grants. A global role in the role column still applies to every connection.",
       addGrant: "Add grant",
       grantRole: "Role in target",
       grantTargetKind: "Target",

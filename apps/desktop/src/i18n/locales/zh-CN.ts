@@ -10243,7 +10243,7 @@ export default withEnglishFallback({
       scopeTable: "单张表",
       scopeTableName: "表名",
       accessTitle: "资产访问权限",
-      noGrants: "尚无资产授权。添加全局角色或资产授权前，该用户只能登录。",
+      noGrants: "尚无资产授权。角色列中的全局角色仍适用于所有连接。",
       addGrant: "添加授权",
       grantRole: "目标内角色",
       grantTargetKind: "授权范围",
