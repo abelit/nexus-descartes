@@ -3012,7 +3012,11 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
 ) -> Result<(db::QueryResult, Option<MysqlAutoCommitTransaction>), QueryExecutionError> {
     let db_type = connection_database_type(state, connection_id).await;
     let invalidate = crate::object_cache::sql_may_change_object_metadata(sql, db_type);
-    let audit_context = options.audit.clone();
+    // Spawned tasks do not inherit the task-local audit context, so callers
+    // that pass it explicitly win; otherwise use the one their handler scoped.
+    // Authorization must never fall back to "no actor" just because the caller
+    // built default execution options.
+    let audit_context = options.audit.clone().or_else(crate::audit::current_audit_context);
     let (connection_name, connection_config) = {
         let configs = state.configs.read().await;
         match configs.get(connection_id) {
@@ -3127,6 +3131,7 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
         scope_actor.as_deref(),
         connection_id,
         Some(database),
+        schema,
         &[sql.to_string()],
         db_type,
         approval_authorized,
@@ -5682,6 +5687,7 @@ pub async fn execute_blob_bound_statements(
         scope_actor.as_deref(),
         connection_id,
         Some(database),
+        schema,
         &sql,
         connection_database_type(state, connection_id).await,
         false,
@@ -6358,6 +6364,7 @@ pub async fn execute_statements_in_transaction_on_pool_typed(
             actor_id.as_deref(),
             connection_id,
             Some(database),
+            schema,
             statements,
             db_type,
             policy_approved,

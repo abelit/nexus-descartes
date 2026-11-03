@@ -128,6 +128,27 @@ impl Permission {
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|permission| permission.as_str() == value.trim())
     }
+
+    /// Permissions that asset grants can satisfy inside their target. Other
+    /// permissions remain global-only, so a connection-scoped role cannot read
+    /// the global audit log or administer users.
+    pub fn is_asset_scopeable(self) -> bool {
+        matches!(
+            self,
+            // Connection *configuration* writes stay global: a scoped role
+            // must not be able to retarget a granted connection or add a new
+            // one. Data access needs only ConnectionRead plus the per-object
+            // query/export/import grants.
+            Self::ConnectionRead
+                | Self::QueryRead
+                | Self::QueryWrite
+                | Self::QueryDdl
+                | Self::ExportData
+                | Self::ImportData
+                | Self::ApprovalRead
+                | Self::ApprovalAct
+        )
+    }
 }
 
 /// Built-in roles. Their permission sets are code, not rows, so a fresh

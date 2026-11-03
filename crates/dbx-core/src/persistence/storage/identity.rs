@@ -111,10 +111,11 @@ pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result
             .map_err(|error| format!("IDENTITY_PERMISSION_SEED: {error}"))?;
         }
     }
+    super::asset_grants::ensure_asset_grant_schema_sync(conn)?;
     Ok(())
 }
 
-fn now_rfc3339() -> String {
+pub(super) fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
@@ -301,6 +302,11 @@ impl Storage {
                 params![user_id, role_code],
             )
             .map_err(|error| error.to_string())?;
+            conn.execute(
+                "DELETE FROM asset_grants WHERE principal_type = 'user' AND principal_id = ?1 AND role_code = ?2",
+                params![user_id, role_code],
+            )
+            .map_err(|error| error.to_string())?;
             Ok(())
         })
         .await
@@ -461,7 +467,8 @@ impl Storage {
             }
             let bound: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM role_bindings WHERE scope_type = 'connection_group' AND scope_id = ?1",
+                    "SELECT (SELECT COUNT(*) FROM role_bindings WHERE scope_type = 'connection_group' AND scope_id = ?1) \
+                          + (SELECT COUNT(*) FROM asset_grants WHERE target_kind = 'connection_group' AND connection_group_id = ?1)",
                     [&id],
                     |row| row.get(0),
                 )
@@ -526,10 +533,11 @@ impl Storage {
             // Database scope encodes both the connection and the database as
             // `<connection_id>::<database>`; connection ids are UUIDs and never
             // contain the separator.
-            let database_scope = database.map(|database| format!("{connection_id}::{database}"));
+            let database_scope = database.as_ref().map(|database| format!("{connection_id}::{database}"));
             let binding_count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM role_bindings WHERE principal_type = 'user' AND principal_id = ?1",
+                    "SELECT (SELECT COUNT(*) FROM role_bindings WHERE principal_type = 'user' AND principal_id = ?1) \
+                          + (SELECT COUNT(*) FROM asset_grants WHERE principal_type = 'user' AND principal_id = ?1)",
                     [&user_id],
                     |row| row.get(0),
                 )
@@ -544,20 +552,30 @@ impl Storage {
                         UNION \
                         SELECT g.parent_id FROM connection_groups g JOIN ancestors a ON g.id = a.id \
                           WHERE g.parent_id IS NOT NULL) \
-                     SELECT DISTINCT rp.permission \
-                     FROM role_bindings rb \
-                     JOIN role_permissions rp ON rp.role_code = rb.role_code \
-                     WHERE rb.principal_type = 'user' AND rb.principal_id = ?1 \
-                       AND (rb.expires_at IS NULL OR rb.expires_at > ?3) \
-                       AND (rb.scope_type = 'global' \
-                            OR (rb.scope_type = 'connection' AND rb.scope_id = ?2) \
-                            OR (rb.scope_type = 'connection_group' AND rb.scope_id IN (SELECT id FROM ancestors)) \
-                            OR (rb.scope_type = 'database' AND ?4 IS NOT NULL AND rb.scope_id = ?4)) \
-                     ORDER BY rp.permission",
+                     SELECT permission FROM (\
+                        SELECT rp.permission AS permission \
+                        FROM role_bindings rb \
+                        JOIN role_permissions rp ON rp.role_code = rb.role_code \
+                        WHERE rb.principal_type = 'user' AND rb.principal_id = ?1 \
+                          AND (rb.expires_at IS NULL OR rb.expires_at > ?3) \
+                          AND (rb.scope_type = 'global' \
+                               OR (rb.scope_type = 'connection' AND rb.scope_id = ?2) \
+                               OR (rb.scope_type = 'connection_group' AND rb.scope_id IN (SELECT id FROM ancestors)) \
+                               OR (rb.scope_type = 'database' AND ?5 IS NOT NULL AND rb.scope_id = ?5)) \
+                        UNION \
+                        SELECT rp.permission AS permission \
+                        FROM asset_grants ag \
+                        JOIN role_permissions rp ON rp.role_code = ag.role_code \
+                        WHERE ag.principal_type = 'user' AND ag.principal_id = ?1 \
+                          AND (ag.expires_at IS NULL OR ag.expires_at > ?3) \
+                          AND ((ag.target_kind = 'connection_group' AND ag.connection_group_id IN (SELECT id FROM ancestors)) \
+                               OR (ag.target_kind = 'connection' AND ag.connection_id = ?2) \
+                               OR (ag.target_kind = 'database' AND ag.connection_id = ?2 AND ag.database_name = ?4))) \
+                     ORDER BY permission",
                 )
                 .map_err(|error| error.to_string())?;
             let permissions = stmt
-                .query_map(params![user_id, connection_id, now_rfc3339(), database_scope], |row| {
+                .query_map(params![user_id, connection_id, now_rfc3339(), database, database_scope], |row| {
                     row.get::<_, String>(0)
                 })
                 .map_err(|error| error.to_string())?
@@ -577,36 +595,96 @@ impl Storage {
         scope_id: Option<String>,
         granted_by: String,
     ) -> Result<(), String> {
-        self.with_conn(move |conn| {
-            let now = now_rfc3339();
-            conn.execute(
-                "INSERT INTO role_bindings \
-                 (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
-                 VALUES (?1, 'user', ?2, ?3, ?4, ?5, ?6, '', ?7)",
-                params![uuid::Uuid::new_v4().to_string(), user_id, role_code, scope_type, scope_id, granted_by, now],
-            )
-            .map_err(|error| error.to_string())?;
-            Ok(())
-        })
-        .await
+        if scope_type == "global" {
+            return self
+                .with_conn(move |conn| {
+                    let now = now_rfc3339();
+                    conn.execute(
+                        "INSERT INTO role_bindings \
+                         (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
+                         VALUES (?1, 'user', ?2, ?3, 'global', NULL, ?4, '', ?5)",
+                        params![uuid::Uuid::new_v4().to_string(), user_id, role_code, granted_by, now],
+                    )
+                    .map_err(|error| error.to_string())?;
+                    Ok(())
+                })
+                .await;
+        }
+        let grant = crate::governance::assets::grant_from_scope(
+            &user_id,
+            &role_code,
+            &scope_type,
+            scope_id.as_deref(),
+            Some(&granted_by),
+        )
+        .ok_or_else(|| format!("Invalid asset scope '{scope_type}'"))?;
+        self.create_asset_grant(grant).await
     }
 
     pub async fn bindings_for_user(&self, user_id: String) -> Result<Vec<RoleBindingRow>, String> {
         self.with_conn(move |conn| {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT role_code, scope_type, scope_id FROM role_bindings \
-                     WHERE principal_type = 'user' AND principal_id = ?1 \
-                       AND (expires_at IS NULL OR expires_at > ?2) \
-                     ORDER BY scope_type, role_code",
-                )
-                .map_err(|error| error.to_string())?;
-            let rows = stmt
-                .query_map(params![user_id, now_rfc3339()], |row| {
-                    Ok(RoleBindingRow { role_code: row.get(0)?, scope_type: row.get(1)?, scope_id: row.get(2)? })
-                })
-                .map_err(|error| error.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+            let mut bindings = Vec::new();
+            {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT role_code, scope_type, scope_id FROM role_bindings \
+                         WHERE principal_type = 'user' AND principal_id = ?1 \
+                           AND (expires_at IS NULL OR expires_at > ?2) \
+                         ORDER BY scope_type, role_code",
+                    )
+                    .map_err(|error| error.to_string())?;
+                let rows = stmt
+                    .query_map(params![user_id, now_rfc3339()], |row| {
+                        Ok(RoleBindingRow { role_code: row.get(0)?, scope_type: row.get(1)?, scope_id: row.get(2)? })
+                    })
+                    .map_err(|error| error.to_string())?;
+                bindings.extend(rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?);
+            }
+            {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT role_code, target_kind, connection_group_id, connection_id, database_name, \
+                                schema_name, table_name FROM asset_grants \
+                         WHERE principal_type = 'user' AND principal_id = ?1 \
+                           AND (expires_at IS NULL OR expires_at > ?2) ORDER BY target_kind, role_code",
+                    )
+                    .map_err(|error| error.to_string())?;
+                let rows = stmt
+                    .query_map(params![user_id, now_rfc3339()], |row| {
+                        let role_code: String = row.get(0)?;
+                        let target_kind: String = row.get(1)?;
+                        let group_id: Option<String> = row.get(2)?;
+                        let connection_id: Option<String> = row.get(3)?;
+                        let database: Option<String> = row.get(4)?;
+                        let schema: Option<String> = row.get(5)?;
+                        let table: Option<String> = row.get(6)?;
+                        let scope_id = match target_kind.as_str() {
+                            "connection_group" => group_id,
+                            "connection" => connection_id,
+                            "database" => {
+                                Some(format!("{}::{}", connection_id.unwrap_or_default(), database.unwrap_or_default()))
+                            }
+                            "schema" => Some(format!(
+                                "{}::{}::{}",
+                                connection_id.unwrap_or_default(),
+                                database.unwrap_or_default(),
+                                schema.unwrap_or_default()
+                            )),
+                            "table" => Some(format!(
+                                "{}::{}::{}::{}",
+                                connection_id.unwrap_or_default(),
+                                database.unwrap_or_default(),
+                                schema.unwrap_or_default(),
+                                table.unwrap_or_default()
+                            )),
+                            _ => None,
+                        };
+                        Ok(RoleBindingRow { role_code, scope_type: target_kind, scope_id })
+                    })
+                    .map_err(|error| error.to_string())?;
+                bindings.extend(rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?);
+            }
+            Ok(bindings)
         })
         .await
     }
@@ -645,13 +723,29 @@ impl Storage {
                 params![user.id, user.email, user.display_name, user.password_hash, user.status, user.created_at],
             )
             .map_err(|error| error.to_string())?;
-            tx.execute(
-                "INSERT INTO role_bindings \
-                 (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
-                 VALUES (?1, 'user', ?2, ?3, ?4, ?5, ?6, '', ?7)",
-                params![uuid::Uuid::new_v4().to_string(), user.id, role_code, scope_type, scope_id, granted_by, now],
-            )
-            .map_err(|error| error.to_string())?;
+            if scope_type == "global" {
+                tx.execute(
+                    "INSERT INTO role_bindings \
+                     (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
+                     VALUES (?1, 'user', ?2, ?3, 'global', NULL, ?4, '', ?5)",
+                    params![uuid::Uuid::new_v4().to_string(), user.id, role_code, granted_by, now],
+                )
+                .map_err(|error| error.to_string())?;
+            } else {
+                // Non-global scopes live in asset_grants from the moment the
+                // user is created. Leaving the legacy row here would grant
+                // execution through the old query path but hide every asset
+                // from the resolver until the next startup migration.
+                let grant = crate::governance::assets::grant_from_scope(
+                    &user.id,
+                    &role_code,
+                    &scope_type,
+                    scope_id.as_deref(),
+                    Some(&granted_by),
+                )
+                .ok_or_else(|| format!("Invalid asset scope '{scope_type}'"))?;
+                super::asset_grants::insert_asset_grant_sync(&tx, &grant)?;
+            }
             tx.commit().map_err(|error| error.to_string())?;
             Ok(user)
         })
@@ -771,7 +865,12 @@ impl Storage {
                 return Err("ROLE_BUILTIN_IMMUTABLE".to_string());
             }
             let bindings: i64 = conn
-                .query_row("SELECT COUNT(*) FROM role_bindings WHERE role_code = ?1", [&code], |row| row.get(0))
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM role_bindings WHERE role_code = ?1) \
+                          + (SELECT COUNT(*) FROM asset_grants WHERE role_code = ?1)",
+                    [&code],
+                    |row| row.get(0),
+                )
                 .map_err(|error| error.to_string())?;
             if bindings > 0 {
                 return Err("ROLE_IN_USE".to_string());
@@ -792,7 +891,10 @@ impl Storage {
         self.with_conn(move |conn| {
             let mut stmt = conn
                 .prepare(
-                    "SELECT DISTINCT principal_id FROM role_bindings WHERE principal_type = 'user' AND role_code = ?1",
+                    "SELECT DISTINCT principal_id FROM role_bindings \
+                     WHERE principal_type = 'user' AND role_code = ?1 \
+                     UNION SELECT DISTINCT principal_id FROM asset_grants \
+                     WHERE principal_type = 'user' AND role_code = ?1",
                 )
                 .map_err(|error| error.to_string())?;
             let rows = stmt.query_map([role_code], |row| row.get::<_, String>(0)).map_err(|error| error.to_string())?;
@@ -808,11 +910,17 @@ impl Storage {
             let now = now_rfc3339();
             let mut stmt = conn
                 .prepare(
-                    "SELECT DISTINCT rb.principal_id FROM role_bindings rb \
-                     JOIN users u ON u.id = rb.principal_id \
-                     WHERE rb.principal_type = 'user' AND rb.role_code = ?1 AND u.status = 'active' \
-                       AND (rb.expires_at IS NULL OR rb.expires_at > ?2) \
-                     ORDER BY rb.principal_id",
+                    "SELECT principal_id FROM (\
+                        SELECT rb.principal_id AS principal_id FROM role_bindings rb \
+                        JOIN users u ON u.id = rb.principal_id \
+                        WHERE rb.principal_type = 'user' AND rb.role_code = ?1 AND u.status = 'active' \
+                          AND (rb.expires_at IS NULL OR rb.expires_at > ?2) \
+                        UNION \
+                        SELECT ag.principal_id AS principal_id FROM asset_grants ag \
+                        JOIN users u ON u.id = ag.principal_id \
+                        WHERE ag.principal_type = 'user' AND ag.role_code = ?1 AND u.status = 'active' \
+                          AND (ag.expires_at IS NULL OR ag.expires_at > ?2)) \
+                     ORDER BY principal_id",
                 )
                 .map_err(|error| error.to_string())?;
             let rows = stmt
@@ -830,7 +938,7 @@ impl Storage {
             let mut stmt = conn
                 .prepare(
                     "SELECT DISTINCT role_code FROM role_bindings \
-                     WHERE principal_type = 'user' AND principal_id = ?1 \
+                     WHERE principal_type = 'user' AND principal_id = ?1 AND scope_type = 'global' \
                        AND (expires_at IS NULL OR expires_at > ?2) \
                      ORDER BY role_code",
                 )
@@ -1057,6 +1165,12 @@ mod tests {
             )
             .await
             .unwrap();
+
+        // The scoped creation writes asset_grants directly, so visibility and
+        // the resolver see the grant without waiting for a restart migration.
+        let snapshot = storage.asset_snapshot_data(user.id.clone()).await.unwrap();
+        assert_eq!(snapshot.grants.len(), 1);
+        assert_eq!(snapshot.grants[0].target_kind, crate::governance::assets::AssetTargetKind::ConnectionGroup);
 
         let covered = storage
             .scoped_permissions_for_connection(user.id.clone(), "conn-a".to_string(), None)

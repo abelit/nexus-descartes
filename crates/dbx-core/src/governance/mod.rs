@@ -12,6 +12,7 @@ use std::future::Future;
 use std::time::Instant;
 
 pub mod approval;
+pub mod assets;
 pub mod notification;
 pub mod policy;
 pub mod rules;
@@ -190,44 +191,24 @@ pub async fn authorize_connection_scope(
     actor_id: Option<&str>,
     connection_id: &str,
     database: Option<&str>,
+    schema: Option<&str>,
     statements: &[String],
     db_type: Option<DatabaseType>,
     approval_authorized: bool,
 ) -> Result<(), String> {
-    let Some(actor_id) = actor_id.filter(|id| !id.starts_with("system") && !id.contains(':')) else {
-        // Local user ids are UUIDs; service/desktop/mcp/hilbert actors have a
-        // namespace prefix and are not subject to local bindings.
-        return Ok(());
-    };
-    let database = database.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string);
-    let Some(permissions) = state
-        .storage
-        .scoped_permissions_for_connection(actor_id.to_string(), connection_id.to_string(), database)
-        .await?
-    else {
-        return Ok(());
-    };
-    for sql in statements {
-        let required = match db_type {
-            Some(db_type) => match crate::sql_risk::classify_sql_risk_for_database(sql, db_type) {
-                Ok(crate::sql_risk::SqlRisk::ReadOnly) => "query:read",
-                Ok(crate::sql_risk::SqlRisk::Ddl) => "query:ddl",
-                Ok(crate::sql_risk::SqlRisk::Transaction) => "query:write",
-                _ => "query:write",
-            },
-            None => "query:read",
-        };
-        let granted = permissions.iter().any(|permission| permission == required)
-            || (approval_authorized
-                && required == "query:ddl"
-                && permissions.iter().any(|permission| permission == "query:write"));
-        if !granted {
-            return Err(format!(
-                "PERMISSION_DENIED: the user's role bindings do not grant {required} on this connection"
-            ));
-        }
-    }
-    Ok(())
+    let database = database.map(str::trim).filter(|value| !value.is_empty()).unwrap_or("");
+    let schema = schema.map(str::trim).filter(|value| !value.is_empty());
+    crate::governance::assets::authorize_statements(
+        state,
+        actor_id,
+        connection_id,
+        database,
+        schema,
+        statements,
+        db_type,
+        approval_authorized,
+    )
+    .await
 }
 
 /// Enforcement for batch-capable entry points: resolves the connection and
@@ -254,6 +235,7 @@ pub async fn enforce_statements_for_connection(
         actor_id.as_deref(),
         connection_id,
         Some(database),
+        None,
         statements,
         Some(config.db_type),
         false,
@@ -319,6 +301,7 @@ pub async fn authorize_batch(
             actor_id,
             connection_id,
             Some(database),
+            schema,
             statements,
             Some(config.db_type),
             false,
@@ -358,6 +341,7 @@ pub async fn authorize_batch(
             actor_id,
             connection_id,
             Some(database),
+            schema,
             statements,
             Some(config.db_type),
             false,
@@ -411,6 +395,7 @@ pub async fn authorize_batch(
         Some(actor_id),
         connection_id,
         Some(database),
+        schema,
         statements,
         Some(config.db_type),
         true,

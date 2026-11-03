@@ -4,6 +4,7 @@ pub use dbx_drivers::runtime_config::{
 };
 
 mod approval;
+mod asset_grants;
 #[cfg(feature = "enterprise-audit")]
 mod audit_log;
 mod identity;
@@ -7611,6 +7612,11 @@ impl Storage {
             for id in &ids {
                 tx.execute("DELETE FROM connections WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
                 tx.execute("DELETE FROM connection_secrets WHERE connection_id = ?1", [id])
+                    .map_err(|e| e.to_string())?;
+                // Asset grants and group membership die with the connection;
+                // leaving them would resurrect access if the id were reused.
+                tx.execute("DELETE FROM asset_grants WHERE connection_id = ?1", [id]).map_err(|e| e.to_string())?;
+                tx.execute("DELETE FROM connection_group_members WHERE connection_id = ?1", [id])
                     .map_err(|e| e.to_string())?;
                 let mqtt_history_key = format!("{MQTT_MESSAGE_HISTORY_STATE_KEY_PREFIX}{id}");
                 tx.execute("DELETE FROM state_store WHERE key = ?1", [mqtt_history_key]).map_err(|e| e.to_string())?;

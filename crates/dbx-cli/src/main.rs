@@ -234,6 +234,7 @@ async fn run(argv: Vec<String>) -> Result<String, (CliError, bool)> {
             display_name: "CLI user".to_string(),
             kind: dbx_core::audit::ActorKind::Human,
             roles: Vec::new(),
+            asset_roles: Vec::new(),
             tenant_id: None,
             session_id: None,
             auth_method: "cli".to_string(),

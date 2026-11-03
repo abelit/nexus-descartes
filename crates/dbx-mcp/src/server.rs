@@ -5867,6 +5867,7 @@ impl ServerHandler for DbxMcpServer {
                 display_name: "Local MCP client".to_string(),
                 kind: dbx_core::audit::ActorKind::Service,
                 roles: Vec::new(),
+                asset_roles: Vec::new(),
                 tenant_id: None,
                 session_id: None,
                 auth_method: "mcp_local".to_string(),

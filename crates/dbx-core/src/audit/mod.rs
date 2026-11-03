@@ -166,6 +166,10 @@ pub struct Actor {
     pub kind: ActorKind,
     #[serde(default)]
     pub roles: Vec<String>,
+    /// Roles held only through asset grants. Route floors use these for
+    /// asset-scopeable permissions; non-asset routes stay global-only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asset_roles: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,6 +185,7 @@ impl Actor {
             display_name: "Administrator".to_string(),
             kind: ActorKind::Bootstrap,
             roles: vec!["admin".to_string(), "auditor".to_string()],
+            asset_roles: Vec::new(),
             tenant_id: None,
             session_id: None,
             auth_method: "local_password".to_string(),
@@ -193,6 +198,7 @@ impl Actor {
             display_name: "System".to_string(),
             kind: ActorKind::System,
             roles: vec![],
+            asset_roles: Vec::new(),
             tenant_id: None,
             session_id: None,
             auth_method: "system".to_string(),

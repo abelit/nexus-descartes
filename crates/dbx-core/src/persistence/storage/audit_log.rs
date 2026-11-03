@@ -848,6 +848,9 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEvent> {
         display_name: row.get("actor_display_name")?,
         kind: parse_actor_kind(row.get::<_, String>("actor_kind")?),
         roles: serde_json::from_str(&roles_json).unwrap_or_default(),
+        // Asset roles are authorization metadata, not part of the hashed
+        // event; old rows have no column for them.
+        asset_roles: Vec::new(),
         tenant_id: row.get("tenant_id")?,
         session_id: row.get("session_id")?,
         auth_method: row.get("auth_method")?,
