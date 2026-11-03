@@ -1,0 +1,1041 @@
+- generic [ref=f2e8]:
+  - generic [ref=f2e9]:
+    - link "DBX DBX" [ref=f2e10] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f2e11]: DBX
+    - button "New Connection" [ref=f2e12] [cursor=pointer]
+    - button "New Query" [ref=f2e15] [cursor=pointer]
+    - button "Data Transfer" [ref=f2e17] [cursor=pointer]
+    - button "Driver Manager" [ref=f2e19] [cursor=pointer]
+    - button "Plugin Center" [ref=f2e22] [cursor=pointer]
+    - button "More" [ref=f2e24] [cursor=pointer]
+    - button [ref=f2e28] [cursor=pointer]
+    - button "Log out" [ref=f2e29] [cursor=pointer]
+  - generic [ref=f2e30]:
+    - generic [ref=f2e32]:
+      - generic [ref=f2e33]:
+        - button "Import / Export" [ref=f2e34] [cursor=pointer]
+        - generic [ref=f2e42]:
+          - button [ref=f2e44] [cursor=pointer]
+          - button [ref=f2e46] [cursor=pointer]
+          - button [ref=f2e48] [cursor=pointer]
+          - button [ref=f2e50] [cursor=pointer]
+      - generic [ref=f2e52]:
+        - generic [ref=f2e54]:
+          - generic [ref=f2e55]:
+            - textbox "Search..." [ref=f2e59]
+            - generic [ref=f2e60]:
+              - button "Regex search" [ref=f2e62] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f2e63]: .*
+              - switch "Local search" [ref=f2e65] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f2e67] [cursor=pointer]
+          - button "Sort and filter" [ref=f2e73] [cursor=pointer]
+          - button "Show active connections only" [ref=f2e77] [cursor=pointer]:
+            - generic [ref=f2e78]: "Active connections: 0"
+        - generic [ref=f2e81]:
+          - generic [ref=f2e84]:
+            - button [ref=f2e85] [cursor=pointer]
+            - generic [ref=f2e90]: demo-postgres
+            - button "Select connection" [ref=f2e93] [cursor=pointer]
+          - generic [ref=f2e98]:
+            - button [ref=f2e99] [cursor=pointer]
+            - generic [ref=f2e104]: demo-mysql
+            - button "Select connection" [ref=f2e107] [cursor=pointer]
+    - generic [ref=f2e229]:
+      - generic [ref=f2e233]:
+        - button "Position, grouping, sorting" [ref=f2e234] [cursor=pointer]
+        - button "Settings" [pressed] [ref=f2e240]:
+          - button "Close" [ref=f2e245] [cursor=pointer]
+        - button "New Query" [ref=f2e250] [cursor=pointer]
+      - generic [ref=f2e254]:
+        - heading "Settings" [level=2] [ref=f2e256]
+        - generic [ref=f2e260]:
+          - navigation [ref=f2e261]:
+            - button "Appearance" [ref=f2e262] [cursor=pointer]
+            - button "Editor" [ref=f2e263] [cursor=pointer]
+            - button "SQL Formatter" [ref=f2e264] [cursor=pointer]
+            - button "Navigation" [ref=f2e265] [cursor=pointer]
+            - button "Data" [ref=f2e266] [cursor=pointer]
+            - button "Database Backups" [ref=f2e267] [cursor=pointer]
+            - button "Tunnels" [ref=f2e268] [cursor=pointer]
+            - button "Shortcuts" [ref=f2e269] [cursor=pointer]
+            - button "Snippets" [ref=f2e270] [cursor=pointer]
+            - button "Sync" [ref=f2e271] [cursor=pointer]
+            - button "AI" [ref=f2e272] [cursor=pointer]
+            - button "MCP" [ref=f2e273] [cursor=pointer]
+            - button "Update Management" [ref=f2e274] [cursor=pointer]
+            - button "Security" [ref=f2e275] [cursor=pointer]
+            - button "About" [ref=f2e276] [cursor=pointer]
+          - generic [ref=f2e277]:
+            - combobox "Search settings" [ref=f2e280]
+            - generic [ref=f2e501]:
+              - generic [ref=f2e502]:
+                - generic [ref=f2e503] [cursor=pointer]: Change Password
+                - paragraph [ref=f2e504]: Enter your current password and choose a new one
+                - generic [ref=f2e505]:
+                  - textbox "Current password" [ref=f2e506]
+                  - button "Show password" [ref=f2e507] [cursor=pointer]
+                - generic [ref=f2e511]:
+                  - textbox "Enter new password" [ref=f2e512]
+                  - button "Show password" [ref=f2e513] [cursor=pointer]
+                - generic [ref=f2e517]:
+                  - textbox "Confirm password" [ref=f2e518]
+                  - button "Show password" [ref=f2e519] [cursor=pointer]
+              - generic [ref=f2e523]:
+                - generic [ref=f2e524] [cursor=pointer]: Log out
+                - paragraph [ref=f2e525]: End the current session and return to the login page
+                - button "Log out" [ref=f2e527] [cursor=pointer]
+              - generic [ref=f2e529]:
+                - generic [ref=f2e530]:
+                  - heading "Audit Log" [level=3] [ref=f2e531]
+                  - paragraph [ref=f2e532]: Server-side, append-only record of database and administrative operations. Entries cannot be edited or deleted from DBX.
+                - generic [ref=f2e533]:
+                  - generic [ref=f2e534]: Audit access token
+                  - paragraph [ref=f2e538]: In this phase the audit API requires the server's DBX_AUDIT_BOOTSTRAP_TOKEN, or a loopback connection when no token is configured. The token is kept in this browser session only.
+                  - generic [ref=f2e539]:
+                    - textbox "Paste the audit bootstrap token" [ref=f2e540]
+                    - button "Use token" [ref=f2e541] [cursor=pointer]
+                  - paragraph [ref=f2e542]: "No token entered: requests only succeed when the server is reached over loopback."
+                - generic [ref=f2e543]:
+                  - textbox "Actor" [ref=f2e544]
+                  - combobox [ref=f2e545] [cursor=pointer]:
+                    - option "All operations" [selected]
+                    - option "query"
+                    - option "dml"
+                    - option "ddl"
+                    - option "transaction"
+                    - option "export"
+                    - option "import"
+                    - option "backup"
+                    - option "config"
+                    - option "connection"
+                    - option "auth"
+                    - option "policy"
+                    - option "approval"
+                    - option "admin"
+                  - combobox [ref=f2e546] [cursor=pointer]:
+                    - option "All decisions" [selected]
+                    - option "allowed"
+                    - option "denied"
+                    - option "warned"
+                    - option "approval_required"
+                    - option "blocked"
+                    - option "error"
+                  - combobox [ref=f2e547] [cursor=pointer]:
+                    - option "Last hour"
+                    - option "Last 24 hours" [selected]
+                    - option "Last 7 days"
+                    - option "All time"
+                  - textbox "Search SQL" [ref=f2e549]
+                  - button "Refresh" [ref=f2e550] [cursor=pointer]
+                  - button "JSONL" [ref=f2e551] [cursor=pointer]
+                  - button "CSV" [ref=f2e552] [cursor=pointer]
+                  - button "Verify chain" [ref=f2e553] [cursor=pointer]
+                - table [ref=f2e555]:
+                  - rowgroup [ref=f2e556]:
+                    - row [ref=f2e557]:
+                      - columnheader "#" [ref=f2e558]
+                      - columnheader "Time" [ref=f2e559]
+                      - columnheader "Actor" [ref=f2e560]
+                      - columnheader "Operation" [ref=f2e561]
+                      - columnheader "Decision" [ref=f2e562]
+                      - columnheader "Target"
+                      - columnheader "Duration" [ref=f2e563]
+                  - rowgroup [ref=f2e564]:
+                    - row [ref=f2e565] [cursor=pointer]:
+                      - cell "7691" [ref=f2e566]
+                      - cell "11/2/2026, 8:49:20 PM" [ref=f2e567]
+                      - cell "Administrator" [ref=f2e568]
+                      - cell "admin" [ref=f2e569]
+                      - cell "allowed" [ref=f2e570]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e572]
+                    - row [ref=f2e573] [cursor=pointer]:
+                      - cell "7690" [ref=f2e574]
+                      - cell "11/2/2026, 8:49:18 PM" [ref=f2e575]
+                      - cell "Administrator" [ref=f2e576]
+                      - cell "admin" [ref=f2e577]
+                      - cell "allowed" [ref=f2e578]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e580]
+                    - row [ref=f2e581] [cursor=pointer]:
+                      - cell "7689" [ref=f2e582]
+                      - cell "11/2/2026, 8:49:16 PM" [ref=f2e583]
+                      - cell "Administrator" [ref=f2e584]
+                      - cell "admin" [ref=f2e585]
+                      - cell "allowed" [ref=f2e586]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e588]
+                    - row [ref=f2e589] [cursor=pointer]:
+                      - cell "7688" [ref=f2e590]
+                      - cell "11/2/2026, 8:49:14 PM" [ref=f2e591]
+                      - cell "Administrator" [ref=f2e592]
+                      - cell "admin" [ref=f2e593]
+                      - cell "allowed" [ref=f2e594]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e596]
+                    - row [ref=f2e597] [cursor=pointer]:
+                      - cell "7687" [ref=f2e598]
+                      - cell "11/2/2026, 8:49:12 PM" [ref=f2e599]
+                      - cell "Administrator" [ref=f2e600]
+                      - cell "admin" [ref=f2e601]
+                      - cell "allowed" [ref=f2e602]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e604]
+                    - row [ref=f2e605] [cursor=pointer]:
+                      - cell "7686" [ref=f2e606]
+                      - cell "11/2/2026, 8:49:10 PM" [ref=f2e607]
+                      - cell "DBA One" [ref=f2e608]
+                      - cell "admin" [ref=f2e609]
+                      - cell "denied" [ref=f2e610]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e612]
+                    - row [ref=f2e613] [cursor=pointer]:
+                      - cell "7685" [ref=f2e614]
+                      - cell "11/2/2026, 8:49:10 PM" [ref=f2e615]
+                      - cell "DBA One" [ref=f2e616]
+                      - cell "admin" [ref=f2e617]
+                      - cell "denied" [ref=f2e618]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e620]
+                    - row [ref=f2e621] [cursor=pointer]:
+                      - cell "7684" [ref=f2e622]
+                      - cell "11/2/2026, 8:49:10 PM" [ref=f2e623]
+                      - cell "DBA One" [ref=f2e624]
+                      - cell "admin" [ref=f2e625]
+                      - cell "denied" [ref=f2e626]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e628]
+                    - row [ref=f2e629] [cursor=pointer]:
+                      - cell "7683" [ref=f2e630]
+                      - cell "11/2/2026, 8:49:10 PM" [ref=f2e631]
+                      - cell "DBA One" [ref=f2e632]
+                      - cell "admin" [ref=f2e633]
+                      - cell "denied" [ref=f2e634]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e636]
+                    - row [ref=f2e637] [cursor=pointer]:
+                      - cell "7682" [ref=f2e638]
+                      - cell "11/2/2026, 8:49:10 PM" [ref=f2e639]
+                      - cell "Administrator" [ref=f2e640]
+                      - cell "admin" [ref=f2e641]
+                      - cell "allowed" [ref=f2e642]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e644]
+                    - row [ref=f2e645] [cursor=pointer]:
+                      - cell "7681" [ref=f2e646]
+                      - cell "11/2/2026, 8:49:08 PM" [ref=f2e647]
+                      - cell "Administrator" [ref=f2e648]
+                      - cell "admin" [ref=f2e649]
+                      - cell "allowed" [ref=f2e650]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e652]
+                    - row [ref=f2e653] [cursor=pointer]:
+                      - cell "7680" [ref=f2e654]
+                      - cell "11/2/2026, 8:49:06 PM" [ref=f2e655]
+                      - cell "Administrator" [ref=f2e656]
+                      - cell "admin" [ref=f2e657]
+                      - cell "allowed" [ref=f2e658]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e660]
+                    - row [ref=f2e661] [cursor=pointer]:
+                      - cell "7679" [ref=f2e662]
+                      - cell "11/2/2026, 8:49:04 PM" [ref=f2e663]
+                      - cell "Administrator" [ref=f2e664]
+                      - cell "admin" [ref=f2e665]
+                      - cell "allowed" [ref=f2e666]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e668]
+                    - row [ref=f2e669] [cursor=pointer]:
+                      - cell "7678" [ref=f2e670]
+                      - cell "11/2/2026, 8:49:02 PM" [ref=f2e671]
+                      - cell "Administrator" [ref=f2e672]
+                      - cell "admin" [ref=f2e673]
+                      - cell "allowed" [ref=f2e674]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e676]
+                    - row [ref=f2e677] [cursor=pointer]:
+                      - cell "7677" [ref=f2e678]
+                      - cell "11/2/2026, 8:49:00 PM" [ref=f2e679]
+                      - cell "Administrator" [ref=f2e680]
+                      - cell "admin" [ref=f2e681]
+                      - cell "allowed" [ref=f2e682]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e684]
+                    - row [ref=f2e685] [cursor=pointer]:
+                      - cell "7676" [ref=f2e686]
+                      - cell "11/2/2026, 8:48:58 PM" [ref=f2e687]
+                      - cell "Administrator" [ref=f2e688]
+                      - cell "admin" [ref=f2e689]
+                      - cell "allowed" [ref=f2e690]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e692]
+                    - row [ref=f2e693] [cursor=pointer]:
+                      - cell "7675" [ref=f2e694]
+                      - cell "11/2/2026, 8:48:56 PM" [ref=f2e695]
+                      - cell "Administrator" [ref=f2e696]
+                      - cell "admin" [ref=f2e697]
+                      - cell "allowed" [ref=f2e698]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e700]
+                    - row [ref=f2e701] [cursor=pointer]:
+                      - cell "7674" [ref=f2e702]
+                      - cell "11/2/2026, 8:48:54 PM" [ref=f2e703]
+                      - cell "Administrator" [ref=f2e704]
+                      - cell "admin" [ref=f2e705]
+                      - cell "allowed" [ref=f2e706]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e708]
+                    - row [ref=f2e709] [cursor=pointer]:
+                      - cell "7673" [ref=f2e710]
+                      - cell "11/2/2026, 8:48:52 PM" [ref=f2e711]
+                      - cell "Administrator" [ref=f2e712]
+                      - cell "admin" [ref=f2e713]
+                      - cell "allowed" [ref=f2e714]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e716]
+                    - row [ref=f2e717] [cursor=pointer]:
+                      - cell "7672" [ref=f2e718]
+                      - cell "11/2/2026, 8:48:51 PM" [ref=f2e719]
+                      - cell "DBA One" [ref=f2e720]
+                      - cell "admin" [ref=f2e721]
+                      - cell "denied" [ref=f2e722]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e724]
+                    - row [ref=f2e725] [cursor=pointer]:
+                      - cell "7671" [ref=f2e726]
+                      - cell "11/2/2026, 8:48:51 PM" [ref=f2e727]
+                      - cell "DBA One" [ref=f2e728]
+                      - cell "admin" [ref=f2e729]
+                      - cell "denied" [ref=f2e730]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e732]
+                    - row [ref=f2e733] [cursor=pointer]:
+                      - cell "7670" [ref=f2e734]
+                      - cell "11/2/2026, 8:48:50 PM" [ref=f2e735]
+                      - cell "Administrator" [ref=f2e736]
+                      - cell "admin" [ref=f2e737]
+                      - cell "allowed" [ref=f2e738]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e740]
+                    - row [ref=f2e741] [cursor=pointer]:
+                      - cell "7669" [ref=f2e742]
+                      - cell "11/2/2026, 8:48:49 PM" [ref=f2e743]
+                      - cell "DBA One" [ref=f2e744]
+                      - cell "admin" [ref=f2e745]
+                      - cell "denied" [ref=f2e746]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e748]
+                    - row [ref=f2e749] [cursor=pointer]:
+                      - cell "7668" [ref=f2e750]
+                      - cell "11/2/2026, 8:48:48 PM" [ref=f2e751]
+                      - cell "Administrator" [ref=f2e752]
+                      - cell "admin" [ref=f2e753]
+                      - cell "allowed" [ref=f2e754]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e756]
+                    - row [ref=f2e757] [cursor=pointer]:
+                      - cell "7667" [ref=f2e758]
+                      - cell "11/2/2026, 8:48:41 PM" [ref=f2e759]
+                      - cell "DBA One" [ref=f2e760]
+                      - cell "admin" [ref=f2e761]
+                      - cell "denied" [ref=f2e762]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e764]
+                    - row [ref=f2e765] [cursor=pointer]:
+                      - cell "7666" [ref=f2e766]
+                      - cell "11/2/2026, 8:48:40 PM" [ref=f2e767]
+                      - cell "Administrator" [ref=f2e768]
+                      - cell "admin" [ref=f2e769]
+                      - cell "allowed" [ref=f2e770]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e772]
+                    - row [ref=f2e773] [cursor=pointer]:
+                      - cell "7665" [ref=f2e774]
+                      - cell "11/2/2026, 8:48:39 PM" [ref=f2e775]
+                      - cell "DBA One" [ref=f2e776]
+                      - cell "admin" [ref=f2e777]
+                      - cell "denied" [ref=f2e778]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e780]
+                    - row [ref=f2e781] [cursor=pointer]:
+                      - cell "7664" [ref=f2e782]
+                      - cell "11/2/2026, 8:48:38 PM" [ref=f2e783]
+                      - cell "Administrator" [ref=f2e784]
+                      - cell "admin" [ref=f2e785]
+                      - cell "allowed" [ref=f2e786]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e788]
+                    - row [ref=f2e789] [cursor=pointer]:
+                      - cell "7663" [ref=f2e790]
+                      - cell "11/2/2026, 8:48:37 PM" [ref=f2e791]
+                      - cell "DBA One" [ref=f2e792]
+                      - cell "admin" [ref=f2e793]
+                      - cell "denied" [ref=f2e794]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e796]
+                    - row [ref=f2e797] [cursor=pointer]:
+                      - cell "7662" [ref=f2e798]
+                      - cell "11/2/2026, 8:48:36 PM" [ref=f2e799]
+                      - cell "Administrator" [ref=f2e800]
+                      - cell "admin" [ref=f2e801]
+                      - cell "allowed" [ref=f2e802]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e804]
+                    - row [ref=f2e805] [cursor=pointer]:
+                      - cell "7661" [ref=f2e806]
+                      - cell "11/2/2026, 8:48:35 PM" [ref=f2e807]
+                      - cell "DBA One" [ref=f2e808]
+                      - cell "admin" [ref=f2e809]
+                      - cell "denied" [ref=f2e810]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e812]
+                    - row [ref=f2e813] [cursor=pointer]:
+                      - cell "7660" [ref=f2e814]
+                      - cell "11/2/2026, 8:48:34 PM" [ref=f2e815]
+                      - cell "Administrator" [ref=f2e816]
+                      - cell "admin" [ref=f2e817]
+                      - cell "allowed" [ref=f2e818]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e820]
+                    - row [ref=f2e821] [cursor=pointer]:
+                      - cell "7659" [ref=f2e822]
+                      - cell "11/2/2026, 8:48:33 PM" [ref=f2e823]
+                      - cell "DBA One" [ref=f2e824]
+                      - cell "admin" [ref=f2e825]
+                      - cell "denied" [ref=f2e826]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e828]
+                    - row [ref=f2e829] [cursor=pointer]:
+                      - cell "7658" [ref=f2e830]
+                      - cell "11/2/2026, 8:48:32 PM" [ref=f2e831]
+                      - cell "Administrator" [ref=f2e832]
+                      - cell "admin" [ref=f2e833]
+                      - cell "allowed" [ref=f2e834]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e836]
+                    - row [ref=f2e837] [cursor=pointer]:
+                      - cell "7657" [ref=f2e838]
+                      - cell "11/2/2026, 8:48:31 PM" [ref=f2e839]
+                      - cell "DBA One" [ref=f2e840]
+                      - cell "admin" [ref=f2e841]
+                      - cell "denied" [ref=f2e842]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e844]
+                    - row [ref=f2e845] [cursor=pointer]:
+                      - cell "7656" [ref=f2e846]
+                      - cell "11/2/2026, 8:48:30 PM" [ref=f2e847]
+                      - cell "Administrator" [ref=f2e848]
+                      - cell "admin" [ref=f2e849]
+                      - cell "allowed" [ref=f2e850]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e852]
+                    - row [ref=f2e853] [cursor=pointer]:
+                      - cell "7655" [ref=f2e854]
+                      - cell "11/2/2026, 8:48:29 PM" [ref=f2e855]
+                      - cell "DBA One" [ref=f2e856]
+                      - cell "admin" [ref=f2e857]
+                      - cell "denied" [ref=f2e858]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e860]
+                    - row [ref=f2e861] [cursor=pointer]:
+                      - cell "7654" [ref=f2e862]
+                      - cell "11/2/2026, 8:48:28 PM" [ref=f2e863]
+                      - cell "Administrator" [ref=f2e864]
+                      - cell "admin" [ref=f2e865]
+                      - cell "allowed" [ref=f2e866]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e868]
+                    - row [ref=f2e869] [cursor=pointer]:
+                      - cell "7653" [ref=f2e870]
+                      - cell "11/2/2026, 8:48:27 PM" [ref=f2e871]
+                      - cell "DBA One" [ref=f2e872]
+                      - cell "admin" [ref=f2e873]
+                      - cell "denied" [ref=f2e874]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e876]
+                    - row [ref=f2e877] [cursor=pointer]:
+                      - cell "7652" [ref=f2e878]
+                      - cell "11/2/2026, 8:48:26 PM" [ref=f2e879]
+                      - cell "Administrator" [ref=f2e880]
+                      - cell "admin" [ref=f2e881]
+                      - cell "allowed" [ref=f2e882]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e884]
+                    - row [ref=f2e885] [cursor=pointer]:
+                      - cell "7651" [ref=f2e886]
+                      - cell "11/2/2026, 8:48:25 PM" [ref=f2e887]
+                      - cell "DBA One" [ref=f2e888]
+                      - cell "admin" [ref=f2e889]
+                      - cell "denied" [ref=f2e890]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e892]
+                    - row [ref=f2e893] [cursor=pointer]:
+                      - cell "7650" [ref=f2e894]
+                      - cell "11/2/2026, 8:48:24 PM" [ref=f2e895]
+                      - cell "Administrator" [ref=f2e896]
+                      - cell "admin" [ref=f2e897]
+                      - cell "allowed" [ref=f2e898]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e900]
+                    - row [ref=f2e901] [cursor=pointer]:
+                      - cell "7649" [ref=f2e902]
+                      - cell "11/2/2026, 8:48:23 PM" [ref=f2e903]
+                      - cell "DBA One" [ref=f2e904]
+                      - cell "admin" [ref=f2e905]
+                      - cell "denied" [ref=f2e906]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e908]
+                    - row [ref=f2e909] [cursor=pointer]:
+                      - cell "7648" [ref=f2e910]
+                      - cell "11/2/2026, 8:48:22 PM" [ref=f2e911]
+                      - cell "Administrator" [ref=f2e912]
+                      - cell "admin" [ref=f2e913]
+                      - cell "allowed" [ref=f2e914]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e916]
+                    - row [ref=f2e917] [cursor=pointer]:
+                      - cell "7647" [ref=f2e918]
+                      - cell "11/2/2026, 8:48:21 PM" [ref=f2e919]
+                      - cell "DBA One" [ref=f2e920]
+                      - cell "admin" [ref=f2e921]
+                      - cell "denied" [ref=f2e922]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e924]
+                    - row [ref=f2e925] [cursor=pointer]:
+                      - cell "7646" [ref=f2e926]
+                      - cell "11/2/2026, 8:48:20 PM" [ref=f2e927]
+                      - cell "Administrator" [ref=f2e928]
+                      - cell "admin" [ref=f2e929]
+                      - cell "allowed" [ref=f2e930]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e932]
+                    - row [ref=f2e933] [cursor=pointer]:
+                      - cell "7645" [ref=f2e934]
+                      - cell "11/2/2026, 8:48:19 PM" [ref=f2e935]
+                      - cell "DBA One" [ref=f2e936]
+                      - cell "admin" [ref=f2e937]
+                      - cell "denied" [ref=f2e938]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e940]
+                    - row [ref=f2e941] [cursor=pointer]:
+                      - cell "7644" [ref=f2e942]
+                      - cell "11/2/2026, 8:48:18 PM" [ref=f2e943]
+                      - cell "Administrator" [ref=f2e944]
+                      - cell "admin" [ref=f2e945]
+                      - cell "allowed" [ref=f2e946]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e948]
+                    - row [ref=f2e949] [cursor=pointer]:
+                      - cell "7643" [ref=f2e950]
+                      - cell "11/2/2026, 8:48:17 PM" [ref=f2e951]
+                      - cell "DBA One" [ref=f2e952]
+                      - cell "admin" [ref=f2e953]
+                      - cell "denied" [ref=f2e954]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e956]
+                    - row [ref=f2e957] [cursor=pointer]:
+                      - cell "7642" [ref=f2e958]
+                      - cell "11/2/2026, 8:48:16 PM" [ref=f2e959]
+                      - cell "Administrator" [ref=f2e960]
+                      - cell "admin" [ref=f2e961]
+                      - cell "allowed" [ref=f2e962]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e964]
+                    - row [ref=f2e965] [cursor=pointer]:
+                      - cell "7641" [ref=f2e966]
+                      - cell "11/2/2026, 8:48:15 PM" [ref=f2e967]
+                      - cell "DBA One" [ref=f2e968]
+                      - cell "admin" [ref=f2e969]
+                      - cell "denied" [ref=f2e970]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e972]
+                    - row [ref=f2e973] [cursor=pointer]:
+                      - cell "7640" [ref=f2e974]
+                      - cell "11/2/2026, 8:48:14 PM" [ref=f2e975]
+                      - cell "Administrator" [ref=f2e976]
+                      - cell "admin" [ref=f2e977]
+                      - cell "allowed" [ref=f2e978]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e980]
+                    - row [ref=f2e981] [cursor=pointer]:
+                      - cell "7639" [ref=f2e982]
+                      - cell "11/2/2026, 8:48:13 PM" [ref=f2e983]
+                      - cell "DBA One" [ref=f2e984]
+                      - cell "admin" [ref=f2e985]
+                      - cell "denied" [ref=f2e986]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e988]
+                    - row [ref=f2e989] [cursor=pointer]:
+                      - cell "7638" [ref=f2e990]
+                      - cell "11/2/2026, 8:48:12 PM" [ref=f2e991]
+                      - cell "Administrator" [ref=f2e992]
+                      - cell "admin" [ref=f2e993]
+                      - cell "allowed" [ref=f2e994]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e996]
+                    - row [ref=f2e997] [cursor=pointer]:
+                      - cell "7637" [ref=f2e998]
+                      - cell "11/2/2026, 8:48:11 PM" [ref=f2e999]
+                      - cell "DBA One" [ref=f2e1000]
+                      - cell "admin" [ref=f2e1001]
+                      - cell "denied" [ref=f2e1002]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1004]
+                    - row [ref=f2e1005] [cursor=pointer]:
+                      - cell "7636" [ref=f2e1006]
+                      - cell "11/2/2026, 8:48:10 PM" [ref=f2e1007]
+                      - cell "Administrator" [ref=f2e1008]
+                      - cell "admin" [ref=f2e1009]
+                      - cell "allowed" [ref=f2e1010]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1012]
+                    - row [ref=f2e1013] [cursor=pointer]:
+                      - cell "7635" [ref=f2e1014]
+                      - cell "11/2/2026, 8:48:09 PM" [ref=f2e1015]
+                      - cell "DBA One" [ref=f2e1016]
+                      - cell "admin" [ref=f2e1017]
+                      - cell "denied" [ref=f2e1018]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1020]
+                    - row [ref=f2e1021] [cursor=pointer]:
+                      - cell "7634" [ref=f2e1022]
+                      - cell "11/2/2026, 8:48:08 PM" [ref=f2e1023]
+                      - cell "Administrator" [ref=f2e1024]
+                      - cell "admin" [ref=f2e1025]
+                      - cell "allowed" [ref=f2e1026]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1028]
+                    - row [ref=f2e1029] [cursor=pointer]:
+                      - cell "7633" [ref=f2e1030]
+                      - cell "11/2/2026, 8:48:07 PM" [ref=f2e1031]
+                      - cell "DBA One" [ref=f2e1032]
+                      - cell "admin" [ref=f2e1033]
+                      - cell "denied" [ref=f2e1034]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1036]
+                    - row [ref=f2e1037] [cursor=pointer]:
+                      - cell "7632" [ref=f2e1038]
+                      - cell "11/2/2026, 8:48:06 PM" [ref=f2e1039]
+                      - cell "Administrator" [ref=f2e1040]
+                      - cell "admin" [ref=f2e1041]
+                      - cell "allowed" [ref=f2e1042]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1044]
+                    - row [ref=f2e1045] [cursor=pointer]:
+                      - cell "7631" [ref=f2e1046]
+                      - cell "11/2/2026, 8:48:05 PM" [ref=f2e1047]
+                      - cell "DBA One" [ref=f2e1048]
+                      - cell "admin" [ref=f2e1049]
+                      - cell "denied" [ref=f2e1050]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1052]
+                    - row [ref=f2e1053] [cursor=pointer]:
+                      - cell "7630" [ref=f2e1054]
+                      - cell "11/2/2026, 8:48:04 PM" [ref=f2e1055]
+                      - cell "Administrator" [ref=f2e1056]
+                      - cell "admin" [ref=f2e1057]
+                      - cell "allowed" [ref=f2e1058]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1060]
+                    - row [ref=f2e1061] [cursor=pointer]:
+                      - cell "7629" [ref=f2e1062]
+                      - cell "11/2/2026, 8:48:03 PM" [ref=f2e1063]
+                      - cell "DBA One" [ref=f2e1064]
+                      - cell "admin" [ref=f2e1065]
+                      - cell "denied" [ref=f2e1066]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1068]
+                    - row [ref=f2e1069] [cursor=pointer]:
+                      - cell "7628" [ref=f2e1070]
+                      - cell "11/2/2026, 8:48:02 PM" [ref=f2e1071]
+                      - cell "Administrator" [ref=f2e1072]
+                      - cell "admin" [ref=f2e1073]
+                      - cell "allowed" [ref=f2e1074]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1076]
+                    - row [ref=f2e1077] [cursor=pointer]:
+                      - cell "7627" [ref=f2e1078]
+                      - cell "11/2/2026, 8:48:01 PM" [ref=f2e1079]
+                      - cell "DBA One" [ref=f2e1080]
+                      - cell "admin" [ref=f2e1081]
+                      - cell "denied" [ref=f2e1082]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1084]
+                    - row [ref=f2e1085] [cursor=pointer]:
+                      - cell "7626" [ref=f2e1086]
+                      - cell "11/2/2026, 8:48:00 PM" [ref=f2e1087]
+                      - cell "Administrator" [ref=f2e1088]
+                      - cell "admin" [ref=f2e1089]
+                      - cell "allowed" [ref=f2e1090]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1092]
+                    - row [ref=f2e1093] [cursor=pointer]:
+                      - cell "7625" [ref=f2e1094]
+                      - cell "11/2/2026, 8:47:59 PM" [ref=f2e1095]
+                      - cell "DBA One" [ref=f2e1096]
+                      - cell "admin" [ref=f2e1097]
+                      - cell "denied" [ref=f2e1098]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1100]
+                    - row [ref=f2e1101] [cursor=pointer]:
+                      - cell "7624" [ref=f2e1102]
+                      - cell "11/2/2026, 8:47:58 PM" [ref=f2e1103]
+                      - cell "Administrator" [ref=f2e1104]
+                      - cell "admin" [ref=f2e1105]
+                      - cell "allowed" [ref=f2e1106]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1108]
+                    - row [ref=f2e1109] [cursor=pointer]:
+                      - cell "7623" [ref=f2e1110]
+                      - cell "11/2/2026, 8:47:57 PM" [ref=f2e1111]
+                      - cell "DBA One" [ref=f2e1112]
+                      - cell "admin" [ref=f2e1113]
+                      - cell "denied" [ref=f2e1114]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1116]
+                    - row [ref=f2e1117] [cursor=pointer]:
+                      - cell "7622" [ref=f2e1118]
+                      - cell "11/2/2026, 8:47:56 PM" [ref=f2e1119]
+                      - cell "Administrator" [ref=f2e1120]
+                      - cell "admin" [ref=f2e1121]
+                      - cell "allowed" [ref=f2e1122]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1124]
+                    - row [ref=f2e1125] [cursor=pointer]:
+                      - cell "7621" [ref=f2e1126]
+                      - cell "11/2/2026, 8:47:55 PM" [ref=f2e1127]
+                      - cell "DBA One" [ref=f2e1128]
+                      - cell "admin" [ref=f2e1129]
+                      - cell "denied" [ref=f2e1130]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1132]
+                    - row [ref=f2e1133] [cursor=pointer]:
+                      - cell "7620" [ref=f2e1134]
+                      - cell "11/2/2026, 8:47:54 PM" [ref=f2e1135]
+                      - cell "Administrator" [ref=f2e1136]
+                      - cell "admin" [ref=f2e1137]
+                      - cell "allowed" [ref=f2e1138]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1140]
+                    - row [ref=f2e1141] [cursor=pointer]:
+                      - cell "7619" [ref=f2e1142]
+                      - cell "11/2/2026, 8:47:53 PM" [ref=f2e1143]
+                      - cell "DBA One" [ref=f2e1144]
+                      - cell "admin" [ref=f2e1145]
+                      - cell "denied" [ref=f2e1146]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1148]
+                    - row [ref=f2e1149] [cursor=pointer]:
+                      - cell "7618" [ref=f2e1150]
+                      - cell "11/2/2026, 8:47:52 PM" [ref=f2e1151]
+                      - cell "Administrator" [ref=f2e1152]
+                      - cell "admin" [ref=f2e1153]
+                      - cell "allowed" [ref=f2e1154]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1156]
+                    - row [ref=f2e1157] [cursor=pointer]:
+                      - cell "7617" [ref=f2e1158]
+                      - cell "11/2/2026, 8:47:51 PM" [ref=f2e1159]
+                      - cell "DBA One" [ref=f2e1160]
+                      - cell "admin" [ref=f2e1161]
+                      - cell "denied" [ref=f2e1162]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1164]
+                    - row [ref=f2e1165] [cursor=pointer]:
+                      - cell "7616" [ref=f2e1166]
+                      - cell "11/2/2026, 8:47:50 PM" [ref=f2e1167]
+                      - cell "Administrator" [ref=f2e1168]
+                      - cell "admin" [ref=f2e1169]
+                      - cell "allowed" [ref=f2e1170]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1172]
+                    - row [ref=f2e1173] [cursor=pointer]:
+                      - cell "7615" [ref=f2e1174]
+                      - cell "11/2/2026, 8:47:49 PM" [ref=f2e1175]
+                      - cell "DBA One" [ref=f2e1176]
+                      - cell "admin" [ref=f2e1177]
+                      - cell "denied" [ref=f2e1178]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1180]
+                    - row [ref=f2e1181] [cursor=pointer]:
+                      - cell "7614" [ref=f2e1182]
+                      - cell "11/2/2026, 8:47:48 PM" [ref=f2e1183]
+                      - cell "Administrator" [ref=f2e1184]
+                      - cell "admin" [ref=f2e1185]
+                      - cell "allowed" [ref=f2e1186]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1188]
+                    - row [ref=f2e1189] [cursor=pointer]:
+                      - cell "7613" [ref=f2e1190]
+                      - cell "11/2/2026, 8:47:47 PM" [ref=f2e1191]
+                      - cell "DBA One" [ref=f2e1192]
+                      - cell "admin" [ref=f2e1193]
+                      - cell "denied" [ref=f2e1194]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1196]
+                    - row [ref=f2e1197] [cursor=pointer]:
+                      - cell "7612" [ref=f2e1198]
+                      - cell "11/2/2026, 8:47:46 PM" [ref=f2e1199]
+                      - cell "Administrator" [ref=f2e1200]
+                      - cell "admin" [ref=f2e1201]
+                      - cell "allowed" [ref=f2e1202]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1204]
+                    - row [ref=f2e1205] [cursor=pointer]:
+                      - cell "7611" [ref=f2e1206]
+                      - cell "11/2/2026, 8:47:45 PM" [ref=f2e1207]
+                      - cell "DBA One" [ref=f2e1208]
+                      - cell "admin" [ref=f2e1209]
+                      - cell "denied" [ref=f2e1210]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1212]
+                    - row [ref=f2e1213] [cursor=pointer]:
+                      - cell "7610" [ref=f2e1214]
+                      - cell "11/2/2026, 8:47:44 PM" [ref=f2e1215]
+                      - cell "Administrator" [ref=f2e1216]
+                      - cell "admin" [ref=f2e1217]
+                      - cell "allowed" [ref=f2e1218]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e1220]
+                    - row [ref=f2e1221] [cursor=pointer]:
+                      - cell "7609" [ref=f2e1222]
+                      - cell "11/2/2026, 8:47:43 PM" [ref=f2e1223]
+                      - cell "DBA One" [ref=f2e1224]
+                      - cell "admin" [ref=f2e1225]
+                      - cell "denied" [ref=f2e1226]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1228]
+                    - row [ref=f2e1229] [cursor=pointer]:
+                      - cell "7608" [ref=f2e1230]
+                      - cell "11/2/2026, 8:47:42 PM" [ref=f2e1231]
+                      - cell "Administrator" [ref=f2e1232]
+                      - cell "admin" [ref=f2e1233]
+                      - cell "allowed" [ref=f2e1234]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e1236]
+                    - row [ref=f2e1237] [cursor=pointer]:
+                      - cell "7607" [ref=f2e1238]
+                      - cell "11/2/2026, 8:47:41 PM" [ref=f2e1239]
+                      - cell "DBA One" [ref=f2e1240]
+                      - cell "admin" [ref=f2e1241]
+                      - cell "denied" [ref=f2e1242]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1244]
+                    - row [ref=f2e1245] [cursor=pointer]:
+                      - cell "7606" [ref=f2e1246]
+                      - cell "11/2/2026, 8:47:40 PM" [ref=f2e1247]
+                      - cell "Administrator" [ref=f2e1248]
+                      - cell "admin" [ref=f2e1249]
+                      - cell "allowed" [ref=f2e1250]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e1252]
+                    - row [ref=f2e1253] [cursor=pointer]:
+                      - cell "7605" [ref=f2e1254]
+                      - cell "11/2/2026, 8:47:39 PM" [ref=f2e1255]
+                      - cell "DBA One" [ref=f2e1256]
+                      - cell "admin" [ref=f2e1257]
+                      - cell "denied" [ref=f2e1258]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1260]
+                    - row [ref=f2e1261] [cursor=pointer]:
+                      - cell "7604" [ref=f2e1262]
+                      - cell "11/2/2026, 8:47:38 PM" [ref=f2e1263]
+                      - cell "Administrator" [ref=f2e1264]
+                      - cell "admin" [ref=f2e1265]
+                      - cell "allowed" [ref=f2e1266]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1268]
+                    - row [ref=f2e1269] [cursor=pointer]:
+                      - cell "7603" [ref=f2e1270]
+                      - cell "11/2/2026, 8:47:37 PM" [ref=f2e1271]
+                      - cell "DBA One" [ref=f2e1272]
+                      - cell "admin" [ref=f2e1273]
+                      - cell "denied" [ref=f2e1274]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1276]
+                    - row [ref=f2e1277] [cursor=pointer]:
+                      - cell "7602" [ref=f2e1278]
+                      - cell "11/2/2026, 8:47:36 PM" [ref=f2e1279]
+                      - cell "Administrator" [ref=f2e1280]
+                      - cell "admin" [ref=f2e1281]
+                      - cell "allowed" [ref=f2e1282]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e1284]
+                    - row [ref=f2e1285] [cursor=pointer]:
+                      - cell "7601" [ref=f2e1286]
+                      - cell "11/2/2026, 8:47:35 PM" [ref=f2e1287]
+                      - cell "DBA One" [ref=f2e1288]
+                      - cell "admin" [ref=f2e1289]
+                      - cell "denied" [ref=f2e1290]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1292]
+                    - row [ref=f2e1293] [cursor=pointer]:
+                      - cell "7600" [ref=f2e1294]
+                      - cell "11/2/2026, 8:47:34 PM" [ref=f2e1295]
+                      - cell "Administrator" [ref=f2e1296]
+                      - cell "admin" [ref=f2e1297]
+                      - cell "allowed" [ref=f2e1298]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1300]
+                    - row [ref=f2e1301] [cursor=pointer]:
+                      - cell "7599" [ref=f2e1302]
+                      - cell "11/2/2026, 8:47:33 PM" [ref=f2e1303]
+                      - cell "DBA One" [ref=f2e1304]
+                      - cell "admin" [ref=f2e1305]
+                      - cell "denied" [ref=f2e1306]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1308]
+                    - row [ref=f2e1309] [cursor=pointer]:
+                      - cell "7598" [ref=f2e1310]
+                      - cell "11/2/2026, 8:47:32 PM" [ref=f2e1311]
+                      - cell "Administrator" [ref=f2e1312]
+                      - cell "admin" [ref=f2e1313]
+                      - cell "allowed" [ref=f2e1314]
+                      - cell "—"
+                      - cell "2 ms" [ref=f2e1316]
+                    - row [ref=f2e1317] [cursor=pointer]:
+                      - cell "7597" [ref=f2e1318]
+                      - cell "11/2/2026, 8:47:31 PM" [ref=f2e1319]
+                      - cell "DBA One" [ref=f2e1320]
+                      - cell "admin" [ref=f2e1321]
+                      - cell "denied" [ref=f2e1322]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1324]
+                    - row [ref=f2e1325] [cursor=pointer]:
+                      - cell "7596" [ref=f2e1326]
+                      - cell "11/2/2026, 8:47:30 PM" [ref=f2e1327]
+                      - cell "Administrator" [ref=f2e1328]
+                      - cell "admin" [ref=f2e1329]
+                      - cell "allowed" [ref=f2e1330]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1332]
+                    - row [ref=f2e1333] [cursor=pointer]:
+                      - cell "7595" [ref=f2e1334]
+                      - cell "11/2/2026, 8:47:29 PM" [ref=f2e1335]
+                      - cell "DBA One" [ref=f2e1336]
+                      - cell "admin" [ref=f2e1337]
+                      - cell "denied" [ref=f2e1338]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1340]
+                    - row [ref=f2e1341] [cursor=pointer]:
+                      - cell "7594" [ref=f2e1342]
+                      - cell "11/2/2026, 8:47:28 PM" [ref=f2e1343]
+                      - cell "Administrator" [ref=f2e1344]
+                      - cell "admin" [ref=f2e1345]
+                      - cell "allowed" [ref=f2e1346]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1348]
+                    - row [ref=f2e1349] [cursor=pointer]:
+                      - cell "7593" [ref=f2e1350]
+                      - cell "11/2/2026, 8:47:27 PM" [ref=f2e1351]
+                      - cell "DBA One" [ref=f2e1352]
+                      - cell "admin" [ref=f2e1353]
+                      - cell "denied" [ref=f2e1354]
+                      - cell "—"
+                      - cell "0 ms" [ref=f2e1356]
+                    - row [ref=f2e1357] [cursor=pointer]:
+                      - cell "7592" [ref=f2e1358]
+                      - cell "11/2/2026, 8:47:26 PM" [ref=f2e1359]
+                      - cell "Administrator" [ref=f2e1360]
+                      - cell "admin" [ref=f2e1361]
+                      - cell "allowed" [ref=f2e1362]
+                      - cell "—"
+                      - cell "1 ms" [ref=f2e1364]
+                - button "Load more" [ref=f2e1366] [cursor=pointer]
+              - generic [ref=f2e1368]:
+                - generic [ref=f2e1369]:
+                  - generic [ref=f2e1370]:
+                    - heading "Users and roles" [level=3] [ref=f2e1371]
+                    - paragraph [ref=f2e1372]: Local accounts for this server. Each user has one built-in role; every action is still checked on the server.
+                  - button "Refresh" [ref=f2e1373] [cursor=pointer]
+                - paragraph [ref=f2e1374]: admin:users is required for GET users
+                - generic [ref=f2e1375]:
+                  - generic [ref=f2e1376]: Connection groups
+                  - paragraph [ref=f2e1377]: Server-owned groups used as authorization scopes. The sidebar layout is never used for authorization.
+                  - generic [ref=f2e1378]:
+                    - textbox "Group name" [ref=f2e1379]
+                    - combobox [ref=f2e1380] [cursor=pointer]:
+                      - option "No parent" [selected]
+                    - button "Create group" [ref=f2e1381] [cursor=pointer]
+                - generic [ref=f2e1383]:
+                  - generic [ref=f2e1384]: Custom roles
+                  - button "New role" [ref=f2e1385] [cursor=pointer]
+              - generic [ref=f2e1387]:
+                - generic [ref=f2e1388]:
+                  - generic [ref=f2e1389]:
+                    - heading "Approvals" [level=3] [ref=f2e1390]
+                    - paragraph [ref=f2e1391]: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+                  - button "Refresh" [ref=f2e1392] [cursor=pointer]
+                - generic [ref=f2e1393]:
+                  - button "My requests" [ref=f2e1394] [cursor=pointer]
+                  - button "Pending approval" [active] [ref=f2e1395] [cursor=pointer]
+                - button "Approval templates 1" [ref=f2e1397] [cursor=pointer]:
+                  - generic [ref=f2e1398]: Approval templates
+                  - generic [ref=f2e1399]: "1"
+                - generic [ref=f2e1400]:
+                  - generic [ref=f2e1424]:
+                    - generic [ref=f2e1425]:
+                      - generic [ref=f2e1426]: pending
+                      - generic [ref=f2e1427]: 3f4298b6-0bd0-447f-a538-856de10e4172
+                      - generic [ref=f2e1428]: · 11/2/2026, 5:59:10 PM
+                      - generic [ref=f2e1429]: · 22222222-2222-4222-8222-222222222222 / app
+                      - generic [ref=f2e1430]: demo.ddl.approval
+                    - generic [ref=f2e1431]: create table demo_review_mysql(id int)
+                    - paragraph [ref=f2e1432]: 验收演示：MySQL DDL
+                    - generic [ref=f2e1433]:
+                      - generic [ref=f2e1434]: Step 1/2
+                      - generic "@dba" [ref=f2e1435]: 1 · any one · pending
+                      - generic "16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e" [ref=f2e1436]: 2 · all · pending
+                    - generic [ref=f2e1437]:
+                      - generic [ref=f2e1438]: 1. @dba (2 approver(s))
+                      - generic [ref=f2e1439]: 2. 16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e (2 approver(s))
+                    - generic [ref=f2e1440]:
+                      - textbox "Comment (optional)" [ref=f2e1441]
+                      - button "Approve" [ref=f2e1442] [cursor=pointer]
+                      - button "Reject" [ref=f2e1443] [cursor=pointer]
+                  - generic [ref=f2e1444]:
+                    - generic [ref=f2e1445]:
+                      - generic [ref=f2e1446]: pending
+                      - generic [ref=f2e1447]: 3f4298b6-0bd0-447f-a538-856de10e4172
+                      - generic [ref=f2e1448]: · 11/2/2026, 5:59:10 PM
+                      - generic [ref=f2e1449]: · 11111111-1111-4111-8111-111111111111 / app
+                      - generic [ref=f2e1450]: demo.ddl.approval
+                    - generic [ref=f2e1451]: create table demo_review_pg(id int)
+                    - paragraph [ref=f2e1452]: 验收演示：PostgreSQL DDL
+                    - generic [ref=f2e1453]:
+                      - generic [ref=f2e1454]: Step 1/2
+                      - generic "@dba" [ref=f2e1455]: 1 · any one · pending
+                      - generic "16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e" [ref=f2e1456]: 2 · all · pending
+                    - generic [ref=f2e1457]:
+                      - generic [ref=f2e1458]: 1. @dba (2 approver(s))
+                      - generic [ref=f2e1459]: 2. 16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e (2 approver(s))
+                    - generic [ref=f2e1460]:
+                      - textbox "Comment (optional)" [ref=f2e1461]
+                      - button "Approve" [ref=f2e1462] [cursor=pointer]
+                      - button "Reject" [ref=f2e1463] [cursor=pointer]
+              - generic [ref=f2e1403]:
+                - generic [ref=f2e1404]:
+                  - generic [ref=f2e1405]:
+                    - heading "Policy rules" [level=3] [ref=f2e1406]
+                    - paragraph [ref=f2e1407]: Versioned rule documents per scope. Publishing validates the document and immediately changes the effective bundle hash; approvals issued earlier stop matching.
+                  - button "Refresh" [ref=f2e1408] [cursor=pointer]
+                - combobox [ref=f2e1410] [cursor=pointer]:
+                  - option "All connections" [selected]
+                  - option "One connection"
+                  - option "One database"
+                - paragraph [ref=f2e1411]: policy:read is required for GET policies
+                - generic [ref=f2e1412]:
+                  - generic [ref=f2e1413]: Publish a policy document
+                  - paragraph [ref=f2e1414]: JSON document with a rules array. A rule whose id matches a built-in replaces it; use enabled:false to disable a built-in.
+                  - textbox "Publish a policy document" [ref=f2e1415]: "{ \"rules\": [] }"
+                  - generic [ref=f2e1416]:
+                    - textbox "Change note" [ref=f2e1417]
+                    - button "Publish" [ref=f2e1418] [cursor=pointer]
+                - generic [ref=f2e1419]:
+                  - generic [ref=f2e1420]: Versions
+                  - paragraph [ref=f2e1421]: No versions published for this scope.
+        - generic [ref=f2e1422]:
+          - button "Close" [ref=f2e1423] [cursor=pointer]
+          - button "Change Password" [disabled]

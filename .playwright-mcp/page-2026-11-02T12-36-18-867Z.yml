@@ -1,0 +1,13 @@
+- generic [ref=e8]:
+  - generic [ref=e9]:
+    - img "DBX" [ref=e10]
+    - generic [ref=e11]:
+      - heading "DBX" [level=1] [ref=e12]
+      - paragraph [ref=e13]: Database management tool
+  - generic [ref=e14]:
+    - 'textbox "Email (default: admin)" [ref=e19]': dba1@dbx.local
+    - generic [ref=e24]:
+      - textbox "Enter access password" [ref=e25]: dbx-demo-pass
+      - button "Hide password" [active] [ref=e31] [cursor=pointer]
+    - button "Login" [ref=e37] [cursor=pointer]
+  - paragraph [ref=e30]: Powered by DBX

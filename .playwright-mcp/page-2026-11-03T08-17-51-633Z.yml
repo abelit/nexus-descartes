@@ -1,0 +1,76 @@
+- generic [ref=f1e8]:
+  - generic [ref=f1e9]:
+    - link "DBX DBX" [ref=f1e10] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f1e11]: DBX
+    - button "New Connection" [ref=f1e12] [cursor=pointer]
+    - button "New Query" [ref=f1e15] [cursor=pointer]
+    - button "Data Transfer" [ref=f1e17] [cursor=pointer]
+    - button "Driver Manager" [ref=f1e19] [cursor=pointer]
+    - button "Plugin Center" [ref=f1e22] [cursor=pointer]
+    - button "More" [ref=f1e24] [cursor=pointer]
+    - generic [ref=f1e407]:
+      - button [ref=f1e408] [cursor=pointer]
+      - button [ref=f1e410] [cursor=pointer]
+      - button [ref=f1e411] [cursor=pointer]
+      - button [ref=f1e412] [cursor=pointer]
+      - button [ref=f1e413] [cursor=pointer]
+      - button "Theme" [ref=f1e414] [cursor=pointer]
+      - button [ref=f1e415] [cursor=pointer]
+    - button "Security governance" [active] [ref=f1e28] [cursor=pointer]
+    - button [ref=f1e29] [cursor=pointer]
+    - button "Log out" [ref=f1e30] [cursor=pointer]
+  - generic [ref=f1e31]:
+    - generic [ref=f1e33]:
+      - generic [ref=f1e34]:
+        - button "Import / Export" [ref=f1e35] [cursor=pointer]
+        - generic [ref=f1e43]:
+          - button [ref=f1e45] [cursor=pointer]
+          - button [ref=f1e47] [cursor=pointer]
+          - button [ref=f1e49] [cursor=pointer]
+          - button [ref=f1e51] [cursor=pointer]
+      - generic [ref=f1e53]:
+        - generic [ref=f1e55]:
+          - generic [ref=f1e56]:
+            - textbox "Search..." [ref=f1e60]
+            - generic [ref=f1e61]:
+              - button "Regex search" [ref=f1e63] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f1e64]: .*
+              - switch "Local search" [ref=f1e66] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f1e68] [cursor=pointer]
+          - button "Sort and filter" [ref=f1e74] [cursor=pointer]
+          - button "Show active connections only" [ref=f1e78] [cursor=pointer]:
+            - generic [ref=f1e79]: "Active connections: 1"
+        - generic [ref=f1e82]:
+          - generic [ref=f1e85]:
+            - button [ref=f1e86] [cursor=pointer]
+            - generic [ref=f1e91]: demo-postgres
+            - button "Select connection" [ref=f1e94] [cursor=pointer]
+          - generic [ref=f1e99]:
+            - button [ref=f1e100] [cursor=pointer]
+            - generic [ref=f1e105]: demo-mysql
+            - button "Select connection" [ref=f1e108] [cursor=pointer]
+      - generic "demo-mysql" [ref=f1e232]: demo-mysql:3306
+    - generic [ref=f1e1283]:
+      - generic [ref=f1e1285]:
+        - heading "Security governance" [level=2] [ref=f1e1290]
+        - paragraph [ref=f1e1291]: Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+      - generic [ref=f1e1292]:
+        - button "Approvals" [pressed] [ref=f1e1293] [cursor=pointer]
+        - button "Audit log" [ref=f1e1297] [cursor=pointer]
+        - button "Users & roles" [ref=f1e1301] [cursor=pointer]
+        - button "Policies" [ref=f1e1307] [cursor=pointer]
+      - generic [ref=f1e1313]:
+        - generic [ref=f1e1314]:
+          - generic [ref=f1e1315]:
+            - heading "Approvals" [level=3] [ref=f1e1316]
+            - paragraph [ref=f1e1317]: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+          - button "Refresh" [ref=f1e1318] [cursor=pointer]
+        - generic [ref=f1e1319]:
+          - button "My requests" [ref=f1e1320] [cursor=pointer]
+          - button "Pending approval" [ref=f1e1321] [cursor=pointer]
+        - button "Approval templates 1" [ref=f1e1323] [cursor=pointer]:
+          - generic [ref=f1e1324]: Approval templates
+          - generic [ref=f1e1325]: "1"
+        - generic [ref=f1e1326]: No requests in this view.

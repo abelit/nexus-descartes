@@ -1,0 +1,92 @@
+- generic [ref=f2e8]:
+  - generic [ref=f2e9]:
+    - link "DBX DBX" [ref=f2e10] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f2e11]: DBX
+    - button "New Connection" [ref=f2e12] [cursor=pointer]
+    - button "New Query" [ref=f2e15] [cursor=pointer]
+    - button "Data Transfer" [ref=f2e17] [cursor=pointer]
+    - button "Driver Manager" [ref=f2e19] [cursor=pointer]
+    - button "Plugin Center" [ref=f2e22] [cursor=pointer]
+    - button "More" [ref=f2e24] [cursor=pointer]
+    - button [ref=f2e28] [cursor=pointer]
+    - button "Log out" [ref=f2e29] [cursor=pointer]
+  - generic [ref=f2e30]:
+    - generic [ref=f2e32]:
+      - generic [ref=f2e33]:
+        - button "Import / Export" [ref=f2e34] [cursor=pointer]
+        - generic [ref=f2e42]:
+          - button [ref=f2e44] [cursor=pointer]
+          - button [ref=f2e46] [cursor=pointer]
+          - button [ref=f2e48] [cursor=pointer]
+          - button [ref=f2e50] [cursor=pointer]
+      - generic [ref=f2e52]:
+        - generic [ref=f2e54]:
+          - generic [ref=f2e55]:
+            - textbox "Search..." [ref=f2e59]
+            - generic [ref=f2e60]:
+              - button "Regex search" [ref=f2e62] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f2e63]: .*
+              - switch "Local search" [ref=f2e65] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f2e67] [cursor=pointer]
+          - button "Sort and filter" [ref=f2e73] [cursor=pointer]
+          - button "Show active connections only" [ref=f2e77] [cursor=pointer]:
+            - generic [ref=f2e78]: "Active connections: 0"
+        - generic [ref=f2e81]:
+          - generic [ref=f2e84]:
+            - button [ref=f2e85] [cursor=pointer]
+            - generic [ref=f2e90]: demo-postgres
+            - button "Select connection" [ref=f2e93] [cursor=pointer]
+          - generic [ref=f2e98]:
+            - button [ref=f2e99] [cursor=pointer]
+            - generic [ref=f2e104]: demo-mysql
+            - button "Select connection" [ref=f2e107] [cursor=pointer]
+    - generic [ref=f2e117]:
+      - generic [ref=f2e125]:
+        - generic [ref=f2e126]:
+          - generic [ref=f2e127]:
+            - generic [ref=f2e128]: Connections
+            - generic [ref=f2e134]: "2"
+          - generic [ref=f2e135]:
+            - generic [ref=f2e136]: Connected
+            - generic [ref=f2e141]: "0"
+          - generic [ref=f2e142]:
+            - generic [ref=f2e143]: Database Types
+            - generic [ref=f2e148]: "2"
+        - generic [ref=f2e149]:
+          - generic [ref=f2e150]:
+            - generic [ref=f2e151]: Quick Start
+            - generic [ref=f2e153]:
+              - button "***:**** PostgreSQL · ***:****" [ref=f2e154] [cursor=pointer]:
+                - generic [ref=f2e157]:
+                  - generic [ref=f2e158]: "***:****"
+                  - generic [ref=f2e160]: PostgreSQL · ***:****
+              - button "***:**** MySQL · ***:****" [ref=f2e165] [cursor=pointer]:
+                - generic [ref=f2e168]:
+                  - generic [ref=f2e169]: "***:****"
+                  - generic [ref=f2e171]: MySQL · ***:****
+          - generic [ref=f2e176]:
+            - generic [ref=f2e177]: Shortcuts
+            - generic [ref=f2e179]:
+              - button "New Connection" [ref=f2e180] [cursor=pointer]
+              - button "New Query" [ref=f2e183] [cursor=pointer]
+              - button "History" [ref=f2e188] [cursor=pointer]
+              - button "Import Connections" [ref=f2e194] [cursor=pointer]
+              - generic [ref=f2e199]: You can also expand connections on the left and right-click databases or tables for more actions.
+        - generic [ref=f2e203]:
+          - generic [ref=f2e204]: Query History
+          - generic [ref=f2e211]: No SQL Library records yet
+        - generic [ref=f2e218]:
+          - generic [ref=f2e219]: AI Agent Integration
+          - paragraph [ref=f2e220]: Beyond the built-in AI assistant, you can also use Claude Code, Cursor, and other coding agents to query your databases via MCP.
+          - generic [ref=f2e221]:
+            - code [ref=f2e222]: npx @dbx-app/mcp-server
+            - link "Learn more" [ref=f2e223] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=f2e224]:
+          - generic [ref=f2e225]: DBX v0.6.62
+          - generic [ref=f2e226]: ·
+          - link "GitHub" [ref=f2e227] [cursor=pointer]:
+            - /url: "#"
+      - separator

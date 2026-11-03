@@ -1,0 +1,399 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic [aria-hidden]:
+          - link:
+            - /url: https://dbxio.com
+            - generic: DBX
+          - button:
+            - generic: New Connection
+          - button:
+            - generic: New Query
+          - button:
+            - generic: Data Transfer
+          - button:
+            - generic: Driver Manager
+          - generic:
+            - button:
+              - generic: Plugin Center
+          - button:
+            - generic: More
+          - generic:
+            - button
+            - button
+            - button
+            - button
+            - button
+            - button
+            - button
+          - button
+          - button
+          - button
+        - generic:
+          - generic:
+            - generic:
+              - generic [aria-hidden]:
+                - button:
+                  - generic: Import / Export
+                - generic:
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [aria-hidden]:
+                        - textbox:
+                          - /placeholder: Search...
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic [aria-hidden]: .*
+                          - generic:
+                            - switch
+                      - generic [aria-hidden]:
+                        - button
+                      - generic [aria-hidden]:
+                        - generic:
+                          - button
+                      - generic:
+                        - button "Show active connections only":
+                          - generic: "Active connections: 1"
+                  - generic [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-postgres
+                              - button
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-mysql
+                              - button
+              - generic [aria-hidden]:
+                - generic: demo-mysql:3306
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic: Connections
+                                            - generic: "2"
+                                          - generic:
+                                            - generic: Connected
+                                            - generic: "1"
+                                          - generic:
+                                            - generic: Database Types
+                                            - generic: "2"
+                                        - generic:
+                                          - generic:
+                                            - generic: Quick Start
+                                            - generic:
+                                              - button:
+                                                - generic:
+                                                  - generic: "***:****"
+                                                  - generic: MySQL · ***:****
+                                              - button:
+                                                - generic:
+                                                  - generic: "***:****"
+                                                  - generic: PostgreSQL · ***:****
+                                          - generic:
+                                            - generic: Shortcuts
+                                            - generic:
+                                              - button:
+                                                - generic: New Connection
+                                              - button:
+                                                - generic: New Query
+                                              - button:
+                                                - generic: History
+                                              - button:
+                                                - generic: Import Connections
+                                              - generic: You can also expand connections on the left and right-click databases or tables for more actions.
+                                        - generic:
+                                          - generic: Query History
+                                          - generic: No SQL Library records yet
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic: AI Agent Integration
+                                              - paragraph: Beyond the built-in AI assistant, you can also use Claude Code, Cursor, and other coding agents to query your databases via MCP.
+                                              - generic:
+                                                - code: npx @dbx-app/mcp-server
+                                                - link:
+                                                  - /url: "#"
+                                                  - text: Learn more
+                                        - generic:
+                                          - generic: DBX v0.6.62
+                                          - generic: ·
+                                          - link:
+                                            - /url: "#"
+                                            - text: GitHub
+                        - separator
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: History
+                    - generic: "16"
+                    - button
+                    - button
+                    - button
+                    - button
+                  - generic:
+                    - generic:
+                      - button: SQL Queries
+                      - button: MCP Calls
+                    - generic:
+                      - button: All
+                      - button: Queries
+                      - button: Data changes
+                      - button: Schema changes
+                      - button: Failed
+                    - generic:
+                      - textbox:
+                        - /placeholder: Search history...
+                      - button
+                      - button
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: SQL
+                                - generic: SELECT
+                                - generic: 11-03 16:17
+                              - generic: select 42 as answer;
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: 95 ms
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: SQL
+                                - generic: SELECT
+                                - generic: 11-03 16:16
+                              - generic: select 42 as answer;
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: 180 ms
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: Data
+                                - generic: abtusers
+                                - generic: 11-03 14:22
+                              - generic: "INSERT INTO `abtusers` (`name`) VALUES ('he');"
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: 12 ms
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: SQL
+                                - generic: SELECT
+                                - generic: 11-03 14:06
+                              - generic: select * from T_BAS_BASE tbb ;
+                              - generic:
+                                - generic: Oracle_g7my / DCFOC
+                                - generic: 1.1 s
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 13:47
+                              - generic: create table testusers(name VARCHAR(30));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 13:07
+                              - generic: create table abtusers_ui(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 13:05
+                              - generic: create table testusers(name VARCHAR(30));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 13:03
+                              - generic: create table testusers(name VARCHAR(30));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 12:48
+                              - generic: create table testusers(name VARCHAR(30))
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 12:47
+                              - generic: create table abtusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 11:55
+                              - generic: create table abtusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-03 11:48
+                              - generic: create table abusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-02 23:54
+                              - generic: create table abusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-02 23:53
+                              - generic: create table abusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-02 23:52
+                              - generic: create table abusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: DDL
+                                - generic: CREATE
+                                - generic: 11-02 23:51
+                              - generic: create table abusers(name VARCHAR(50));
+                              - generic:
+                                - generic: demo-mysql / app
+                                - generic: Failed
+  - dialog [ref=f1e1240]:
+    - paragraph [ref=f1e1241]
+    - heading "SELECT" [level=2] [ref=f1e1243]
+    - generic [ref=f1e1244]:
+      - generic [ref=f1e1245]:
+        - generic [ref=f1e1246]: Type
+        - generic [ref=f1e1247]: Query
+        - generic [ref=f1e1248]: Operation
+        - generic [ref=f1e1249]: SELECT
+        - generic [ref=f1e1250]: Connection
+        - generic [ref=f1e1251]: demo-mysql
+        - generic [ref=f1e1252]: Database
+        - generic [ref=f1e1253]: app
+        - generic [ref=f1e1254]: Operator
+        - generic [ref=f1e1255]: Administrator (4603ae21-2f60-486e-bda4-360a72c2655f)
+        - generic [ref=f1e1256]: Client IP
+        - generic [ref=f1e1257]: 10.250.77.1
+        - generic [ref=f1e1258]: User agent
+        - generic [ref=f1e1259]: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36
+        - generic [ref=f1e1260]: Target
+        - generic [ref=f1e1261]: "-"
+        - generic [ref=f1e1262]: Time
+        - generic [ref=f1e1263]: 11/3/2026, 4:17:09 PM
+        - generic [ref=f1e1264]: Duration
+        - generic [ref=f1e1265]: 95 ms
+        - generic [ref=f1e1266]: Affected rows
+        - generic [ref=f1e1267]: "0"
+        - generic [ref=f1e1268]: Rollback
+        - generic [ref=f1e1269]: No rollback SQL
+        - generic [ref=f1e1270]: Status
+        - generic [ref=f1e1271]: Succeeded
+      - generic [ref=f1e1272]:
+        - generic [ref=f1e1273]:
+          - generic [ref=f1e1274]: SQL
+          - button "Copy SQL" [active] [ref=f1e1275] [cursor=pointer]
+        - generic [ref=f1e1276]: select 42 as answer;
+    - generic [ref=f1e1277]:
+      - button "Analyze with AI" [ref=f1e1278] [cursor=pointer]
+      - button "Restore to editor" [ref=f1e1279] [cursor=pointer]
+    - button "Close" [ref=f1e1280] [cursor=pointer]

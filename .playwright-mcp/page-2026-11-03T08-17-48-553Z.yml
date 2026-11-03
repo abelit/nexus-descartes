@@ -1,0 +1,269 @@
+- generic [ref=f1e8]:
+  - generic [ref=f1e9]:
+    - link "DBX DBX" [ref=f1e10] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f1e11]: DBX
+    - button "New Connection" [ref=f1e12] [cursor=pointer]
+    - button "New Query" [ref=f1e15] [cursor=pointer]
+    - button "Data Transfer" [ref=f1e17] [cursor=pointer]
+    - button "Driver Manager" [ref=f1e19] [cursor=pointer]
+    - button "Plugin Center" [ref=f1e22] [cursor=pointer]
+    - button "More" [ref=f1e24] [cursor=pointer]
+    - generic [ref=f1e407]:
+      - button [ref=f1e408] [cursor=pointer]
+      - button [ref=f1e410] [cursor=pointer]
+      - button [ref=f1e411] [cursor=pointer]
+      - button [ref=f1e412] [cursor=pointer]
+      - button [ref=f1e413] [cursor=pointer]
+      - button "Theme" [ref=f1e414] [cursor=pointer]
+      - button [ref=f1e415] [cursor=pointer]
+    - button "Security governance" [ref=f1e28] [cursor=pointer]
+    - button [ref=f1e29] [cursor=pointer]
+    - button "Log out" [ref=f1e30] [cursor=pointer]
+  - generic [ref=f1e31]:
+    - generic [ref=f1e33]:
+      - generic [ref=f1e34]:
+        - button "Import / Export" [ref=f1e35] [cursor=pointer]
+        - generic [ref=f1e43]:
+          - button [ref=f1e45] [cursor=pointer]
+          - button [ref=f1e47] [cursor=pointer]
+          - button [ref=f1e49] [cursor=pointer]
+          - button [ref=f1e51] [cursor=pointer]
+      - generic [ref=f1e53]:
+        - generic [ref=f1e55]:
+          - generic [ref=f1e56]:
+            - textbox "Search..." [ref=f1e60]
+            - generic [ref=f1e61]:
+              - button "Regex search" [ref=f1e63] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f1e64]: .*
+              - switch "Local search" [ref=f1e66] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f1e68] [cursor=pointer]
+          - button "Sort and filter" [ref=f1e74] [cursor=pointer]
+          - button "Show active connections only" [ref=f1e78] [cursor=pointer]:
+            - generic [ref=f1e79]: "Active connections: 1"
+        - generic [ref=f1e82]:
+          - generic [ref=f1e85]:
+            - button [ref=f1e86] [cursor=pointer]
+            - generic [ref=f1e91]: demo-postgres
+            - button "Select connection" [ref=f1e94] [cursor=pointer]
+          - generic [ref=f1e99]:
+            - button [ref=f1e100] [cursor=pointer]
+            - generic [ref=f1e105]: demo-mysql
+            - button "Select connection" [ref=f1e108] [cursor=pointer]
+      - generic "demo-mysql" [ref=f1e232]: demo-mysql:3306
+    - generic [ref=f1e118]:
+      - generic [ref=f1e845]:
+        - generic [ref=f1e846]:
+          - generic [ref=f1e847]:
+            - generic [ref=f1e848]: Connections
+            - generic [ref=f1e854]: "2"
+          - generic [ref=f1e855]:
+            - generic [ref=f1e856]: Connected
+            - generic [ref=f1e861]: "1"
+          - generic [ref=f1e862]:
+            - generic [ref=f1e863]: Database Types
+            - generic [ref=f1e868]: "2"
+        - generic [ref=f1e869]:
+          - generic [ref=f1e870]:
+            - generic [ref=f1e871]: Quick Start
+            - generic [ref=f1e873]:
+              - button "***:**** MySQL · ***:****" [ref=f1e874] [cursor=pointer]:
+                - generic [ref=f1e877]:
+                  - generic [ref=f1e878]: "***:****"
+                  - generic [ref=f1e880]: MySQL · ***:****
+              - button "***:**** PostgreSQL · ***:****" [ref=f1e885] [cursor=pointer]:
+                - generic [ref=f1e888]:
+                  - generic [ref=f1e889]: "***:****"
+                  - generic [ref=f1e891]: PostgreSQL · ***:****
+          - generic [ref=f1e896]:
+            - generic [ref=f1e897]: Shortcuts
+            - generic [ref=f1e899]:
+              - button "New Connection" [ref=f1e900] [cursor=pointer]
+              - button "New Query" [ref=f1e903] [cursor=pointer]
+              - button "History" [ref=f1e908] [cursor=pointer]
+              - button "Import Connections" [ref=f1e914] [cursor=pointer]
+              - generic [ref=f1e919]: You can also expand connections on the left and right-click databases or tables for more actions.
+        - generic [ref=f1e923]:
+          - generic [ref=f1e924]: Query History
+          - generic [ref=f1e931]: No SQL Library records yet
+        - generic [ref=f1e938]:
+          - generic [ref=f1e939]: AI Agent Integration
+          - paragraph [ref=f1e940]: Beyond the built-in AI assistant, you can also use Claude Code, Cursor, and other coding agents to query your databases via MCP.
+          - generic [ref=f1e941]:
+            - code [ref=f1e942]: npx @dbx-app/mcp-server
+            - link "Learn more" [ref=f1e943] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=f1e944]:
+          - generic [ref=f1e945]: DBX v0.6.62
+          - generic [ref=f1e946]: ·
+          - link "GitHub" [ref=f1e947] [cursor=pointer]:
+            - /url: "#"
+      - separator
+    - generic [ref=f1e952]:
+      - generic [ref=f1e953]:
+        - generic [ref=f1e954]: History
+        - generic [ref=f1e955]: "16"
+        - button [ref=f1e956] [cursor=pointer]
+        - button "Refresh" [ref=f1e957] [cursor=pointer]
+        - button "Maximize" [ref=f1e958] [cursor=pointer]
+        - button "Close" [ref=f1e959] [cursor=pointer]
+      - generic [ref=f1e960]:
+        - generic [ref=f1e961]:
+          - button "SQL Queries" [ref=f1e962] [cursor=pointer]
+          - button "MCP Calls" [ref=f1e963] [cursor=pointer]
+        - generic [ref=f1e964]:
+          - button "All" [ref=f1e965] [cursor=pointer]
+          - button "Queries" [ref=f1e966] [cursor=pointer]
+          - button "Data changes" [ref=f1e967] [cursor=pointer]
+          - button "Schema changes" [ref=f1e968] [cursor=pointer]
+          - button "Failed" [ref=f1e969] [cursor=pointer]
+        - generic [ref=f1e970]:
+          - textbox "Search history..." [ref=f1e971]
+          - button "Time range" [ref=f1e972] [cursor=pointer]
+          - button "Connection and database" [ref=f1e977] [cursor=pointer]
+      - generic [ref=f1e981]:
+        - generic [ref=f1e984] [cursor=pointer]:
+          - generic [ref=f1e985]:
+            - generic [ref=f1e986]: SQL
+            - generic [ref=f1e987]: SELECT
+            - generic [ref=f1e988]: 11-03 16:17
+          - generic [ref=f1e989]: select 42 as answer;
+          - generic [ref=f1e990]:
+            - generic [ref=f1e991]: demo-mysql / app
+            - generic [ref=f1e997]: 95 ms
+        - generic [ref=f1e1000] [cursor=pointer]:
+          - generic [ref=f1e1001]:
+            - generic [ref=f1e1002]: SQL
+            - generic [ref=f1e1003]: SELECT
+            - generic [ref=f1e1004]: 11-03 16:16
+          - generic [ref=f1e1005]: select 42 as answer;
+          - generic [ref=f1e1006]:
+            - generic [ref=f1e1007]: demo-mysql / app
+            - generic [ref=f1e1013]: 180 ms
+        - generic [ref=f1e1016] [cursor=pointer]:
+          - generic [ref=f1e1017]:
+            - generic [ref=f1e1018]: Data
+            - generic [ref=f1e1019]: abtusers
+            - generic [ref=f1e1020]: 11-03 14:22
+          - generic [ref=f1e1021]: "INSERT INTO `abtusers` (`name`) VALUES ('he');"
+          - generic [ref=f1e1022]:
+            - generic [ref=f1e1023]: demo-mysql / app
+            - generic [ref=f1e1029]: 12 ms
+        - generic [ref=f1e1032] [cursor=pointer]:
+          - generic [ref=f1e1033]:
+            - generic [ref=f1e1034]: SQL
+            - generic [ref=f1e1035]: SELECT
+            - generic [ref=f1e1036]: 11-03 14:06
+          - generic [ref=f1e1037]: select * from T_BAS_BASE tbb ;
+          - generic [ref=f1e1038]:
+            - generic [ref=f1e1039]: Oracle_g7my / DCFOC
+            - generic [ref=f1e1045]: 1.1 s
+        - generic [ref=f1e1048] [cursor=pointer]:
+          - generic [ref=f1e1049]:
+            - generic [ref=f1e1050]: DDL
+            - generic [ref=f1e1051]: CREATE
+            - generic [ref=f1e1052]: 11-03 13:47
+          - generic [ref=f1e1053]: create table testusers(name VARCHAR(30));
+          - generic [ref=f1e1054]:
+            - generic [ref=f1e1055]: demo-mysql / app
+            - generic [ref=f1e1061]: Failed
+        - generic [ref=f1e1064] [cursor=pointer]:
+          - generic [ref=f1e1065]:
+            - generic [ref=f1e1066]: DDL
+            - generic [ref=f1e1067]: CREATE
+            - generic [ref=f1e1068]: 11-03 13:07
+          - generic [ref=f1e1069]: create table abtusers_ui(name VARCHAR(50));
+          - generic [ref=f1e1070]:
+            - generic [ref=f1e1071]: demo-mysql / app
+            - generic [ref=f1e1077]: Failed
+        - generic [ref=f1e1080] [cursor=pointer]:
+          - generic [ref=f1e1081]:
+            - generic [ref=f1e1082]: DDL
+            - generic [ref=f1e1083]: CREATE
+            - generic [ref=f1e1084]: 11-03 13:05
+          - generic [ref=f1e1085]: create table testusers(name VARCHAR(30));
+          - generic [ref=f1e1086]:
+            - generic [ref=f1e1087]: demo-mysql / app
+            - generic [ref=f1e1093]: Failed
+        - generic [ref=f1e1096] [cursor=pointer]:
+          - generic [ref=f1e1097]:
+            - generic [ref=f1e1098]: DDL
+            - generic [ref=f1e1099]: CREATE
+            - generic [ref=f1e1100]: 11-03 13:03
+          - generic [ref=f1e1101]: create table testusers(name VARCHAR(30));
+          - generic [ref=f1e1102]:
+            - generic [ref=f1e1103]: demo-mysql / app
+            - generic [ref=f1e1109]: Failed
+        - generic [ref=f1e1112] [cursor=pointer]:
+          - generic [ref=f1e1113]:
+            - generic [ref=f1e1114]: DDL
+            - generic [ref=f1e1115]: CREATE
+            - generic [ref=f1e1116]: 11-03 12:48
+          - generic [ref=f1e1117]: create table testusers(name VARCHAR(30))
+          - generic [ref=f1e1118]:
+            - generic [ref=f1e1119]: demo-mysql / app
+            - generic [ref=f1e1125]: Failed
+        - generic [ref=f1e1128] [cursor=pointer]:
+          - generic [ref=f1e1129]:
+            - generic [ref=f1e1130]: DDL
+            - generic [ref=f1e1131]: CREATE
+            - generic [ref=f1e1132]: 11-03 12:47
+          - generic [ref=f1e1133]: create table abtusers(name VARCHAR(50));
+          - generic [ref=f1e1134]:
+            - generic [ref=f1e1135]: demo-mysql / app
+            - generic [ref=f1e1141]: Failed
+        - generic [ref=f1e1144] [cursor=pointer]:
+          - generic [ref=f1e1145]:
+            - generic [ref=f1e1146]: DDL
+            - generic [ref=f1e1147]: CREATE
+            - generic [ref=f1e1148]: 11-03 11:55
+          - generic [ref=f1e1149]: create table abtusers(name VARCHAR(50));
+          - generic [ref=f1e1150]:
+            - generic [ref=f1e1151]: demo-mysql / app
+            - generic [ref=f1e1157]: Failed
+        - generic [ref=f1e1160] [cursor=pointer]:
+          - generic [ref=f1e1161]:
+            - generic [ref=f1e1162]: DDL
+            - generic [ref=f1e1163]: CREATE
+            - generic [ref=f1e1164]: 11-03 11:48
+          - generic [ref=f1e1165]: create table abusers(name VARCHAR(50));
+          - generic [ref=f1e1166]:
+            - generic [ref=f1e1167]: demo-mysql / app
+            - generic [ref=f1e1173]: Failed
+        - generic [ref=f1e1176] [cursor=pointer]:
+          - generic [ref=f1e1177]:
+            - generic [ref=f1e1178]: DDL
+            - generic [ref=f1e1179]: CREATE
+            - generic [ref=f1e1180]: 11-02 23:54
+          - generic [ref=f1e1181]: create table abusers(name VARCHAR(50));
+          - generic [ref=f1e1182]:
+            - generic [ref=f1e1183]: demo-mysql / app
+            - generic [ref=f1e1189]: Failed
+        - generic [ref=f1e1192] [cursor=pointer]:
+          - generic [ref=f1e1193]:
+            - generic [ref=f1e1194]: DDL
+            - generic [ref=f1e1195]: CREATE
+            - generic [ref=f1e1196]: 11-02 23:53
+          - generic [ref=f1e1197]: create table abusers(name VARCHAR(50));
+          - generic [ref=f1e1198]:
+            - generic [ref=f1e1199]: demo-mysql / app
+            - generic [ref=f1e1205]: Failed
+        - generic [ref=f1e1208] [cursor=pointer]:
+          - generic [ref=f1e1209]:
+            - generic [ref=f1e1210]: DDL
+            - generic [ref=f1e1211]: CREATE
+            - generic [ref=f1e1212]: 11-02 23:52
+          - generic [ref=f1e1213]: create table abusers(name VARCHAR(50));
+          - generic [ref=f1e1214]:
+            - generic [ref=f1e1215]: demo-mysql / app
+            - generic [ref=f1e1221]: Failed
+        - generic [ref=f1e1224] [cursor=pointer]:
+          - generic [ref=f1e1225]:
+            - generic [ref=f1e1226]: DDL
+            - generic [ref=f1e1227]: CREATE
+            - generic [ref=f1e1228]: 11-02 23:51
+          - generic [ref=f1e1229]: create table abusers(name VARCHAR(50));
+          - generic [ref=f1e1230]:
+            - generic [ref=f1e1231]: demo-mysql / app
+            - generic [ref=f1e1237]: Failed

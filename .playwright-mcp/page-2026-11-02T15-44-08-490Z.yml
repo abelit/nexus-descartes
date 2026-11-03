@@ -1,0 +1,284 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e28]:
+    - generic [ref=f4e29]:
+      - link "DBX DBX" [ref=f4e30] [cursor=pointer]:
+        - /url: https://dbxio.com
+        - img "DBX"
+        - generic [ref=f4e31]: DBX
+      - button "New Connection" [ref=f4e32] [cursor=pointer]
+      - button "New Query" [ref=f4e35] [cursor=pointer]
+      - button "Data Transfer" [ref=f4e37] [cursor=pointer]
+      - button "Driver Manager" [ref=f4e39] [cursor=pointer]
+      - button "Plugin Center" [ref=f4e42] [cursor=pointer]
+      - button "More" [ref=f4e44] [cursor=pointer]
+      - button [ref=f4e48] [cursor=pointer]
+      - button "Log out" [ref=f4e49] [cursor=pointer]
+    - generic [ref=f4e50]:
+      - generic [ref=f4e52]:
+        - generic [ref=f4e53]:
+          - button "Import / Export" [ref=f4e54] [cursor=pointer]
+          - generic [ref=f4e62]:
+            - button [ref=f4e64] [cursor=pointer]
+            - button [ref=f4e66] [cursor=pointer]
+            - button [ref=f4e68] [cursor=pointer]
+            - button [ref=f4e70] [cursor=pointer]
+        - generic [ref=f4e72]:
+          - generic [ref=f4e74]:
+            - generic [ref=f4e75]:
+              - textbox "Search..." [ref=f4e79]
+              - generic [ref=f4e80]:
+                - button "Regex search" [ref=f4e82] [cursor=pointer]:
+                  - generic [aria-hidden] [ref=f4e83]: .*
+                - switch "Local search" [ref=f4e85] [cursor=pointer]
+            - button "Locate in sidebar" [ref=f4e87] [cursor=pointer]
+            - button "Sort and filter" [ref=f4e93] [cursor=pointer]
+            - button "Show active connections only" [ref=f4e97] [cursor=pointer]:
+              - generic [ref=f4e98]: "Active connections: 0"
+          - generic [ref=f4e101]:
+            - generic [ref=f4e104]:
+              - button [ref=f4e105] [cursor=pointer]
+              - generic [ref=f4e110]: demo-postgres
+              - button "Select connection" [ref=f4e113] [cursor=pointer]
+            - generic [ref=f4e118]:
+              - button [ref=f4e119] [cursor=pointer]
+              - generic [ref=f4e124]: demo-mysql
+              - button "Select connection" [ref=f4e127] [cursor=pointer]
+      - generic [ref=f4e249]:
+        - generic [ref=f4e253]:
+          - button "Position, grouping, sorting" [ref=f4e254] [cursor=pointer]
+          - button "Settings" [pressed] [ref=f4e260]:
+            - button "Close" [ref=f4e265] [cursor=pointer]
+          - button "New Query" [ref=f4e270] [cursor=pointer]
+        - generic [ref=f4e274]:
+          - heading "Settings" [level=2] [ref=f4e276]
+          - generic [ref=f4e280]:
+            - navigation [ref=f4e281]:
+              - button "Appearance" [ref=f4e282] [cursor=pointer]
+              - button "Editor" [ref=f4e283] [cursor=pointer]
+              - button "SQL Formatter" [ref=f4e284] [cursor=pointer]
+              - button "Navigation" [ref=f4e285] [cursor=pointer]
+              - button "Data" [ref=f4e286] [cursor=pointer]
+              - button "Database Backups" [ref=f4e287] [cursor=pointer]
+              - button "Tunnels" [ref=f4e288] [cursor=pointer]
+              - button "Shortcuts" [ref=f4e289] [cursor=pointer]
+              - button "Snippets" [ref=f4e290] [cursor=pointer]
+              - button "Sync" [ref=f4e291] [cursor=pointer]
+              - button "AI" [ref=f4e292] [cursor=pointer]
+              - button "MCP" [ref=f4e293] [cursor=pointer]
+              - button "Update Management" [ref=f4e294] [cursor=pointer]
+              - button "Security" [ref=f4e295] [cursor=pointer]
+              - button "About" [ref=f4e296] [cursor=pointer]
+            - generic [ref=f4e297]:
+              - combobox "Search settings" [ref=f4e300]
+              - generic [ref=f4e521]:
+                - generic [ref=f4e522]:
+                  - generic [ref=f4e523] [cursor=pointer]: Change Password
+                  - paragraph [ref=f4e524]: Enter your current password and choose a new one
+                  - generic [ref=f4e525]:
+                    - textbox "Current password" [ref=f4e526]
+                    - button "Show password" [ref=f4e527] [cursor=pointer]
+                  - generic [ref=f4e531]:
+                    - textbox "Enter new password" [ref=f4e532]
+                    - button "Show password" [ref=f4e533] [cursor=pointer]
+                  - generic [ref=f4e537]:
+                    - textbox "Confirm password" [ref=f4e538]
+                    - button "Show password" [ref=f4e539] [cursor=pointer]
+                - generic [ref=f4e543]:
+                  - generic [ref=f4e544] [cursor=pointer]: Log out
+                  - paragraph [ref=f4e545]: End the current session and return to the login page
+                  - button "Log out" [ref=f4e547] [cursor=pointer]
+                - generic [ref=f4e549]:
+                  - generic [ref=f4e550]:
+                    - heading "Audit Log" [level=3] [ref=f4e551]
+                    - paragraph [ref=f4e552]: Server-side, append-only record of database and administrative operations. Entries cannot be edited or deleted from DBX.
+                  - generic [ref=f4e553]:
+                    - generic [ref=f4e554]: Audit access token
+                    - paragraph [ref=f4e558]: In this phase the audit API requires the server's DBX_AUDIT_BOOTSTRAP_TOKEN, or a loopback connection when no token is configured. The token is kept in this browser session only.
+                    - generic [ref=f4e559]:
+                      - textbox "Paste the audit bootstrap token" [ref=f4e560]
+                      - button "Use token" [ref=f4e561] [cursor=pointer]
+                    - paragraph [ref=f4e562]: "No token entered: requests only succeed when the server is reached over loopback."
+                  - generic [ref=f4e563]:
+                    - textbox "Actor" [ref=f4e564]
+                    - combobox [ref=f4e565] [cursor=pointer]:
+                      - option "All operations" [selected]
+                      - option "query"
+                      - option "dml"
+                      - option "ddl"
+                      - option "transaction"
+                      - option "export"
+                      - option "import"
+                      - option "backup"
+                      - option "config"
+                      - option "connection"
+                      - option "auth"
+                      - option "policy"
+                      - option "approval"
+                      - option "admin"
+                    - combobox [ref=f4e566] [cursor=pointer]:
+                      - option "All decisions" [selected]
+                      - option "allowed"
+                      - option "denied"
+                      - option "warned"
+                      - option "approval_required"
+                      - option "blocked"
+                      - option "error"
+                    - combobox [ref=f4e567] [cursor=pointer]:
+                      - option "Last hour"
+                      - option "Last 24 hours" [selected]
+                      - option "Last 7 days"
+                      - option "All time"
+                    - textbox "Search SQL" [ref=f4e569]
+                    - button "Refresh" [ref=f4e570] [cursor=pointer]
+                    - button "JSONL" [ref=f4e571] [cursor=pointer]
+                    - button "CSV" [ref=f4e572] [cursor=pointer]
+                    - button "Verify chain" [ref=f4e573] [cursor=pointer]
+                  - paragraph [ref=f4e574]: "AUDIT_ACCESS_DENIED: audit permission required"
+                  - table [ref=f4e576]:
+                    - rowgroup [ref=f4e577]:
+                      - row [ref=f4e578]:
+                        - columnheader "#" [ref=f4e579]
+                        - columnheader "Time" [ref=f4e580]
+                        - columnheader "Actor" [ref=f4e581]
+                        - columnheader "Operation" [ref=f4e582]
+                        - columnheader "Decision" [ref=f4e583]
+                        - columnheader "Target"
+                        - columnheader "Duration" [ref=f4e584]
+                    - rowgroup [ref=f4e585]:
+                      - row [ref=f4e586]:
+                        - cell "No audit events match these filters." [ref=f4e587]
+                - generic [ref=f4e589]:
+                  - generic [ref=f4e590]:
+                    - generic [ref=f4e591]:
+                      - heading "Users and roles" [level=3] [ref=f4e592]
+                      - paragraph [ref=f4e593]: Local accounts for this server. Each user has one built-in role; every action is still checked on the server.
+                    - button "Refresh" [ref=f4e594] [cursor=pointer]
+                  - paragraph [ref=f4e595]: admin:users is required for GET users
+                  - generic [ref=f4e596]:
+                    - generic [ref=f4e597]: Connection groups
+                    - paragraph [ref=f4e598]: Server-owned groups used as authorization scopes. The sidebar layout is never used for authorization.
+                    - generic [ref=f4e599]:
+                      - textbox "Group name" [ref=f4e600]
+                      - combobox [ref=f4e601] [cursor=pointer]:
+                        - option "No parent" [selected]
+                      - button "Create group" [ref=f4e602] [cursor=pointer]
+                  - generic [ref=f4e604]:
+                    - generic [ref=f4e605]: Custom roles
+                    - button "New role" [ref=f4e606] [cursor=pointer]
+                - generic [ref=f4e608]:
+                  - generic [ref=f4e609]:
+                    - generic [ref=f4e610]:
+                      - heading "Approvals" [level=3] [ref=f4e611]
+                      - paragraph [ref=f4e612]: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+                    - button "Refresh" [ref=f4e613] [cursor=pointer]
+                  - generic [ref=f4e614]:
+                    - button "My requests" [ref=f4e615] [cursor=pointer]
+                    - button "Pending approval" [ref=f4e616] [cursor=pointer]
+                  - button "Approval templates 1" [ref=f4e618] [cursor=pointer]:
+                    - generic [ref=f4e619]: Approval templates
+                    - generic [ref=f4e620]: "1"
+                  - generic [ref=f4e621]:
+                    - generic [ref=f4e622]:
+                      - generic [ref=f4e623]:
+                        - generic [ref=f4e624]: approved
+                        - generic [ref=f4e625]: 3f4298b6-0bd0-447f-a538-856de10e4172
+                        - generic [ref=f4e626]: · 11/2/2026, 11:41:26 PM
+                        - generic [ref=f4e627]: · 11111111-1111-4111-8111-111111111111 / app
+                        - generic [ref=f4e628]: demo.ddl.approval
+                        - generic [ref=f4e629]: Submitter executes
+                      - generic [ref=f4e630]: create table demo_check(id int)
+                      - paragraph [ref=f4e631]: acceptance demo
+                      - generic [ref=f4e632]:
+                        - generic [ref=f4e633]: Step 2/2
+                        - generic "@dba" [ref=f4e634]: 1 · any one · approved
+                        - generic "16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e" [ref=f4e635]: 2 · all · approved
+                      - generic [ref=f4e636]:
+                        - generic [ref=f4e637]: "1. @dba (2 approver(s)) · 16d59b24-6b69-4408-85d8-e4eef4dd461b: ok1"
+                        - generic [ref=f4e638]: "2. 16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e (2 approver(s)) · ba8734e8-2909-4e84-a5b2-d372b321119e: ok3"
+                      - generic [ref=f4e639]:
+                        - button "Execute request" [ref=f4e640] [cursor=pointer]
+                        - button "Get execution token" [ref=f4e641] [cursor=pointer]
+                    - generic [ref=f4e642]:
+                      - generic [ref=f4e643]:
+                        - generic [ref=f4e644]: execution_failed
+                        - generic [ref=f4e645]: 3f4298b6-0bd0-447f-a538-856de10e4172
+                        - generic [ref=f4e646]: · 11/2/2026, 5:59:10 PM
+                        - generic [ref=f4e647]: · 22222222-2222-4222-8222-222222222222 / app
+                        - generic [ref=f4e648]: demo.ddl.approval
+                        - generic [ref=f4e649]: Submitter executes
+                        - generic [ref=f4e724]: Executed by 3f4298b6-0bd0-447f-a538-856de10e4172
+                      - generic [ref=f4e650]: create table demo_review_mysql(id int)
+                      - paragraph [ref=f4e651]: 验收演示：MySQL DDL
+                      - paragraph [ref=f4e725]: "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval"
+                      - generic [ref=f4e652]:
+                        - generic [ref=f4e653]: Step 2/2
+                        - generic "@dba" [ref=f4e654]: 1 · any one · approved
+                        - generic "16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e" [ref=f4e655]: 2 · all · approved
+                      - generic [ref=f4e656]:
+                        - generic [ref=f4e657]: 1. @dba (2 approver(s)) · 16d59b24-6b69-4408-85d8-e4eef4dd461b
+                        - generic [ref=f4e658]: 2. 16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e (2 approver(s)) · ba8734e8-2909-4e84-a5b2-d372b321119e
+                    - generic [ref=f4e662]:
+                      - generic [ref=f4e663]:
+                        - generic [ref=f4e664]: approved
+                        - generic [ref=f4e665]: 3f4298b6-0bd0-447f-a538-856de10e4172
+                        - generic [ref=f4e666]: · 11/2/2026, 5:59:10 PM
+                        - generic [ref=f4e667]: · 11111111-1111-4111-8111-111111111111 / app
+                        - generic [ref=f4e668]: demo.ddl.approval
+                        - generic [ref=f4e669]: Submitter executes
+                      - generic [ref=f4e670]: create table demo_review_pg(id int)
+                      - paragraph [ref=f4e671]: 验收演示：PostgreSQL DDL
+                      - generic [ref=f4e672]:
+                        - generic [ref=f4e673]: Step 2/2
+                        - generic "@dba" [ref=f4e674]: 1 · any one · approved
+                        - generic "16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e" [ref=f4e675]: 2 · all · approved
+                      - generic [ref=f4e676]:
+                        - generic [ref=f4e677]: 1. @dba (2 approver(s)) · 16d59b24-6b69-4408-85d8-e4eef4dd461b
+                        - generic [ref=f4e678]: 2. 16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e (2 approver(s)) · ba8734e8-2909-4e84-a5b2-d372b321119e
+                      - generic [ref=f4e679]:
+                        - button "Execute request" [ref=f4e680] [cursor=pointer]
+                        - button "Get execution token" [ref=f4e681] [cursor=pointer]
+                    - generic [ref=f4e682]:
+                      - generic [ref=f4e683]:
+                        - generic [ref=f4e684]: approved
+                        - generic [ref=f4e685]: 3f4298b6-0bd0-447f-a538-856de10e4172
+                        - generic [ref=f4e686]: · 11/2/2026, 5:58:45 PM
+                        - generic [ref=f4e687]: · 11111111-1111-4111-8111-111111111111 / app
+                        - generic [ref=f4e688]: demo.ddl.approval
+                        - generic [ref=f4e689]: Submitter executes
+                      - generic [ref=f4e690]: create table demo_check(id int)
+                      - paragraph [ref=f4e691]: acceptance demo
+                      - generic [ref=f4e692]:
+                        - generic [ref=f4e693]: Step 2/2
+                        - generic "@dba" [ref=f4e694]: 1 · any one · approved
+                        - generic "16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e" [ref=f4e695]: 2 · all · approved
+                      - generic [ref=f4e696]:
+                        - generic [ref=f4e697]: "1. @dba (2 approver(s)) · 16d59b24-6b69-4408-85d8-e4eef4dd461b: ok1"
+                        - generic [ref=f4e698]: "2. 16d59b24-6b69-4408-85d8-e4eef4dd461b, ba8734e8-2909-4e84-a5b2-d372b321119e (2 approver(s)) · ba8734e8-2909-4e84-a5b2-d372b321119e: ok3"
+                      - generic [ref=f4e699]:
+                        - button "Execute request" [ref=f4e700] [cursor=pointer]
+                        - button "Get execution token" [ref=f4e701] [cursor=pointer]
+                - generic [ref=f4e703]:
+                  - generic [ref=f4e704]:
+                    - generic [ref=f4e705]:
+                      - heading "Policy rules" [level=3] [ref=f4e706]
+                      - paragraph [ref=f4e707]: Versioned rule documents per scope. Publishing validates the document and immediately changes the effective bundle hash; approvals issued earlier stop matching.
+                    - button "Refresh" [ref=f4e708] [cursor=pointer]
+                  - combobox [ref=f4e710] [cursor=pointer]:
+                    - option "All connections" [selected]
+                    - option "One connection"
+                    - option "One database"
+                  - paragraph [ref=f4e711]: policy:read is required for GET policies
+                  - generic [ref=f4e712]:
+                    - generic [ref=f4e713]: Publish a policy document
+                    - paragraph [ref=f4e714]: JSON document with a rules array. A rule whose id matches a built-in replaces it; use enabled:false to disable a built-in.
+                    - textbox "Publish a policy document" [ref=f4e715]: "{ \"rules\": [] }"
+                    - generic [ref=f4e716]:
+                      - textbox "Change note" [ref=f4e717]
+                      - button "Publish" [ref=f4e718] [cursor=pointer]
+                  - generic [ref=f4e719]:
+                    - generic [ref=f4e720]: Versions
+                    - paragraph [ref=f4e721]: No versions published for this scope.
+          - generic [ref=f4e722]:
+            - button "Close" [ref=f4e723] [cursor=pointer]
+            - button "Change Password" [disabled]
+  - generic [ref=f4e726]: "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval"

@@ -1,0 +1,88 @@
+- generic [ref=e33]:
+  - generic [ref=e34]:
+    - link "DBX DBX" [ref=e35] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=e36]: DBX
+    - button "New Connection" [ref=e37] [cursor=pointer]
+    - button "New Query" [ref=e40] [cursor=pointer]
+    - button "Data Transfer" [ref=e42] [cursor=pointer]
+    - button "Driver Manager" [ref=e44] [cursor=pointer]
+    - button "Plugin Center" [ref=e47] [cursor=pointer]
+    - button "More" [ref=e49] [cursor=pointer]
+    - button "toolbar.governance" [ref=e53] [cursor=pointer]:
+      - generic "toolbar.pendingApprovals" [ref=e54]: "1"
+    - button [ref=e55] [cursor=pointer]
+    - button "Log out" [ref=e56] [cursor=pointer]
+  - generic [ref=e57]:
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - button "Import / Export" [ref=e61] [cursor=pointer]
+        - generic [ref=e69]:
+          - button [ref=e71] [cursor=pointer]
+          - button [ref=e73] [cursor=pointer]
+          - button [ref=e75] [cursor=pointer]
+          - button [ref=e77] [cursor=pointer]
+      - generic [ref=e79]:
+        - generic [ref=e81]:
+          - generic [ref=e82]:
+            - textbox "Search..." [ref=e86]
+            - generic [ref=e87]:
+              - button "Regex search" [ref=e89] [cursor=pointer]:
+                - generic [aria-hidden] [ref=e90]: .*
+              - switch "Local search" [ref=e92] [cursor=pointer]
+          - button "Locate in sidebar" [ref=e94] [cursor=pointer]
+          - button "Sort and filter" [ref=e100] [cursor=pointer]
+          - button "Show active connections only" [ref=e104] [cursor=pointer]:
+            - generic [ref=e105]: "Active connections: 1"
+        - generic [ref=e108]:
+          - generic [ref=e111]:
+            - button [ref=e112] [cursor=pointer]
+            - generic [ref=e117]: demo-postgres
+            - button "Select connection" [ref=e120] [cursor=pointer]
+          - generic [ref=e125]:
+            - button [ref=e126] [cursor=pointer]
+            - generic [ref=e131]: demo-mysql
+            - button "Select connection" [ref=e135] [cursor=pointer]
+          - generic [ref=e140]:
+            - button [ref=e141] [cursor=pointer]
+            - generic [ref=e146]: Oracle_g7my
+            - button "Select connection" [ref=e149] [cursor=pointer]
+      - generic "demo-mysql" [ref=e152]: demo-mysql:3306
+    - generic [ref=e164]:
+      - generic [ref=e168]:
+        - generic [ref=e170]:
+          - button "Position, grouping, sorting" [ref=e171] [cursor=pointer]
+          - generic [ref=e178]:
+            - generic [ref=e185]:
+              - generic [aria-hidden] [ref=e186]: "*"
+              - generic [ref=e187]: demo-mysql
+            - button "Close Tab" [ref=e189] [cursor=pointer]
+          - button "New Query" [ref=e194] [cursor=pointer]
+        - generic [ref=e196]:
+          - generic [ref=e197]:
+            - generic [ref=e198]:
+              - button [ref=e199] [cursor=pointer]
+              - button "Execute all SQL" [ref=e200] [cursor=pointer]
+              - button "Execute SQL in new result tab" [ref=e201] [cursor=pointer]
+              - button [ref=e202] [cursor=pointer]
+              - button "Autotrace (executes the query)" [ref=e203] [cursor=pointer]:
+                - generic [ref=e204]: A
+              - button [ref=e205] [cursor=pointer]
+              - button "More actions" [ref=e206] [cursor=pointer]
+              - group "Auto Commit" [ref=e207]:
+                - button "Auto Commit" [ref=e208] [cursor=pointer]:
+                  - generic [aria-hidden] [ref=e209]:
+                    - generic [ref=e210]: "Tx:"
+                    - generic [ref=e211]: A
+            - generic [ref=e212]:
+              - button "demo-mysql" [ref=e215] [cursor=pointer]
+              - button "app" [ref=e220] [cursor=pointer]
+          - generic [ref=e230]:
+            - generic [aria-hidden] [ref=e231]:
+              - button [ref=e234] [cursor=pointer]
+              - generic [ref=e235]: "1"
+              - generic [ref=e238] [cursor=pointer]
+            - textbox [active] [ref=e239]:
+              - generic [ref=e240]: create table abtusers_ui(name VARCHAR(50));
+      - separator

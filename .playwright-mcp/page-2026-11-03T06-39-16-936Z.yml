@@ -1,0 +1,226 @@
+- generic [ref=f5e29]:
+  - generic [ref=f5e30]:
+    - link "DBX DBX" [ref=f5e31] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f5e32]: DBX
+    - button "New Connection" [ref=f5e33] [cursor=pointer]
+    - button "New Query" [ref=f5e36] [cursor=pointer]
+    - button "Data Transfer" [ref=f5e38] [cursor=pointer]
+    - button "Driver Manager" [ref=f5e40] [cursor=pointer]
+    - button "Plugin Center" [ref=f5e43] [cursor=pointer]
+    - button "More" [ref=f5e45] [cursor=pointer]
+    - button "Security governance" [ref=f5e49] [cursor=pointer]
+    - button [ref=f5e50] [cursor=pointer]
+    - button "Log out" [ref=f5e51] [cursor=pointer]
+  - generic [ref=f5e52]:
+    - generic [ref=f5e54]:
+      - generic [ref=f5e55]:
+        - button "Import / Export" [ref=f5e56] [cursor=pointer]
+        - generic [ref=f5e64]:
+          - button [ref=f5e66] [cursor=pointer]
+          - button [ref=f5e68] [cursor=pointer]
+          - button [ref=f5e70] [cursor=pointer]
+          - button [ref=f5e72] [cursor=pointer]
+      - generic [ref=f5e74]:
+        - generic [ref=f5e76]:
+          - generic [ref=f5e77]:
+            - textbox "Search..." [ref=f5e81]
+            - generic [ref=f5e82]:
+              - button "Regex search" [ref=f5e84] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f5e85]: .*
+              - switch "Local search" [ref=f5e87] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f5e89] [cursor=pointer]
+          - button "Sort and filter" [ref=f5e95] [cursor=pointer]
+          - button "Show active connections only" [ref=f5e99] [cursor=pointer]:
+            - generic [ref=f5e100]: "Active connections: 1"
+        - generic [ref=f5e103]:
+          - generic [ref=f5e106]:
+            - button [ref=f5e107] [cursor=pointer]
+            - generic [ref=f5e112]: demo-postgres
+            - button "Select connection" [ref=f5e115] [cursor=pointer]
+          - generic [ref=f5e120]:
+            - button [ref=f5e121] [cursor=pointer]
+            - generic [ref=f5e126]: demo-mysql
+            - button "Select connection" [ref=f5e130] [cursor=pointer]
+      - generic "demo-mysql" [ref=f5e133]: demo-mysql:3306
+    - generic [ref=f5e223]:
+      - generic [ref=f5e151]:
+        - button "Position, grouping, sorting" [ref=f5e152] [cursor=pointer]
+        - generic [ref=f5e157]:
+          - generic [ref=f5e159]:
+            - generic [ref=f5e166]:
+              - generic [aria-hidden] [ref=f5e167]: "*"
+              - generic [ref=f5e168]: demo-mysql
+            - button "Close Tab" [ref=f5e170] [cursor=pointer]
+          - button "Security governance" [pressed] [ref=f5e226]:
+            - button "Close" [ref=f5e231] [cursor=pointer]
+        - button "New Query" [ref=f5e175] [cursor=pointer]
+      - generic [ref=f5e236]:
+        - generic [ref=f5e238]:
+          - heading "Security governance" [level=2] [ref=f5e243]
+          - paragraph [ref=f5e244]: Approval tickets and the server-side audit trail. Entries are permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+        - generic [ref=f5e245]:
+          - button "Approvals" [ref=f5e246] [cursor=pointer]
+          - button "Audit log" [ref=f5e250] [cursor=pointer]
+          - button "Users & roles" [active] [pressed] [ref=f5e254] [cursor=pointer]
+          - button "Policies" [ref=f5e260] [cursor=pointer]
+        - generic [ref=f5e281]:
+          - generic [ref=f5e282]:
+            - generic [ref=f5e283]:
+              - heading "Users and roles" [level=3] [ref=f5e284]
+              - paragraph [ref=f5e285]: Local accounts for this server. Each user has one built-in role; every action is still checked on the server.
+            - button "Refresh" [ref=f5e286] [cursor=pointer]
+          - generic [ref=f5e287]:
+            - generic [ref=f5e288]: Add a user
+            - generic [ref=f5e292]:
+              - textbox "Email" [ref=f5e293]
+              - textbox "Display name" [ref=f5e294]: operator@dbx.local
+              - textbox "Password" [ref=f5e295]: dbx-demo-pass
+              - combobox [ref=f5e296] [cursor=pointer]:
+                - option "Administrator"
+                - option "Security Administrator"
+                - option "DBA"
+                - option "Auditor"
+                - option "Operator"
+                - option "Viewer" [selected]
+              - combobox [ref=f5e297] [cursor=pointer]:
+                - option "All connections" [selected]
+                - option "One connection"
+                - option "Connection group"
+                - option "One database"
+                - option "One schema"
+                - option "One table"
+              - button "Create" [ref=f5e298] [cursor=pointer]
+            - paragraph [ref=f5e299]: At least 8 characters. The user can change it after signing in.
+          - table [ref=f5e301]:
+            - rowgroup [ref=f5e302]:
+              - row [ref=f5e303]:
+                - columnheader "User"
+                - columnheader "Role" [ref=f5e304]
+                - columnheader "Status" [ref=f5e305]
+                - columnheader "Last sign-in" [ref=f5e306]
+                - columnheader "Actions" [ref=f5e307]
+            - rowgroup [ref=f5e308]:
+              - row [ref=f5e309]:
+                - cell "Administrator admin":
+                  - generic: Administrator
+                  - generic: admin
+                - cell "Administrator All connections" [ref=f5e310]:
+                  - generic [ref=f5e311]: Administrator
+                  - generic "All connections" [ref=f5e312]
+                - cell "active" [ref=f5e313]
+                - cell "11/3/2026, 2:38:57 PM" [ref=f5e315]
+                - cell [ref=f5e316]:
+                  - generic [ref=f5e317]:
+                    - button "Edit display name" [ref=f5e318] [cursor=pointer]
+                    - button "Reset password" [ref=f5e319] [cursor=pointer]
+                    - button "Scope" [ref=f5e320] [cursor=pointer]
+                    - button "Sessions" [ref=f5e321] [cursor=pointer]
+              - row [ref=f5e322]:
+                - cell "DBA One dba1@dbx.local":
+                  - generic: DBA One
+                  - generic: dba1@dbx.local
+                - cell "DBA All connections" [ref=f5e323]:
+                  - combobox [ref=f5e324] [cursor=pointer]:
+                    - option "Administrator"
+                    - option "Security Administrator"
+                    - option "DBA" [selected]
+                    - option "Auditor"
+                    - option "Operator"
+                    - option "Viewer"
+                  - generic "All connections" [ref=f5e325]
+                - cell "active" [ref=f5e326]
+                - cell "11/3/2026, 2:14:50 PM" [ref=f5e328]
+                - cell [ref=f5e329]:
+                  - generic [ref=f5e330]:
+                    - button "Edit display name" [ref=f5e331] [cursor=pointer]
+                    - button "Reset password" [ref=f5e332] [cursor=pointer]
+                    - button "Scope" [ref=f5e333] [cursor=pointer]
+                    - button "Sessions" [ref=f5e334] [cursor=pointer]
+                    - button "Disable" [ref=f5e335] [cursor=pointer]
+              - row [ref=f5e336]:
+                - cell "DBA Two dba2@dbx.local":
+                  - generic: DBA Two
+                  - generic: dba2@dbx.local
+                - cell "DBA All connections" [ref=f5e337]:
+                  - combobox [ref=f5e338] [cursor=pointer]:
+                    - option "Administrator"
+                    - option "Security Administrator"
+                    - option "DBA" [selected]
+                    - option "Auditor"
+                    - option "Operator"
+                    - option "Viewer"
+                  - generic "All connections" [ref=f5e339]
+                - cell "active" [ref=f5e340]
+                - cell "11/3/2026, 1:47:49 PM" [ref=f5e342]
+                - cell [ref=f5e343]:
+                  - generic [ref=f5e344]:
+                    - button "Edit display name" [ref=f5e345] [cursor=pointer]
+                    - button "Reset password" [ref=f5e346] [cursor=pointer]
+                    - button "Scope" [ref=f5e347] [cursor=pointer]
+                    - button "Sessions" [ref=f5e348] [cursor=pointer]
+                    - button "Disable" [ref=f5e349] [cursor=pointer]
+              - row [ref=f5e350]:
+                - cell "Operator operator@dbx.local":
+                  - generic: Operator
+                  - generic: operator@dbx.local
+                - cell "Operator All connections" [ref=f5e351]:
+                  - combobox [ref=f5e352] [cursor=pointer]:
+                    - option "Administrator"
+                    - option "Security Administrator"
+                    - option "DBA"
+                    - option "Auditor"
+                    - option "Operator" [selected]
+                    - option "Viewer"
+                  - generic "All connections" [ref=f5e353]
+                - cell "active" [ref=f5e354]
+                - cell "11/3/2026, 2:19:49 PM" [ref=f5e356]
+                - cell [ref=f5e357]:
+                  - generic [ref=f5e358]:
+                    - button "Edit display name" [ref=f5e359] [cursor=pointer]
+                    - button "Reset password" [ref=f5e360] [cursor=pointer]
+                    - button "Scope" [ref=f5e361] [cursor=pointer]
+                    - button "Sessions" [ref=f5e362] [cursor=pointer]
+                    - button "Disable" [ref=f5e363] [cursor=pointer]
+              - row [ref=f5e364]:
+                - cell "Asset Test asset-test-1793679302@example.com":
+                  - generic: Asset Test
+                  - generic: asset-test-1793679302@example.com
+                - cell "Viewer One table" [ref=f5e365]:
+                  - combobox "Asset access" [disabled] [ref=f5e366] [cursor=pointer]:
+                    - option "Administrator"
+                    - option "Security Administrator"
+                    - option "DBA"
+                    - option "Auditor"
+                    - option "Operator"
+                    - option "Viewer" [selected]
+                  - generic "One table" [ref=f5e367]
+                - cell "active" [ref=f5e368]
+                - cell "11/3/2026, 12:24:39 PM" [ref=f5e370]
+                - cell [ref=f5e371]:
+                  - generic [ref=f5e372]:
+                    - button "Edit display name" [ref=f5e373] [cursor=pointer]
+                    - button "Reset password" [ref=f5e374] [cursor=pointer]
+                    - button "Scope" [ref=f5e375] [cursor=pointer]
+                    - button "Sessions" [ref=f5e376] [cursor=pointer]
+                    - button "Disable" [ref=f5e377] [cursor=pointer]
+          - generic [ref=f5e378]:
+            - generic [ref=f5e379]: Connection groups
+            - paragraph [ref=f5e380]: Server-owned groups used as authorization scopes. The sidebar layout is never used for authorization.
+            - generic [ref=f5e381]:
+              - textbox "Group name" [ref=f5e382]
+              - combobox [ref=f5e383] [cursor=pointer]:
+                - option "No parent" [selected]
+              - button "Create group" [ref=f5e384] [cursor=pointer]
+          - generic [ref=f5e386]:
+            - generic [ref=f5e387]: Custom roles
+            - button "New role" [ref=f5e388] [cursor=pointer]
+          - generic [ref=f5e389]:
+            - generic [ref=f5e390]: Built-in roles
+            - generic [ref=f5e391]: Administrator (admin) — Full control including users, policies, and settings
+            - generic [ref=f5e392]: Security Administrator (security_admin) — Policies, approvals, and audit read; cannot execute SQL
+            - generic [ref=f5e393]: DBA (dba) — Execute and approve within assigned scopes, including DDL
+            - generic [ref=f5e394]: Auditor (auditor) — Read, export, and verify the audit log; cannot execute SQL
+            - generic [ref=f5e395]: Operator (operator) — Read/write SQL within assigned scopes; DDL needs approval
+            - generic [ref=f5e396]: Viewer (viewer) — Read-only queries

@@ -1,0 +1,51 @@
+- dialog [ref=e38]:
+  - generic [ref=e39]:
+    - generic [ref=e40]:
+      - generic [ref=e41]:
+        - paragraph [ref=e42]: First launch after upgrade
+        - heading "Data security upgrade" [level=1] [ref=e43]
+      - generic [ref=e44] [cursor=pointer]:
+        - generic [ref=e45]: Language
+        - combobox "Language" [ref=e46]:
+          - option "🇺🇸 English" [selected]
+          - option "🇦🇿 Azərbaycan"
+          - option "🇪🇸 Español"
+          - option "🇮🇩 Bahasa Indonesia"
+          - option "🇮🇹 Italiano"
+          - option "🇯🇵 日本語"
+          - option "🇰🇷 한국어"
+          - option "🇧🇷 Português"
+          - option "🇵🇱 Polski"
+          - option "🇷🇺 Русский"
+          - option "🇹🇭 ภาษาไทย"
+          - option "🇹🇷 Türkçe"
+          - option "🇨🇳 简体中文"
+          - option "繁 繁體中文"
+    - list "Migration steps" [ref=e47]:
+      - listitem [ref=e48]:
+        - generic [ref=e49]: "1"
+        - generic [ref=e50]: Review and confirm
+      - listitem [ref=e51]:
+        - generic [ref=e52]: "2"
+        - generic [ref=e53]: Migrate data
+      - listitem [ref=e54]:
+        - generic [ref=e55]: "3"
+        - generic [ref=e56]: Complete and backup
+    - generic [ref=e57]:
+      - paragraph [ref=e58]: You have just upgraded and restarted DBX. This upgrade improves local data security; complete this one-time step to continue using your connections.
+      - generic [ref=e59]:
+        - heading "What does this upgrade do?" [level=2] [ref=e60]
+        - paragraph [ref=e61]: The new version uses stronger encryption to protect connections, plugins, and other sensitive settings. This step runs once after the upgrade and will not appear again.
+        - list [ref=e62]:
+          - listitem [ref=e63]: A backup is created before the upgrade so your data can be recovered if needed.
+          - listitem [ref=e64]: The result is verified before completion to confirm the security upgrade succeeded.
+      - generic [ref=e65]:
+        - paragraph [ref=e66]: Unable to check migration status.
+        - paragraph [ref=e67]: Fix the issue above and retry. Your original data is still available.
+      - generic [ref=e68]:
+        - button "Retry status check" [ref=e69] [cursor=pointer]
+        - button "Export redacted diagnostics" [ref=e70] [cursor=pointer]
+        - button "Exit DBX" [ref=e71] [cursor=pointer]
+    - generic [ref=e72]:
+      - paragraph [ref=e73]: Export redacted diagnostics
+      - textbox "Export redacted diagnostics" [ref=e74]: "{ \"actionError\": \"statusFailed\", \"step\": 1, \"counts\": {}, \"errorCode\": null }"

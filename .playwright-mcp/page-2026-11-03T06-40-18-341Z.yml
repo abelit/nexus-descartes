@@ -1,0 +1,100 @@
+- generic [ref=f7e8]:
+  - generic [ref=f7e9]:
+    - link "DBX DBX" [ref=f7e10] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f7e11]: DBX
+    - button "New Connection" [ref=f7e12] [cursor=pointer]
+    - button "New Query" [ref=f7e15] [cursor=pointer]
+    - button "Data Transfer" [ref=f7e17] [cursor=pointer]
+    - button "Driver Manager" [ref=f7e19] [cursor=pointer]
+    - button "Plugin Center" [ref=f7e22] [cursor=pointer]
+    - button "More" [ref=f7e24] [cursor=pointer]
+    - button "Security governance" [ref=f7e28] [cursor=pointer]
+    - button [ref=f7e30] [cursor=pointer]
+    - button "Log out" [ref=f7e31] [cursor=pointer]
+  - generic [ref=f7e32]:
+    - generic [ref=f7e34]:
+      - generic [ref=f7e35]:
+        - button "Import / Export" [ref=f7e36] [cursor=pointer]
+        - generic [ref=f7e44]:
+          - button [ref=f7e46] [cursor=pointer]
+          - button [ref=f7e48] [cursor=pointer]
+          - button [ref=f7e50] [cursor=pointer]
+          - button [ref=f7e52] [cursor=pointer]
+      - generic [ref=f7e54]:
+        - generic [ref=f7e56]:
+          - generic [ref=f7e57]:
+            - textbox "Search..." [ref=f7e61]
+            - generic [ref=f7e62]:
+              - button "Regex search" [ref=f7e64] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f7e65]: .*
+              - switch "Local search" [ref=f7e67] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f7e69] [cursor=pointer]
+          - button "Sort and filter" [ref=f7e75] [cursor=pointer]
+          - button "Show active connections only" [ref=f7e79] [cursor=pointer]:
+            - generic [ref=f7e80]: "Active connections: 1"
+        - generic [ref=f7e83]:
+          - generic [ref=f7e86]:
+            - button [ref=f7e87] [cursor=pointer]
+            - generic [ref=f7e92]: demo-postgres
+            - button "Select connection" [ref=f7e95] [cursor=pointer]
+          - generic [ref=f7e100]:
+            - button [ref=f7e101] [cursor=pointer]
+            - generic [ref=f7e106]: demo-mysql
+            - button "Select connection" [ref=f7e110] [cursor=pointer]
+      - generic "demo-mysql" [ref=f7e113]: demo-mysql:3306
+    - generic [ref=f7e121]:
+      - generic [ref=f7e125]:
+        - button "Position, grouping, sorting" [ref=f7e126] [cursor=pointer]
+        - generic [ref=f7e131]:
+          - generic [ref=f7e133]:
+            - generic [ref=f7e140]:
+              - generic [aria-hidden] [ref=f7e141]: "*"
+              - generic [ref=f7e142]: demo-mysql
+            - button "Close Tab" [ref=f7e144] [cursor=pointer]
+          - button "Security governance" [pressed] [ref=f7e148]:
+            - button "Close" [ref=f7e153] [cursor=pointer]
+        - button "New Query" [ref=f7e158] [cursor=pointer]
+      - generic [ref=f7e161]:
+        - generic [ref=f7e163]:
+          - heading "Security governance" [level=2] [ref=f7e168]
+          - paragraph [ref=f7e169]: Approval tickets and the server-side audit trail. Entries are permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+        - generic [ref=f7e170]:
+          - button "Approvals" [pressed] [ref=f7e171] [cursor=pointer]
+          - button "Audit log" [ref=f7e175] [cursor=pointer]
+          - button "Users & roles" [ref=f7e179] [cursor=pointer]
+          - button "Policies" [ref=f7e185] [cursor=pointer]
+        - generic [ref=f7e191]:
+          - generic [ref=f7e192]:
+            - generic [ref=f7e193]:
+              - heading "Approvals" [level=3] [ref=f7e194]
+              - paragraph [ref=f7e195]: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+            - button "Refresh" [ref=f7e196] [cursor=pointer]
+          - generic [ref=f7e197]:
+            - button "My requests" [ref=f7e198] [cursor=pointer]
+            - button "Pending approval" [ref=f7e199] [cursor=pointer]
+          - button "Approval templates 1" [ref=f7e201] [cursor=pointer]:
+            - generic [ref=f7e202]: Approval templates
+            - generic [ref=f7e203]: "1"
+          - generic [ref=f7e205]:
+            - generic [ref=f7e206]:
+              - generic [ref=f7e207]: pending
+              - generic [ref=f7e208]: 9d187694-5133-4479-b40b-887aa01b2d63
+              - generic [ref=f7e209]: · 11/3/2026, 1:08:06 PM
+              - generic [ref=f7e210]: · 22222222-2222-4222-8222-222222222222 / app
+              - generic [ref=f7e211]: demo.ddl.approval
+              - generic [ref=f7e212]: Last approver executes
+            - generic [ref=f7e213]: create table abtusers_ui(name VARCHAR(50));
+            - paragraph [ref=f7e214]: UI 验收：新增用户表
+            - generic [ref=f7e215]:
+              - generic [ref=f7e216]: Step 1/2
+              - generic "@dba" [ref=f7e217]: 1 · any one · pending
+              - generic "8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c" [ref=f7e218]: 2 · all · pending
+            - generic [ref=f7e219]:
+              - generic [ref=f7e220]: 1. @dba (2 approver(s))
+              - generic [ref=f7e221]: 2. 8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c (2 approver(s))
+            - generic [ref=f7e222]:
+              - textbox "Comment (optional)" [ref=f7e223]
+              - button "Approve" [ref=f7e224] [cursor=pointer]
+              - button "Reject" [ref=f7e225] [cursor=pointer]

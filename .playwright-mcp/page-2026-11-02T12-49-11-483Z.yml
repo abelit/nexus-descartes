@@ -1,0 +1,270 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e8]:
+    - generic [ref=f2e9]:
+      - link "DBX DBX" [ref=f2e10] [cursor=pointer]:
+        - /url: https://dbxio.com
+        - img "DBX"
+        - generic [ref=f2e11]: DBX
+      - button "New Connection" [ref=f2e12] [cursor=pointer]
+      - button "New Query" [ref=f2e15] [cursor=pointer]
+      - button "Data Transfer" [ref=f2e17] [cursor=pointer]
+      - button "Driver Manager" [ref=f2e19] [cursor=pointer]
+      - button "Plugin Center" [ref=f2e22] [cursor=pointer]
+      - button "More" [ref=f2e24] [cursor=pointer]
+      - button [ref=f2e28] [cursor=pointer]
+      - button "Log out" [ref=f2e29] [cursor=pointer]
+    - generic [ref=f2e30]:
+      - generic [ref=f2e32]:
+        - generic [ref=f2e33]:
+          - button "Import / Export" [ref=f2e34] [cursor=pointer]
+          - generic [ref=f2e42]:
+            - button [ref=f2e44] [cursor=pointer]
+            - button [ref=f2e46] [cursor=pointer]
+            - button [ref=f2e48] [cursor=pointer]
+            - button [ref=f2e50] [cursor=pointer]
+        - generic [ref=f2e52]:
+          - generic [ref=f2e54]:
+            - generic [ref=f2e55]:
+              - textbox "Search..." [ref=f2e59]
+              - generic [ref=f2e60]:
+                - button "Regex search" [ref=f2e62] [cursor=pointer]:
+                  - generic [aria-hidden] [ref=f2e63]: .*
+                - switch "Local search" [ref=f2e65] [cursor=pointer]
+            - button "Locate in sidebar" [ref=f2e67] [cursor=pointer]
+            - button "Sort and filter" [ref=f2e73] [cursor=pointer]
+            - button "Show active connections only" [ref=f2e77] [cursor=pointer]:
+              - generic [ref=f2e78]: "Active connections: 0"
+          - generic [ref=f2e81]:
+            - generic [ref=f2e84]:
+              - button [ref=f2e85] [cursor=pointer]
+              - generic [ref=f2e90]: demo-postgres
+              - button "Select connection" [ref=f2e93] [cursor=pointer]
+            - generic [ref=f2e98]:
+              - button [ref=f2e99] [cursor=pointer]
+              - generic [ref=f2e104]: demo-mysql
+              - button "Select connection" [ref=f2e107] [cursor=pointer]
+      - generic [ref=f2e229]:
+        - generic [ref=f2e233]:
+          - button "Position, grouping, sorting" [ref=f2e234] [cursor=pointer]
+          - button "Settings" [pressed] [ref=f2e240]:
+            - button "Close" [ref=f2e245] [cursor=pointer]
+          - button "New Query" [ref=f2e250] [cursor=pointer]
+        - generic [ref=f2e254]:
+          - heading "Settings" [level=2] [ref=f2e256]
+          - generic [ref=f2e260]:
+            - navigation [ref=f2e261]:
+              - button "Appearance" [ref=f2e262] [cursor=pointer]
+              - button "Editor" [ref=f2e263] [cursor=pointer]
+              - button "SQL Formatter" [ref=f2e264] [cursor=pointer]
+              - button "Navigation" [ref=f2e265] [cursor=pointer]
+              - button "Data" [ref=f2e266] [cursor=pointer]
+              - button "Database Backups" [ref=f2e267] [cursor=pointer]
+              - button "Tunnels" [ref=f2e268] [cursor=pointer]
+              - button "Shortcuts" [ref=f2e269] [cursor=pointer]
+              - button "Snippets" [ref=f2e270] [cursor=pointer]
+              - button "Sync" [ref=f2e271] [cursor=pointer]
+              - button "AI" [ref=f2e272] [cursor=pointer]
+              - button "MCP" [ref=f2e273] [cursor=pointer]
+              - button "Update Management" [ref=f2e274] [cursor=pointer]
+              - button "Security" [ref=f2e275] [cursor=pointer]
+              - button "About" [ref=f2e276] [cursor=pointer]
+            - generic [ref=f2e277]:
+              - combobox "Search settings" [active] [ref=f2e280]
+              - generic [ref=f2e282]:
+                - generic [ref=f2e283]:
+                  - generic [ref=f2e284]:
+                    - generic [ref=f2e285]: Language / 语言
+                    - combobox "Language / 语言" [ref=f2e287] [cursor=pointer]:
+                      - generic: English
+                  - generic [ref=f2e288]:
+                    - generic [ref=f2e289]: Color Theme
+                    - combobox [ref=f2e293] [cursor=pointer]:
+                      - generic: White
+                  - generic [ref=f2e294]:
+                    - generic [ref=f2e296]:
+                      - generic [ref=f2e297] [cursor=pointer]: UI Scale
+                      - button "UI Scale" [ref=f2e299]
+                    - combobox [ref=f2e303] [cursor=pointer]:
+                      - generic: 100%
+                - generic [ref=f2e304]:
+                  - generic [ref=f2e305]:
+                    - generic [ref=f2e306] [cursor=pointer]: Smooth fonts
+                    - button "Smooth fonts" [ref=f2e308]
+                  - switch "Smooth fonts" [ref=f2e312] [cursor=pointer]
+                - generic [ref=f2e313]:
+                  - generic [ref=f2e314]:
+                    - generic [ref=f2e315]:
+                      - generic [ref=f2e316] [cursor=pointer]: Interface Font
+                      - button "Interface Font" [ref=f2e318]
+                    - button "DBX Default" [ref=f2e322] [cursor=pointer]
+                  - generic [ref=f2e324]:
+                    - generic [ref=f2e325]:
+                      - generic [ref=f2e326] [cursor=pointer]: Result Grid Font
+                      - button "Result Grid Font" [ref=f2e328]
+                    - button "Geist Variable Tabular" [ref=f2e332] [cursor=pointer]
+                - generic [ref=f2e334]:
+                  - generic [ref=f2e335]:
+                    - generic [ref=f2e336] [cursor=pointer]: Theme
+                    - generic [ref=f2e337]:
+                      - button "Light" [ref=f2e338] [cursor=pointer]
+                      - button "Dark" [ref=f2e339] [cursor=pointer]
+                      - button "Follow System" [ref=f2e340] [cursor=pointer]
+                  - generic [ref=f2e341]:
+                    - generic [ref=f2e342] [cursor=pointer]: Corner style
+                    - generic [ref=f2e343]:
+                      - button "Square" [ref=f2e344] [cursor=pointer]
+                      - button "Small" [ref=f2e345] [cursor=pointer]
+                      - button "Large" [ref=f2e346] [cursor=pointer]
+                - generic [ref=f2e347]:
+                  - generic [ref=f2e348] [cursor=pointer]: Interface Layout
+                  - generic [ref=f2e349]:
+                    - button "Modern separated Clear panel separation with block-style tabs." [ref=f2e350] [cursor=pointer]:
+                      - generic [ref=f2e351]:
+                        - generic [ref=f2e352]: Modern separated
+                        - generic [ref=f2e353]: Clear panel separation with block-style tabs.
+                    - button "Classic compact Continuous tab bar with compact panel headers." [ref=f2e354] [cursor=pointer]:
+                      - generic [ref=f2e355]:
+                        - generic [ref=f2e356]: Classic compact
+                        - generic [ref=f2e357]: Continuous tab bar with compact panel headers.
+                - generic [ref=f2e358]:
+                  - generic [ref=f2e359] [cursor=pointer]: Tab bar overflow
+                  - generic [ref=f2e360]:
+                    - button "Single row scroll Tabs scroll horizontally in one row when overflowing." [ref=f2e361] [cursor=pointer]:
+                      - generic [ref=f2e362]:
+                        - generic [ref=f2e363]: Single row scroll
+                        - generic [ref=f2e364]: Tabs scroll horizontally in one row when overflowing.
+                    - button "Multi-row wrap Tabs wrap to multiple rows to show all at once." [ref=f2e365] [cursor=pointer]:
+                      - generic [ref=f2e366]:
+                        - generic [ref=f2e367]: Multi-row wrap
+                        - generic [ref=f2e368]: Tabs wrap to multiple rows to show all at once.
+                - generic [ref=f2e370]:
+                  - generic [ref=f2e371]:
+                    - generic [ref=f2e372]:
+                      - generic [ref=f2e373] [cursor=pointer]: Color tabs by connection
+                      - paragraph [ref=f2e374]: Use each connection’s configured color for editor tabs.
+                    - switch "Color tabs by connection" [checked] [ref=f2e375] [cursor=pointer]
+                  - generic [ref=f2e376]:
+                    - generic [ref=f2e377]:
+                      - generic [ref=f2e378] [cursor=pointer]: Tab color scope
+                      - paragraph [ref=f2e379]: Choose whether connection colors apply to all tabs or only the active tab.
+                    - combobox "Tab color scope" [ref=f2e380] [cursor=pointer]:
+                      - generic: All tabs
+                - generic [ref=f2e381]:
+                  - generic [ref=f2e382]:
+                    - generic [ref=f2e383]:
+                      - generic [ref=f2e384] [cursor=pointer]: Tab bar position
+                      - combobox [ref=f2e385] [cursor=pointer]:
+                        - generic: Top
+                    - generic [ref=f2e386]:
+                      - generic [ref=f2e387] [cursor=pointer]: Group by
+                      - combobox [ref=f2e388] [cursor=pointer]:
+                        - generic: No grouping
+                    - generic [ref=f2e389]:
+                      - generic [ref=f2e390] [cursor=pointer]: Group rows
+                      - combobox [ref=f2e391] [cursor=pointer]:
+                        - generic: Single row
+                    - generic [ref=f2e392]:
+                      - generic [ref=f2e393] [cursor=pointer]: Sort by
+                      - combobox [ref=f2e394] [cursor=pointer]:
+                        - generic: Manual order
+                    - generic [ref=f2e395]:
+                      - generic [ref=f2e396] [cursor=pointer]: Maximum tab width
+                      - combobox [ref=f2e397] [cursor=pointer]:
+                        - generic: Unlimited (adaptive)
+                  - generic [ref=f2e398]:
+                    - paragraph [ref=f2e399]: Side tab bars scroll vertically; multi-row wrapping applies only above or below content.
+                    - paragraph [ref=f2e400]: Grouping and sorting affect only the displayed order. Dragging is available in manual order.
+                    - paragraph [ref=f2e401]: "Only applies to a top or bottom tab bar with grouping enabled: groups get their own row and the selected group's tabs appear on the next row."
+                    - paragraph [ref=f2e402]: Limit the maximum width of horizontal tabs, truncating long titles with ellipsis. Hover to view the full title.
+                - generic [ref=f2e403]:
+                  - generic [ref=f2e404]:
+                    - generic [ref=f2e405] [cursor=pointer]: Home page
+                    - button "Home page" [ref=f2e407]
+                  - generic [ref=f2e411]:
+                    - button "DBX introduction Show a clean overview without connection names, counts, or query history." [ref=f2e412] [cursor=pointer]:
+                      - generic [ref=f2e413]:
+                        - generic [ref=f2e414]: DBX introduction
+                        - generic [ref=f2e415]: Show a clean overview without connection names, counts, or query history.
+                    - button "Workspace overview Show connection statistics, quick connections, and saved SQL history." [pressed] [ref=f2e416] [cursor=pointer]:
+                      - generic [ref=f2e417]:
+                        - generic [ref=f2e418]: Workspace overview
+                        - generic [ref=f2e419]: Show connection statistics, quick connections, and saved SQL history.
+                - generic [ref=f2e420]:
+                  - generic [ref=f2e421] [cursor=pointer]: Icon and logo style
+                  - generic [ref=f2e422]:
+                    - button "DBX Default Use the color DBX app icon." [ref=f2e423] [cursor=pointer]:
+                      - generic [ref=f2e424]:
+                        - img "DBX" [ref=f2e425]
+                        - generic [ref=f2e426]:
+                          - generic [ref=f2e427]: Default
+                          - generic [ref=f2e428]: Use the color DBX app icon.
+                    - button "DBX Black Use the black DBX logo in the app." [ref=f2e429] [cursor=pointer]:
+                      - generic [ref=f2e430]:
+                        - img "DBX" [ref=f2e431]
+                        - generic [ref=f2e432]:
+                          - generic [ref=f2e433]: Black
+                          - generic [ref=f2e434]: Use the black DBX logo in the app.
+                - generic [ref=f2e435]:
+                  - generic [ref=f2e436]:
+                    - generic [ref=f2e437] [cursor=pointer]: Toolbar
+                    - button "Toolbar" [ref=f2e439]
+                  - generic [ref=f2e443]:
+                    - generic [ref=f2e444]:
+                      - generic [ref=f2e445] [cursor=pointer]: Web Logo Position
+                      - paragraph [ref=f2e446]: Change where the DBX logo appears in the web toolbar, or hide it to free up space on the left.
+                    - combobox "Web Logo Position" [ref=f2e447] [cursor=pointer]:
+                      - generic: Left (Default)
+                  - generic [ref=f2e448]:
+                    - generic [ref=f2e449]:
+                      - generic [ref=f2e450] [cursor=pointer]: Show one right sidebar panel at a time
+                      - paragraph [ref=f2e451]: Opening a right sidebar panel closes the others. Disable this to allow multiple panels.
+                    - switch "Show one right sidebar panel at a time" [checked] [ref=f2e452] [cursor=pointer]
+                  - generic [ref=f2e453]:
+                    - generic [ref=f2e454]:
+                      - switch "Data Transfer" [checked] [ref=f2e455] [cursor=pointer]
+                      - generic [ref=f2e456] [cursor=pointer]: Data Transfer
+                    - generic [ref=f2e457]:
+                      - switch "Driver Manager" [checked] [ref=f2e458] [cursor=pointer]
+                      - generic [ref=f2e459] [cursor=pointer]: Driver Manager
+                    - generic [ref=f2e460]:
+                      - switch "Plugin Center" [checked] [ref=f2e461] [cursor=pointer]
+                      - generic [ref=f2e462] [cursor=pointer]: Plugin Center
+                    - generic [ref=f2e463]:
+                      - switch "Execute SQL File" [checked] [ref=f2e464] [cursor=pointer]
+                      - generic [ref=f2e465] [cursor=pointer]: Execute SQL File
+                    - generic [ref=f2e466]:
+                      - switch "Compare Schemas" [checked] [ref=f2e467] [cursor=pointer]
+                      - generic [ref=f2e468] [cursor=pointer]: Compare Schemas
+                    - generic [ref=f2e469]:
+                      - switch "Compare Data" [checked] [ref=f2e470] [cursor=pointer]
+                      - generic [ref=f2e471] [cursor=pointer]: Compare Data
+                    - generic [ref=f2e472]:
+                      - switch "Check for updates" [checked] [ref=f2e473] [cursor=pointer]
+                      - generic [ref=f2e474] [cursor=pointer]: Check for updates
+                    - generic [ref=f2e475]:
+                      - switch "SQL Library" [checked] [ref=f2e476] [cursor=pointer]
+                      - generic [ref=f2e477] [cursor=pointer]: SQL Library
+                    - generic [ref=f2e478]:
+                      - switch "SQL Files" [checked] [ref=f2e479] [cursor=pointer]
+                      - generic [ref=f2e480] [cursor=pointer]: SQL Files
+                    - generic [ref=f2e481]:
+                      - switch "History" [checked] [ref=f2e482] [cursor=pointer]
+                      - generic [ref=f2e483] [cursor=pointer]: History
+                    - generic [ref=f2e484]:
+                      - switch "AI" [checked] [ref=f2e485] [cursor=pointer]
+                      - generic [ref=f2e486] [cursor=pointer]: AI
+                    - generic [ref=f2e487]:
+                      - switch "Theme" [checked] [ref=f2e488] [cursor=pointer]
+                      - generic [ref=f2e489] [cursor=pointer]: Theme
+                    - generic [ref=f2e490]:
+                      - switch "GitHub" [checked] [ref=f2e491] [cursor=pointer]
+                      - generic [ref=f2e492] [cursor=pointer]: GitHub
+                    - generic [ref=f2e493]:
+                      - switch "Sync now" [ref=f2e494] [cursor=pointer]
+                      - generic [ref=f2e495] [cursor=pointer]: Sync now
+          - generic [ref=f2e496]:
+            - button "Reset Defaults" [ref=f2e497] [cursor=pointer]
+            - button "Close" [ref=f2e498] [cursor=pointer]
+            - button "Apply" [disabled]
+            - button "Apply and Close" [ref=f2e499] [cursor=pointer]
+  - generic [ref=f2e500]: "Failed to load the MCP access policy: admin:settings is required for GET app-settings/mcp-policy"

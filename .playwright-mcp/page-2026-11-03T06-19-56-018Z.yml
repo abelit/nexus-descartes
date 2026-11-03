@@ -1,0 +1,167 @@
+- generic [ref=f3e29]:
+  - generic [ref=f3e30]:
+    - link "DBX DBX" [ref=f3e31] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=f3e32]: DBX
+    - button "New Connection" [ref=f3e33] [cursor=pointer]
+    - button "New Query" [ref=f3e36] [cursor=pointer]
+    - button "Data Transfer" [ref=f3e38] [cursor=pointer]
+    - button "Driver Manager" [ref=f3e40] [cursor=pointer]
+    - button "Plugin Center" [ref=f3e43] [cursor=pointer]
+    - button "More" [active] [ref=f3e45] [cursor=pointer]
+    - button "Security governance" [ref=f3e49] [cursor=pointer]
+    - button [ref=f3e50] [cursor=pointer]
+    - button "Log out" [ref=f3e51] [cursor=pointer]
+  - generic [ref=f3e52]:
+    - generic [ref=f3e54]:
+      - generic [ref=f3e55]:
+        - button "Import / Export" [ref=f3e56] [cursor=pointer]
+        - generic [ref=f3e64]:
+          - button [ref=f3e66] [cursor=pointer]
+          - button [ref=f3e68] [cursor=pointer]
+          - button [ref=f3e70] [cursor=pointer]
+          - button [ref=f3e72] [cursor=pointer]
+      - generic [ref=f3e74]:
+        - generic [ref=f3e76]:
+          - generic [ref=f3e77]:
+            - textbox "Search..." [ref=f3e81]
+            - generic [ref=f3e82]:
+              - button "Regex search" [ref=f3e84] [cursor=pointer]:
+                - generic [aria-hidden] [ref=f3e85]: .*
+              - switch "Local search" [ref=f3e87] [cursor=pointer]
+          - button "Locate in sidebar" [ref=f3e89] [cursor=pointer]
+          - button "Sort and filter" [ref=f3e95] [cursor=pointer]
+          - button "Show active connections only" [ref=f3e99] [cursor=pointer]:
+            - generic [ref=f3e100]: "Active connections: 1"
+        - generic [ref=f3e103]:
+          - generic [ref=f3e106]:
+            - button [ref=f3e107] [cursor=pointer]
+            - generic [ref=f3e112]: demo-postgres
+            - button "Select connection" [ref=f3e115] [cursor=pointer]
+          - generic [ref=f3e120]:
+            - button [ref=f3e121] [cursor=pointer]
+            - generic [ref=f3e126]: demo-mysql
+            - button "Select connection" [ref=f3e130] [cursor=pointer]
+      - generic "demo-mysql" [ref=f3e133]: demo-mysql:3306
+    - generic [ref=f3e223]:
+      - generic [ref=f3e151]:
+        - button "Position, grouping, sorting" [ref=f3e152] [cursor=pointer]
+        - generic [ref=f3e157]:
+          - generic [ref=f3e159]:
+            - generic [ref=f3e166]:
+              - generic [aria-hidden] [ref=f3e167]: "*"
+              - generic [ref=f3e168]: demo-mysql
+            - button "Close Tab" [ref=f3e170] [cursor=pointer]
+          - button "Security governance" [pressed] [ref=f3e226]:
+            - button "Close" [ref=f3e231] [cursor=pointer]
+        - button "New Query" [ref=f3e175] [cursor=pointer]
+      - generic [ref=f3e236]:
+        - generic [ref=f3e238]:
+          - heading "Security governance" [level=2] [ref=f3e243]
+          - paragraph [ref=f3e244]: Approval tickets and the server-side audit trail. Entries are permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+        - button "Approvals" [pressed] [ref=f3e246] [cursor=pointer]
+        - generic [ref=f3e251]:
+          - generic [ref=f3e252]:
+            - generic [ref=f3e253]:
+              - heading "Approvals" [level=3] [ref=f3e254]
+              - paragraph [ref=f3e255]: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+            - button "Refresh" [ref=f3e256] [cursor=pointer]
+          - generic [ref=f3e257]:
+            - button "My requests" [ref=f3e258] [cursor=pointer]
+            - button "Pending approval" [ref=f3e259] [cursor=pointer]
+          - button "Approval templates 1" [ref=f3e261] [cursor=pointer]:
+            - generic [ref=f3e262]: Approval templates
+            - generic [ref=f3e263]: "1"
+          - generic [ref=f3e264]:
+            - generic [ref=f3e265]:
+              - generic [ref=f3e266]:
+                - generic [ref=f3e267]: executed
+                - generic [ref=f3e268]: 9d187694-5133-4479-b40b-887aa01b2d63
+                - generic [ref=f3e269]: · 11/3/2026, 1:47:40 PM
+                - generic [ref=f3e270]: · 22222222-2222-4222-8222-222222222222 / app
+                - generic [ref=f3e271]: demo.ddl.approval
+                - generic [ref=f3e272]: Auto execute
+                - generic [ref=f3e273]: Executed by system:auto
+              - generic [ref=f3e274]: create table testusers(name VARCHAR(30));
+              - paragraph [ref=f3e275]: 业务需要
+              - generic [ref=f3e276]:
+                - generic [ref=f3e277]: Step 2/2
+                - generic "@dba" [ref=f3e278]: 1 · any one · approved
+                - generic "8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c" [ref=f3e279]: 2 · all · approved
+              - generic [ref=f3e280]:
+                - generic [ref=f3e281]: 1. @dba (2 approver(s)) · 8739ab6c-0da8-422c-8be8-c526592f1ada
+                - generic [ref=f3e282]: 2. 8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c (2 approver(s)) · e7b905c0-5b64-4be1-86a2-466a7d955b6c
+            - generic [ref=f3e283]:
+              - generic [ref=f3e284]:
+                - generic [ref=f3e285]: pending
+                - generic [ref=f3e286]: 9d187694-5133-4479-b40b-887aa01b2d63
+                - generic [ref=f3e287]: · 11/3/2026, 1:08:06 PM
+                - generic [ref=f3e288]: · 22222222-2222-4222-8222-222222222222 / app
+                - generic [ref=f3e289]: demo.ddl.approval
+                - generic [ref=f3e290]: Last approver executes
+              - generic [ref=f3e291]: create table abtusers_ui(name VARCHAR(50));
+              - paragraph [ref=f3e292]: UI 验收：新增用户表
+              - generic [ref=f3e293]:
+                - generic [ref=f3e294]: Step 1/2
+                - generic "@dba" [ref=f3e295]: 1 · any one · pending
+                - generic "8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c" [ref=f3e296]: 2 · all · pending
+              - generic [ref=f3e297]:
+                - generic [ref=f3e298]: 1. @dba (2 approver(s))
+                - generic [ref=f3e299]: 2. 8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c (2 approver(s))
+            - generic [ref=f3e300]:
+              - generic [ref=f3e301]:
+                - generic [ref=f3e302]: executed
+                - generic [ref=f3e303]: 9d187694-5133-4479-b40b-887aa01b2d63
+                - generic [ref=f3e304]: · 11/3/2026, 1:06:35 PM
+                - generic [ref=f3e305]: · 22222222-2222-4222-8222-222222222222 / app
+                - generic [ref=f3e306]: demo.ddl.approval
+                - generic [ref=f3e307]: Last approver executes
+                - generic [ref=f3e308]: Executed by 8739ab6c-0da8-422c-8be8-c526592f1ada
+              - generic [ref=f3e309]: create table abtusers(name VARCHAR(50))
+              - paragraph [ref=f3e310]: 客户要求新增用户表
+              - generic [ref=f3e311]:
+                - generic [ref=f3e312]: Step 2/2
+                - generic "@dba" [ref=f3e313]: 1 · any one · approved
+                - generic "8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c" [ref=f3e314]: 2 · all · approved
+              - generic [ref=f3e315]:
+                - generic [ref=f3e316]: "1. @dba (2 approver(s)) · e7b905c0-5b64-4be1-86a2-466a7d955b6c: 同意变更"
+                - generic [ref=f3e317]: "2. 8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c (2 approver(s)) · 8739ab6c-0da8-422c-8be8-c526592f1ada: 最终批准"
+            - generic [ref=f3e318]:
+              - generic [ref=f3e319]:
+                - generic [ref=f3e320]: approved
+                - generic [ref=f3e321]: 9d187694-5133-4479-b40b-887aa01b2d63
+                - generic [ref=f3e322]: · 11/2/2026, 11:45:41 PM
+                - generic [ref=f3e323]: · 11111111-1111-4111-8111-111111111111 / app
+                - generic [ref=f3e324]: demo.ddl.approval
+                - generic [ref=f3e325]: Submitter executes
+              - generic [ref=f3e326]: create table if not exists demo_check(id int)
+              - paragraph [ref=f3e327]: acceptance demo
+              - generic [ref=f3e328]:
+                - generic [ref=f3e329]: Step 2/2
+                - generic "@dba" [ref=f3e330]: 1 · any one · approved
+                - generic "8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c" [ref=f3e331]: 2 · all · approved
+              - generic [ref=f3e332]:
+                - generic [ref=f3e333]: 1. @dba (2 approver(s)) · e7b905c0-5b64-4be1-86a2-466a7d955b6c
+                - generic [ref=f3e334]: 2. 8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c (2 approver(s)) · 8739ab6c-0da8-422c-8be8-c526592f1ada
+              - generic [ref=f3e335]:
+                - button "Execute request" [ref=f3e336] [cursor=pointer]
+                - button "Get execution token" [ref=f3e337] [cursor=pointer]
+            - generic [ref=f3e338]:
+              - generic [ref=f3e339]:
+                - generic [ref=f3e340]: executed
+                - generic [ref=f3e341]: 9d187694-5133-4479-b40b-887aa01b2d63
+                - generic [ref=f3e342]: · 11/2/2026, 11:44:35 PM
+                - generic [ref=f3e343]: · 11111111-1111-4111-8111-111111111111 / app
+                - generic [ref=f3e344]: demo.ddl.approval
+                - generic [ref=f3e345]: Submitter executes
+                - generic [ref=f3e346]: Executed by 9d187694-5133-4479-b40b-887aa01b2d63
+              - generic [ref=f3e347]: create table if not exists demo_check(id int)
+              - paragraph [ref=f3e348]: acceptance demo
+              - generic [ref=f3e349]:
+                - generic [ref=f3e350]: Step 2/2
+                - generic "@dba" [ref=f3e351]: 1 · any one · approved
+                - generic "8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c" [ref=f3e352]: 2 · all · approved
+              - generic [ref=f3e353]:
+                - generic [ref=f3e354]: "1. @dba (2 approver(s)) · e7b905c0-5b64-4be1-86a2-466a7d955b6c: ok1"
+                - generic [ref=f3e355]: "2. 8739ab6c-0da8-422c-8be8-c526592f1ada, e7b905c0-5b64-4be1-86a2-466a7d955b6c (2 approver(s)) · 8739ab6c-0da8-422c-8be8-c526592f1ada: ok3"

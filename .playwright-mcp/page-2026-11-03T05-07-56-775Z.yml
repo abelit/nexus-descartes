@@ -1,0 +1,219 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic [aria-hidden]:
+          - link:
+            - /url: https://dbxio.com
+            - generic: DBX
+          - button:
+            - generic: New Connection
+          - button:
+            - generic: New Query
+          - button:
+            - generic: Data Transfer
+          - button:
+            - generic: Driver Manager
+          - generic:
+            - button:
+              - generic: Plugin Center
+          - button:
+            - generic: More
+          - button
+          - button
+        - generic:
+          - generic:
+            - generic:
+              - generic [aria-hidden]:
+                - button:
+                  - generic: Import / Export
+                - generic:
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [aria-hidden]:
+                        - textbox:
+                          - /placeholder: Search...
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic [aria-hidden]: .*
+                          - generic:
+                            - switch
+                      - generic [aria-hidden]:
+                        - button
+                      - generic [aria-hidden]:
+                        - generic:
+                          - button
+                      - generic:
+                        - button "Show active connections only":
+                          - generic: "Active connections: 1"
+                  - generic [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-postgres
+                              - button
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-mysql
+                              - button
+              - generic [aria-hidden]:
+                - generic: demo-mysql:3306
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic [aria-hidden]:
+                                  - generic:
+                                    - button
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]: "*"
+                                                  - generic: demo-mysql
+                                                - button
+                                    - button
+                                - generic:
+                                  - generic [aria-hidden]:
+                                    - generic:
+                                      - button
+                                      - button
+                                      - button
+                                      - button
+                                      - button:
+                                        - generic: A
+                                      - button
+                                      - button
+                                      - group:
+                                        - button:
+                                          - generic [aria-hidden]:
+                                            - generic: "Tx:"
+                                            - generic: A
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - button:
+                                            - generic: demo-mysql
+                                      - generic:
+                                        - button:
+                                          - generic: app
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]:
+                                                    - generic [aria-hidden]:
+                                                      - generic:
+                                                        - generic:
+                                                          - button
+                                                      - generic: "1"
+                                                    - textbox:
+                                                      - generic: create table abtusers_ui(name VARCHAR(50));
+                        - separator [aria-hidden]
+                        - generic [aria-hidden]:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - button
+                                        - button
+                                        - group:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - button [pressed]:
+                                                  - generic: Result 1
+                                        - generic:
+                                          - button:
+                                            - generic: Columns
+                                          - generic:
+                                            - button: Go to column
+                                          - button
+                                          - generic:
+                                            - button
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - button [pressed]:
+                                                  - generic: Table Data
+                                                - generic:
+                                                  - button
+                                                - generic:
+                                                  - button [disabled]
+                                                - generic:
+                                                  - button [disabled]
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - button [disabled]
+                                                - generic:
+                                                  - button
+                                              - button
+                                              - button
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic: Query Error
+                                                  - generic: "Backend returned an error. POLICY_APPROVAL_REQUIRED: 1 statement(s) require approval (rules demo.ddl.approval)"
+                                                - generic:
+                                                  - button: Copy
+                                                  - button: Fix with AI
+  - dialog [ref=f1e328]:
+    - paragraph [ref=f1e329]
+    - heading "Request approval" [level=2] [ref=f1e331]
+    - generic [ref=f1e332]:
+      - paragraph [ref=f1e333]: A high-risk rule paused this statement. Submit a request; an approver can then review exactly this connection, database, schema, and SQL.
+      - generic [ref=f1e334]:
+        - generic [ref=f1e335]: "Target: demo-mysql · app"
+        - generic [ref=f1e336]: "Matched rule: POLICY_APPROVAL_REQUIRED: 1 statement(s) require approval (rules demo.ddl.approval)"
+      - generic [ref=f1e337]: create table abtusers_ui(name VARCHAR(50));
+      - generic [ref=f1e338] [cursor=pointer]:
+        - text: Justification
+        - textbox "Justification" [active] [ref=f1e339]:
+          - /placeholder: Why is this change needed?
+      - generic [ref=f1e340] [cursor=pointer]:
+        - text: After approval
+        - combobox "After approval" [ref=f1e341]:
+          - option "Last approver executes" [selected]
+          - option "Submitter executes"
+          - option "Auto execute"
+    - generic [ref=f1e342]:
+      - button "Cancel" [ref=f1e343] [cursor=pointer]
+      - button "Submit request" [ref=f1e344] [cursor=pointer]
+    - button "Close" [ref=f1e345] [cursor=pointer]

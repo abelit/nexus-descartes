@@ -1,0 +1,13 @@
+- generic [ref=f5e8]:
+  - generic [ref=f5e9]:
+    - img "DBX" [ref=f5e10]
+    - generic [ref=f5e11]:
+      - heading "DBX" [level=1] [ref=f5e12]
+      - paragraph [ref=f5e13]: Database management tool
+  - generic [ref=f5e14]:
+    - 'textbox "Email (default: admin)" [ref=f5e19]'
+    - generic [ref=f5e24]:
+      - textbox "Enter access password" [active] [ref=f5e25]
+      - button "Show password" [ref=f5e26] [cursor=pointer]
+    - button "Login" [disabled]
+  - paragraph [ref=f5e30]: Powered by DBX
