@@ -12,9 +12,10 @@ pnpm vitest run src/components/settings/__tests__/settingsSearchCoverage.spec.ts
 ```
 
 The resolver tests cover table/schema/database coverage, permission
-implication (`query:write` implies read), global roles, and table patterns.
-The identity tests cover migration idempotence, legacy equivalence, expiry,
-session revocation, and scoped permission resolution.
+implication (`query:write` implies read), global roles, table patterns, and
+risk-based statement denial (including fail-closed unproven SQL). The identity
+tests cover scoped permission resolution, expiry, and session revocation; a
+dedicated migration-idempotence test is still pending.
 
 ## Manual acceptance
 

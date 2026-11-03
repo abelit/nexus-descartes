@@ -48,9 +48,11 @@ Issue: enterprise access governance, asset-level grants. Tracking plan:
 
 `permits(connection, database, schema, table, permission)` returns the matching
 grant ids and whether coverage is broad. `authorize_statements` classifies each
-statement with `sql_risk` and `sql_analysis`, tracks `USE`, and requires every
-referenced object to be covered. `INSERT ... SELECT` needs write on the target
-and read on the sources.
+statement with `sql_risk` and `sql_analysis` and requires every referenced
+object to be covered by the statement's risk permission. This is conservative:
+`INSERT ... SELECT` needs write on both the target and its sources. Scripts that
+may switch databases (`USE`) require a connection-level grant before a SQL file
+runs, and each statement is then re-checked by risk.
 
 ## Data paths
 
