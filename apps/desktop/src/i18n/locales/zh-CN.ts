@@ -9969,9 +9969,11 @@ export default withEnglishFallback({
   },
   governance: {
     title: "安全治理",
-    description: "审批工单与服务端审计日志。入口按权限显示；审批始终绑定审核时的 SQL、连接和规则。",
+    description: "审批工单、服务端审计日志、用户与角色、策略规则。所有视图按权限显示；审批始终绑定审核时的 SQL、连接和规则。",
     approvals: "审批中心",
     audit: "审计日志",
+    users: "用户与角色",
+    policies: "策略规则",
     openSecuritySettings: "用户、角色与策略",
     openGovernance: "打开安全治理",
     noPermission: "当前角色没有访问该治理视图的权限。",

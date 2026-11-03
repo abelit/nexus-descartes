@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Check, Copy, KeyRound, LoaderCircle, Play, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +12,14 @@ import * as approvalsApi from "@/lib/backend/approvals";
 import type { ApprovalStep, ApprovalRequest, ApprovalTemplate } from "@/lib/backend/approvals";
 import { useConnectionStore } from "@/stores/connectionStore";
 
+const props = defineProps<{ focusRequestId?: string; initialScope?: "mine" | "pending" }>();
+
 const { t } = useI18n();
 const { toast } = useToast();
 const connectionStore = useConnectionStore();
 
-const scope = ref<"mine" | "pending">("mine");
+const scope = ref<"mine" | "pending">(props.focusRequestId ? "pending" : (props.initialScope ?? "mine"));
+const focusedRequestId = ref(props.focusRequestId ?? "");
 const requests = ref<ApprovalRequest[]>([]);
 const templates = ref<ApprovalTemplate[]>([]);
 const comments = ref<Record<string, string>>({});
@@ -33,12 +36,36 @@ const templateBusy = ref(false);
 
 const empty = computed(() => !loading.value && requests.value.length === 0);
 
+watch(
+  () => props.focusRequestId,
+  (requestId) => {
+    if (!requestId) return;
+    focusedRequestId.value = requestId;
+    if (!requests.value.some((request) => request.id === requestId)) {
+      scope.value = "pending";
+      void refresh();
+    }
+  },
+);
+
 async function refresh() {
   loading.value = true;
   error.value = "";
   try {
     requests.value = await approvalsApi.listApprovals(scope.value === "mine" ? { mine: true } : { status: "pending", assigned: true });
+    if (focusedRequestId.value && !requests.value.some((request) => request.id === focusedRequestId.value)) {
+      try {
+        const detail = await approvalsApi.getApproval(focusedRequestId.value);
+        if (detail) requests.value = [detail];
+      } catch {
+        // The request may not be visible from this role; keep the normal list.
+      }
+    }
     templates.value = await approvalsApi.listApprovalTemplates();
+    await nextTick();
+    if (focusedRequestId.value) {
+      document.querySelector<HTMLElement>(`[data-approval-request-id="${focusedRequestId.value}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
   } catch (loadError) {
     error.value = formatError(loadError);
     requests.value = [];
@@ -264,7 +291,7 @@ onMounted(() => {
     </div>
 
     <div class="space-y-2">
-      <div v-for="request in requests" :key="request.id" class="space-y-2 rounded-lg border border-border/60 p-3">
+      <div v-for="request in requests" :key="request.id" :data-approval-request-id="request.id" class="space-y-2 rounded-lg border p-3 transition-shadow" :class="focusedRequestId === request.id ? 'border-primary bg-primary/5 ring-2 ring-primary/40' : 'border-border/60'">
         <div class="flex flex-wrap items-center gap-2">
           <Badge variant="outline" :class="statusClass(request.status)">{{ request.status }}</Badge>
           <span class="text-xs text-muted-foreground">{{ request.requester_id }}</span>
@@ -295,7 +322,7 @@ onMounted(() => {
             <span v-if="step.decided_by" class="ml-1"> · {{ step.decided_by }}{{ step.comment ? `: ${step.comment}` : "" }} </span>
           </div>
         </div>
-        <div v-if="request.status === 'pending' && scope === 'pending'" class="flex flex-wrap items-center gap-1.5">
+        <div v-if="request.status === 'pending' && (scope === 'pending' || focusedRequestId === request.id)" class="flex flex-wrap items-center gap-1.5">
           <Input v-model="comments[request.id]" class="h-7 flex-1 text-xs" :placeholder="t('settings.approvals.commentHint')" />
           <Button variant="outline" size="sm" class="gap-1" :disabled="busyId === request.id" @click="decide(request, 'approve')">
             <Check class="h-3.5 w-3.5" />
@@ -306,7 +333,7 @@ onMounted(() => {
             {{ t("settings.approvals.reject") }}
           </Button>
         </div>
-        <div v-if="request.status === 'approved' && scope === 'mine'" class="flex justify-end gap-1.5">
+        <div v-if="request.status === 'approved' && (scope === 'mine' || focusedRequestId === request.id)" class="flex justify-end gap-1.5">
           <Button v-if="request.execution_mode === 'submitter'" size="sm" class="gap-1" :disabled="busyId === request.id" @click="execute(request)">
             <Play class="h-3.5 w-3.5" />
             {{ t("settings.approvals.executeNow") }}

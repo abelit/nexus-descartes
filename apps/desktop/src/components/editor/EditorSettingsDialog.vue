@@ -347,8 +347,6 @@ import { DEFAULT_SQL_SNIPPETS } from "@/lib/sql/sqlCompletion";
 import AiProviderLogo from "@/components/icons/AiProviderLogo.vue";
 import AppLogo from "@/components/icons/AppLogo.vue";
 import ChangelogPanel from "@/components/settings/ChangelogPanel.vue";
-import UsersRoles from "@/components/security/UsersRoles.vue";
-import PolicyEditor from "@/components/security/PolicyEditor.vue";
 import SettingsTransferPanel from "@/components/settings/SettingsTransferPanel.vue";
 import McpCapabilityBrowser from "@/components/settings/McpCapabilityBrowser.vue";
 import McpPluginToolsModeSetting from "@/components/settings/McpPluginToolsModeSetting.vue";
@@ -588,8 +586,7 @@ const props = defineProps<{
   mcpUpdateAvailable?: boolean;
   pluginUpdateCount?: number;
   showGovernanceLink?: boolean;
-  showUsersRoles?: boolean;
-  showPolicies?: boolean;
+  governanceTabs?: ("approvals" | "audit" | "users" | "policies")[];
 }>();
 
 const emit = defineEmits<{
@@ -602,7 +599,7 @@ const emit = defineEmits<{
   "open-mcp-settings": [];
   "open-update-center": [];
   "ai-config-deep-link-handled": [];
-  "open-governance": [];
+  "open-governance": [tab?: "approvals" | "audit" | "users" | "policies"];
   logout: [];
 }>();
 
@@ -3813,20 +3810,28 @@ let settingsSearchHighlightTimer: ReturnType<typeof window.setTimeout> | null = 
 let settingsSearchHighlightAnimationHandler: ((event: AnimationEvent) => void) | null = null;
 const settingsSearchHighlightClasses = ["rounded-md", "bg-primary/5", "transition-[box-shadow,background-color]", "duration-200", "settings-search-highlight-breathe"];
 
-const settingsSearchCategoryLabels = computed(() => Object.fromEntries(settingsCategoryNav.value.map((category) => [category.value, category.label])) as Record<SettingsCategory, string>);
-const settingsSearchEntries = computed(() =>
-  resolveSettingsSearchEntries(
+const settingsSearchCategoryLabels = computed(
+  () =>
+    ({
+      ...Object.fromEntries(settingsCategoryNav.value.map((category) => [category.value, category.label])),
+      governance: t("governance.title"),
+    }) as Record<SettingsCategory, string>,
+);
+const settingsSearchEntries = computed(() => {
+  const entries = resolveSettingsSearchEntries(
     [...SETTINGS_SEARCH_DEFINITIONS, ...createShortcutSettingsSearchDefinitions(SHORTCUT_DEFINITIONS)],
     {
       isWeb,
       hasSqlServerConnection: hasSqlServerConnection.value,
       sqlServerSpaceConfirmsCompletionEnabled: settingsStore.editorSettings.sqlServerSpaceConfirmsCompletion || editSqlServerSpaceConfirmsCompletion.value,
-      visibleCategories: new Set(settingsCategoryNav.value.map((category) => category.value)),
+      visibleCategories: new Set<SettingsCategory>([...settingsCategoryNav.value.map((category) => category.value), ...((props.governanceTabs?.length ?? 0) > 0 ? (["governance"] as const) : [])]),
     },
     translateWithExecuteShortcut,
     settingsSearchCategoryLabels.value,
-  ),
-);
+  );
+  if (!props.governanceTabs?.length) return entries.filter((entry) => entry.category !== "governance");
+  return entries.filter((entry) => entry.category !== "governance" || (entry.route?.governanceTab ? props.governanceTabs!.includes(entry.route.governanceTab) : true));
+});
 const settingsSearchResults = computed(() => searchSettings(settingsSearchEntries.value, settingsSearchQuery.value, currentLocale(), Infinity));
 const settingsSearchActive = computed(() => Boolean(settingsSearchQuery.value.trim()));
 const settingsSearchVisible = computed(() => settingsSearchOpen.value && settingsSearchActive.value);
@@ -3976,6 +3981,13 @@ function highlightSettingsSearchTarget(result: SettingsSearchEntry, searchRoot: 
 
 async function selectSettingsSearchResult(result: SettingsSearchEntry) {
   pendingSettingsSearchNavigation.value = null;
+  if (result.category === "governance") {
+    settingsSearchQuery.value = "";
+    settingsSearchOpen.value = false;
+    settingsSearchActiveIndex.value = 0;
+    emit("open-governance", result.route?.governanceTab);
+    return;
+  }
   mcpCapabilityBrowserRef.value?.revealSearchTarget();
   pendingSettingsSearchResult = null;
   if (result.shortcutId) shortcutSearchQuery.value = result.title;
@@ -13701,14 +13713,6 @@ LIMIT 100;</pre>
                     {{ t("auth.logout") }}
                   </Button>
                 </div>
-              </div>
-
-              <div v-if="showUsersRoles !== false" class="border-t border-border/60 pt-5">
-                <UsersRoles />
-              </div>
-
-              <div v-if="showPolicies !== false" class="border-t border-border/60 pt-5">
-                <PolicyEditor />
               </div>
             </section>
 

@@ -1,26 +1,27 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ScrollText, ShieldCheck, UserCog } from "@lucide/vue";
+import { Scale, ScrollText, ShieldCheck, Users } from "@lucide/vue";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import ApprovalCenter from "@/components/security/ApprovalCenter.vue";
 import AuditLog from "@/components/security/AuditLog.vue";
+import PolicyEditor from "@/components/security/PolicyEditor.vue";
+import UsersRoles from "@/components/security/UsersRoles.vue";
+
+export type GovernanceTab = "approvals" | "audit" | "users" | "policies";
 
 const props = defineProps<{
-  initialTab: "approvals" | "audit";
+  initialTab: GovernanceTab;
+  focusApprovalId?: string;
   canApprovals: boolean;
   canAudit: boolean;
-  canOpenSecuritySettings: boolean;
+  canManageUsers: boolean;
+  canReadPolicies: boolean;
   pendingApprovalCount: number;
 }>();
 
-const emit = defineEmits<{
-  "open-security-settings": [];
-}>();
-
 const { t } = useI18n();
-const activeTab = ref<"approvals" | "audit">(props.initialTab);
+const activeTab = ref<GovernanceTab>(props.initialTab);
 
 watch(
   () => props.initialTab,
@@ -30,7 +31,12 @@ watch(
 );
 
 const tabs = computed(() =>
-  [props.canApprovals ? { value: "approvals" as const, label: t("governance.approvals"), icon: ShieldCheck } : null, props.canAudit ? { value: "audit" as const, label: t("governance.audit"), icon: ScrollText } : null].filter((tab): tab is NonNullable<typeof tab> => tab !== null),
+  [
+    props.canApprovals ? { value: "approvals" as const, label: t("governance.approvals"), icon: ShieldCheck } : null,
+    props.canAudit ? { value: "audit" as const, label: t("governance.audit"), icon: ScrollText } : null,
+    props.canManageUsers ? { value: "users" as const, label: t("governance.users"), icon: Users } : null,
+    props.canReadPolicies ? { value: "policies" as const, label: t("governance.policies"), icon: Scale } : null,
+  ].filter((tab): tab is NonNullable<typeof tab> => tab !== null),
 );
 
 watch(
@@ -42,15 +48,11 @@ watch(
   },
   { immediate: true },
 );
-
-function openSettings() {
-  emit("open-security-settings");
-}
 </script>
 
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 px-5 py-4">
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 px-3 py-4 sm:px-5">
       <div class="min-w-0 space-y-1">
         <div class="flex items-center gap-2">
           <ShieldCheck class="h-5 w-5 text-sky-600 dark:text-sky-400" />
@@ -58,18 +60,14 @@ function openSettings() {
         </div>
         <p class="max-w-3xl text-sm text-muted-foreground">{{ t("governance.description") }}</p>
       </div>
-      <Button v-if="canOpenSecuritySettings" variant="outline" size="sm" class="gap-1.5" @click="openSettings">
-        <UserCog class="h-3.5 w-3.5" />
-        {{ t("governance.openSecuritySettings") }}
-      </Button>
     </div>
 
-    <div class="flex shrink-0 items-center gap-1 border-b border-border/60 px-4">
+    <div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-3 sm:px-4">
       <button
         v-for="tab in tabs"
         :key="tab.value"
         type="button"
-        class="flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors"
+        class="flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors"
         :class="activeTab === tab.value ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
         :aria-pressed="activeTab === tab.value"
         @click="activeTab = tab.value"
@@ -82,9 +80,11 @@ function openSettings() {
       </button>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-auto px-5 py-4">
-      <ApprovalCenter v-if="activeTab === 'approvals' && canApprovals" />
+    <div class="min-h-0 flex-1 overflow-auto px-3 py-4 sm:px-5">
+      <ApprovalCenter v-if="activeTab === 'approvals' && canApprovals" :focus-request-id="focusApprovalId" :initial-scope="pendingApprovalCount > 0 ? 'pending' : 'mine'" />
       <AuditLog v-else-if="activeTab === 'audit' && canAudit" session-authorized />
+      <UsersRoles v-else-if="activeTab === 'users' && canManageUsers" />
+      <PolicyEditor v-else-if="activeTab === 'policies' && canReadPolicies" />
       <p v-else class="text-sm text-muted-foreground">{{ t("governance.noPermission") }}</p>
     </div>
   </div>

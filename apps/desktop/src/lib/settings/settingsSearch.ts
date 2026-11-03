@@ -4,7 +4,7 @@ import { APP_CUSTOM_UI_COLOR_DEFS } from "@/lib/app/appTheme";
 import { MCP_TOOL_OPTIONS, MCP_EXECUTION_MODE_COLUMNS } from "@/lib/mcp/mcpPolicySelection";
 import type { McpCapabilityNavigationTarget } from "@/lib/mcp/mcpCapabilitySearch";
 
-export type SettingsCategory = "editor" | "formatter" | "appearance" | "navigation" | "data" | "backups" | "tunnels" | "shortcuts" | "snippets" | "sync" | "ai" | "mcp" | "updates" | "security" | "about";
+export type SettingsCategory = "editor" | "formatter" | "appearance" | "navigation" | "data" | "backups" | "tunnels" | "shortcuts" | "snippets" | "sync" | "ai" | "mcp" | "updates" | "security" | "governance" | "about";
 
 const SETTINGS_CATEGORIES: readonly SettingsCategory[] = ["editor", "formatter", "appearance", "navigation", "data", "backups", "tunnels", "shortcuts", "snippets", "sync", "ai", "mcp", "updates", "security", "about"];
 
@@ -61,6 +61,7 @@ export interface SettingsSearchRoute {
   mcpTransportTab?: "stdio" | "http";
   mcpCapabilityTarget?: McpCapabilityNavigationTarget;
   formatterMode?: "form" | "json";
+  governanceTab?: "approvals" | "audit" | "users" | "policies";
 }
 
 export type Translate = (key: string) => string;
@@ -719,6 +720,37 @@ export const SETTINGS_SEARCH_DEFINITIONS: readonly SettingsSearchDefinition[] = 
     keywordKeys: MCP_EXECUTION_MODE_COLUMNS.map((mode) => mode.labelKey),
   },
   { id: "mcp-config", category: "mcp", titleKey: "settings.mcpConfig", targetId: "mcp-client-config", route: { mcpManagementTab: "access", mcpTransportTab: "stdio" } },
+  {
+    id: "governance-approvals",
+    category: "governance",
+    titleKey: "governance.approvals",
+    descriptionKey: "settings.approvals.description",
+    targetId: "governance",
+    visible: webOnly,
+    route: { governanceTab: "approvals" },
+    keywordKeys: ["settings.approvals.pending", "settings.approvals.approve", "settings.approvals.templatesTitle", "settings.approvals.stepProgress"],
+  },
+  { id: "governance-audit", category: "governance", titleKey: "governance.audit", descriptionKey: "settings.audit.description", targetId: "governance", visible: webOnly, route: { governanceTab: "audit" }, keywordKeys: ["settings.audit.filterSql", "settings.audit.verify"] },
+  {
+    id: "governance-users",
+    category: "governance",
+    titleKey: "governance.users",
+    descriptionKey: "settings.identity.description",
+    targetId: "governance",
+    visible: webOnly,
+    route: { governanceTab: "users" },
+    keywordKeys: ["settings.identity.columnUser", "settings.identity.columnRole", "settings.identity.accessTitle", "settings.identity.addGrant"],
+  },
+  {
+    id: "governance-policies",
+    category: "governance",
+    titleKey: "governance.policies",
+    descriptionKey: "settings.policies.description",
+    targetId: "governance",
+    visible: webOnly,
+    route: { governanceTab: "policies" },
+    keywordKeys: ["settings.policies.publish", "settings.policies.rollback", "settings.policies.effective"],
+  },
   { id: "security", category: "security", titleKey: "settings.securityTab", targetId: "security", visible: webOnly },
   { id: "security-password", category: "security", titleKey: "auth.changePassword", targetId: "security", visible: webOnly, keywordKeys: ["auth.changePasswordDescription", "auth.oldPassword", "auth.newPassword", "auth.confirmPassword"] },
   {

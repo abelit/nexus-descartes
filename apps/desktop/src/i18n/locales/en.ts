@@ -10003,9 +10003,11 @@ export default {
   },
   governance: {
     title: "Security governance",
-    description: "Approval tickets and the server-side audit trail. Entries are permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.",
+    description: "Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.",
     approvals: "Approvals",
     audit: "Audit log",
+    users: "Users & roles",
+    policies: "Policies",
     openSecuritySettings: "Users, roles & policies",
     openGovernance: "Open security governance",
     noPermission: "Your role does not grant access to this governance view.",

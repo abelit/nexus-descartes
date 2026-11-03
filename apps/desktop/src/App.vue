@@ -455,8 +455,8 @@ const canApprovals = computed(() => hasGovernancePermission("approval:read") || 
 const canAudit = computed(() => hasGovernancePermission("audit:read"));
 const canManageUsers = computed(() => hasGovernancePermission("admin:users"));
 const canReadPolicies = computed(() => hasGovernancePermission("policy:read"));
-const canOpenSecuritySettings = computed(() => canManageUsers.value || canReadPolicies.value);
-const showGovernanceEntry = computed(() => canApprovals.value || canAudit.value);
+const showGovernanceEntry = computed(() => canApprovals.value || canAudit.value || canManageUsers.value || canReadPolicies.value);
+const governanceTabs = computed<GovernanceTab[]>(() => [...(canApprovals.value ? (["approvals"] as const) : []), ...(canAudit.value ? (["audit"] as const) : []), ...(canManageUsers.value ? (["users"] as const) : []), ...(canReadPolicies.value ? (["policies"] as const) : [])]);
 const { isMaximized: windowMaximized, isFullscreen: windowFullscreen } = useWindowControls();
 // The Rust side injects this flag into the main window only when a compositing manager is
 // running (see create_linux_main_window); detached-tab and plugin windows never get it.
@@ -503,7 +503,9 @@ const pluginCenterFocus = ref<PluginCenterFocus | null>(null);
 const connectionPluginProvider = ref<PluginCenterFocus | null>(null);
 const governanceTabOpen = ref(false);
 const governanceActive = ref(false);
-const governanceInitialTab = ref<"approvals" | "audit">("approvals");
+type GovernanceTab = "approvals" | "audit" | "users" | "policies";
+const governanceInitialTab = ref<GovernanceTab>("approvals");
+const governanceFocusApprovalId = ref<string | undefined>(undefined);
 const pendingApprovalCount = ref(0);
 const settingsReturnSurface = ref<"query" | "driverStore" | "pluginCenter" | "governance" | "welcome">("welcome");
 const immediateSyncing = ref(false);
@@ -1495,8 +1497,18 @@ function activateMainContentSurface(surface: MainContentSurface) {
   lastFocusedSidebarSurface.value = false;
 }
 
-function defaultGovernanceTab(): "approvals" | "audit" {
-  return canApprovals.value ? "approvals" : "audit";
+function governanceTabAllowed(tab: GovernanceTab): boolean {
+  if (tab === "approvals") return canApprovals.value;
+  if (tab === "audit") return canAudit.value;
+  if (tab === "users") return canManageUsers.value;
+  return canReadPolicies.value;
+}
+
+function defaultGovernanceTab(): GovernanceTab {
+  if (canApprovals.value) return "approvals";
+  if (canAudit.value) return "audit";
+  if (canManageUsers.value) return "users";
+  return "policies";
 }
 
 async function refreshPendingApprovalCount() {
@@ -1515,13 +1527,31 @@ function handleApprovalsChanged() {
   void refreshPendingApprovalCount();
 }
 
-function openGovernancePage(tab?: "approvals" | "audit") {
+function openGovernancePage(tab?: GovernanceTab, approvalId?: string) {
   if (!showGovernanceEntry.value) return;
-  const selected = tab ?? defaultGovernanceTab();
-  governanceInitialTab.value = selected === "audit" && !canAudit.value ? defaultGovernanceTab() : selected;
+  const selected = tab && governanceTabAllowed(tab) ? tab : defaultGovernanceTab();
+  governanceInitialTab.value = selected;
+  governanceFocusApprovalId.value = approvalId;
   governanceTabOpen.value = true;
   activateMainContentSurface("governance");
   void refreshPendingApprovalCount();
+}
+
+/** External approval notifications can deep-link a specific ticket. */
+function openApprovalFromNotification(event: Event) {
+  const detail = (event as CustomEvent<{ approvalId?: string }>).detail;
+  if (!detail?.approvalId) return;
+  openGovernancePage("approvals", detail.approvalId);
+}
+
+function consumeGovernanceDeepLink() {
+  if (isDesktop) return;
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get("governance");
+  const approvalId = params.get("approval") ?? undefined;
+  if (!tab && !approvalId) return;
+  const normalized = approvalId ? "approvals" : tab === "audit" || tab === "users" || tab === "policies" ? tab : "approvals";
+  openGovernancePage(normalized, approvalId);
 }
 
 function closeGovernancePage() {
@@ -5158,7 +5188,7 @@ async function onLoginSuccess() {
   } catch {
     authActor.value = null;
   }
-  void initApp();
+  void initApp().then(() => consumeGovernanceDeepLink());
 }
 
 async function handleWebLogout() {
@@ -5438,6 +5468,7 @@ onMounted(async () => {
   window.addEventListener("dbx-mcp-status-changed", handleMcpStatusChanged);
   window.addEventListener("dbx:ai-run-notify", handleAiRunNotify);
   window.addEventListener("dbx:approvals-changed", handleApprovalsChanged);
+  window.addEventListener("dbx:open-approval", openApprovalFromNotification);
   if (isDesktop) {
     document.addEventListener("contextmenu", handleContextMenu);
   }
@@ -5472,7 +5503,9 @@ onMounted(async () => {
     if (needsAuth.value && !authenticated.value) {
       history.replaceState(null, "", webPath("/login"));
     }
-    if (!setupRequired.value && (!needsAuth.value || authenticated.value)) void initApp();
+    if (!setupRequired.value && (!needsAuth.value || authenticated.value)) {
+      void initApp().then(() => consumeGovernanceDeepLink());
+    }
     api
       .getAppVersion()
       .then((v) => {
@@ -5549,6 +5582,7 @@ onUnmounted(() => {
   window.removeEventListener("dbx-mcp-status-changed", handleMcpStatusChanged);
   window.removeEventListener("dbx:ai-run-notify", handleAiRunNotify);
   window.removeEventListener("dbx:approvals-changed", handleApprovalsChanged);
+  window.removeEventListener("dbx:open-approval", openApprovalFromNotification);
   window.removeEventListener("beforeunload", handleWebBeforeUnload);
   document.removeEventListener("contextmenu", handleContextMenu);
   window.clearTimeout(sqlLibraryFlyAnimationTimer);
@@ -5710,10 +5744,11 @@ onUnmounted(() => {
                   :initial-tab="governanceInitialTab"
                   :can-approvals="canApprovals"
                   :can-audit="canAudit"
-                  :can-open-security-settings="canOpenSecuritySettings"
+                  :can-manage-users="canManageUsers"
+                  :can-read-policies="canReadPolicies"
+                  :focus-approval-id="governanceFocusApprovalId"
                   :pending-approval-count="pendingApprovalCount"
                   class="flex-1 min-h-0"
-                  @open-security-settings="openSettings('security')"
                 />
                 <EditorSettingsPage
                   v-if="settingsPageTabOpen"
@@ -5736,8 +5771,7 @@ onUnmounted(() => {
                   :mcp-update-available="toolbarMcpUpdateAvailable"
                   :plugin-update-count="componentUpdates.pluginUpdateCount.value"
                   :show-governance-link="showGovernanceEntry"
-                  :show-users-roles="canManageUsers"
-                  :show-policies="canReadPolicies"
+                  :governance-tabs="governanceTabs"
                   class="flex-1 min-h-0"
                   @update:open="(open: boolean) => (open ? activateSettingsPage() : finishCloseSettingsPage())"
                   @check-updates="checkAllUpdates"
@@ -5753,7 +5787,7 @@ onUnmounted(() => {
                     openPluginCenterPage({ pluginId: 'cc-switch' });
                   "
                   @open-mcp-settings="openSettings('mcp')"
-                  @open-governance="openGovernancePage()"
+                  @open-governance="(tab) => openGovernancePage(tab)"
                   @ai-config-deep-link-handled="settingsAiConfigDraft = null"
                   @logout="handleWebLogout"
                 />

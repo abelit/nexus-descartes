@@ -191,7 +191,17 @@ describe("settings search template coverage", () => {
     const anchors = new Set(sources.flatMap((source) => [...source.matchAll(/data-settings-search-id="([^"`]+)"/g)].map((match) => match[1])));
     // Authorization tabs generate their anchors from the same four section IDs.
     for (const section of ["overrides", "connections", "databases", "capabilities"]) anchors.add(`mcp-${section}`);
-    expect(definitions.filter((definition) => !anchors.has(definition.targetId ?? definition.category)).map((definition) => definition.id)).toEqual([]);
+    // Results whose destination is a top-level workspace, not a settings
+    // section, are audited here instead of pretending an anchor exists.
+    const externalTargets: Record<string, string> = {
+      governance: "Opens the Security governance workspace, not a settings section",
+    };
+    expect(
+      definitions
+        .filter((definition) => !anchors.has(definition.targetId ?? definition.category))
+        .filter((definition) => !externalTargets[definition.targetId ?? definition.category])
+        .map((definition) => definition.id),
+    ).toEqual([]);
   });
   it("uses unique result IDs, including canonical shortcut entries", () => {
     expect(new Set(definitions.map((definition) => definition.id)).size).toBe(definitions.length);
