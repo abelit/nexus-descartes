@@ -1,0 +1,460 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic [aria-hidden]:
+          - link:
+            - /url: https://dbxio.com
+            - generic: DBX
+          - button:
+            - generic: New Connection
+          - button:
+            - generic: New Query
+          - button:
+            - generic: Data Transfer
+          - button:
+            - generic: Driver Manager
+          - generic:
+            - button:
+              - generic: Plugin Center
+          - button:
+            - generic: More
+          - generic:
+            - button
+            - generic:
+              - button:
+                - generic: "9"
+            - button
+            - button
+            - button
+            - button
+            - button
+            - button
+          - button
+          - button
+          - button:
+            - generic: AD
+            - generic: Administrator
+        - generic:
+          - generic:
+            - generic:
+              - generic [aria-hidden]:
+                - button:
+                  - generic: Import / Export
+                - generic:
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [aria-hidden]:
+                        - textbox:
+                          - /placeholder: Search...
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic [aria-hidden]: .*
+                          - generic:
+                            - switch
+                      - generic [aria-hidden]:
+                        - button
+                      - generic [aria-hidden]:
+                        - generic:
+                          - button
+                      - generic:
+                        - button "Show active connections only":
+                          - generic: "Active connections: 0"
+                  - generic [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-postgres
+                              - button
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-mysql
+                              - button
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Security governance
+                        - paragraph: Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+                    - generic:
+                      - button [pressed]: Approvals
+                      - button: Audit log
+                      - button: Users & roles
+                      - button: Policies
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - heading [level=3]: Approvals
+                            - paragraph: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+                          - button: Refresh
+                        - generic:
+                          - button: My requests
+                          - button: Pending approval
+                          - button: Approval history
+                        - generic:
+                          - button:
+                            - generic: Approval templates
+                            - generic: "2"
+                          - generic:
+                            - paragraph: "A connection template wins over the global one. Each step names roles or users; `all` steps need every approver, `any` steps need one. The requester never decides their own request."
+                            - generic:
+                              - generic:
+                                - generic: qa2-two-step-pg · 11111111-1111-4111-8111-111111111111
+                                - generic: "any: @dba → all: c441801f-7e5d-4f40-b8be-3fefda20c92d, 507cc906-2bba-4816-94b0-a3e978260a08"
+                              - generic:
+                                - button: Edit template
+                                - button: Delete
+                            - generic:
+                              - generic:
+                                - generic: tpl-bind-test · All connections
+                                - generic: "any: @dba"
+                              - generic:
+                                - button: Edit template
+                                - button: Delete
+                            - generic:
+                              - button: Create template
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 10:48:44 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: qa2.tpl.bind
+                              - generic: Submitter executes
+                            - generic: create table qa2_bind_check(id int)
+                            - paragraph: template binding acceptance
+                            - generic:
+                              - generic: Step 1/1
+                              - generic: 1 · any one · pending
+                            - generic: 1. @dba (4 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: executed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 10:07:06 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                              - generic: Executed by Administrator
+                            - generic: CREATE TABLE "public"."courses" AS SELECT gs AS "id", 'C' || lpad(gs::text, 4, '0') AS "course_no", (ARRAY['高等数学','大学英语','线性代数','数据结构','操作系统', '计算机网络','数据库原理','概率论与数理统计','大学物理','马克思主义基本原理'])[(gs - 1) % 10 + 1] AS "course_name", '教师' || lpad((((gs - 1) % 12) + 1)::text, 3, '0') AS "teacher", (2 + (gs % 4))::numeric(3,1) AS "credits", (ARRAY['2024-2025-1','2024-2025-2','2025-2026-1'])[(gs - 1) % 3 + 1] AS "semester", (ARRAY['A101','B202','C303','D404','E505'])[(gs - 1) % 5 + 1] AS "classroom", DATE '2025-09-01' + ((gs - 1) % 30) AS "start_date", now() AS "created_at" FROM generate_series(1, 50) AS gs
+                            - paragraph: 按用户要求新建 public.courses 课程表，并通过 CREATE TABLE AS SELECT 一次性生成 50 条课程数据
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA One
+                          - generic:
+                            - generic:
+                              - generic: executed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 10:03:59 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                              - generic: Executed by Administrator
+                            - generic: CREATE TABLE public.grades AS SELECT g::int AS id, 'S' || lpad(g::text, 4, '0') AS student_no, '学生' || lpad(g::text, 3, '0') AS student_name, (ARRAY['语文', '数学', '英语'])[1 + (g - 1) % 3] AS subject, round((55 + ((g * 37) % 46))::numeric, 2) AS score, DATE '2025-01-01' + ((g - 1) % 60) AS exam_date, now() AS created_at FROM generate_series(1, 100) AS g
+                            - paragraph: 创建成绩表 grades 并一次性生成 100 条演示数据（CTAS 合并建表与插数，避开无界 DML 拦截）。用户已在对话中明确确认执行。
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA Two
+                          - generic:
+                            - generic:
+                              - generic: executed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 10:00:07 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Last approver executes
+                              - generic: Executed by QA2 DBA Two
+                            - generic: create table qa2_hash_check(id int)
+                            - paragraph: stable binding hash acceptance
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: "1. @dba (4 approver(s)) · QA2 DBA One: hash check step1"
+                              - generic: "2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA Two: hash check step2 cosign"
+                          - generic:
+                            - generic:
+                              - generic: execution_failed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 9:27:50 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Last approver executes
+                              - generic: Executed by QA2 DBA One
+                            - generic: CREATE TABLE public.scores ( id serial PRIMARY KEY, student_id integer NOT NULL, course_id integer, course_name text, exam_type text DEFAULT '期末', score numeric(5,2), created_at timestamp with time zone NOT NULL DEFAULT now(), CONSTRAINT scores_score_range_chk CHECK (score IS NULL OR (score >= 0 AND score <= 100)) )
+                            - paragraph: "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval"
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA One
+                          - generic:
+                            - generic:
+                              - generic: execution_failed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 8:15:55 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                              - generic: Executed by Administrator
+                            - generic: CREATE TABLE "public"."score_test" ( "score_id" serial PRIMARY KEY, "student_no" varchar(20), "student_name" varchar(50), "class_name" varchar(20), "subject" varchar(20), "score" numeric(5,2), "exam_date" date, "created_at" timestamptz DEFAULT now() )
+                            - paragraph: 按用户要求创建成绩表 public.score_test（DDL 需审批放行）
+                            - paragraph: "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval"
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA Two
+                          - generic:
+                            - generic:
+                              - generic: executed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 8:04:52 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Auto execute
+                              - generic: Executed by system:auto
+                            - generic: CREATE TABLE public.product_test AS SELECT g::integer AS product_id, '商品' || lpad(g::text, 3, '0') AS product_name, (ARRAY['电子产品','家居用品','服饰','食品饮料','图书'])[((g - 1) % 5) + 1] AS category, round((10 + random() * 990)::numeric, 2) AS price, (random() * 1000)::int AS stock, now() - ((500 - g) * interval '1 hour') AS created_at FROM generate_series(1, 500) AS g
+                            - paragraph: Rebuild public.product_test with 500 rows via a corrected CREATE TABLE ... AS SELECT (proper spaces after AS and before FROM). Single DDL statement only, so it triggers DDL approval rather than the no-WHERE DML block.
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: "1. @dba (4 approver(s)) · QA2 DBA One: qa ctas step1"
+                              - generic: "2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA Two: qa ctas step2 cosign"
+                          - generic:
+                            - generic:
+                              - generic: execution_failed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 8:01:25 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Auto execute
+                              - generic: Executed by QA2 DBA Two
+                            - generic: CREATE TABLE public.product_test ( id integer PRIMARY KEY, product_name text NOT NULL, category text NOT NULL, price numeric(10,2) NOT NULL, stock integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now() ); INSERT INTO public.product_test (id, product_name, category, price, stock) SELECT g, '商品' || lpad(g::text, 3, '0'), (ARRAY['电子产品','家居用品','服饰','食品饮料','图书'])[((g - 1) % 5) + 1], round((10 + random() * 990)::numeric, 2), (random() * 1000)::int FROM generate_series(1, 500) AS g
+                            - paragraph: 创建测试表 product_test 并插入 500 条商品测试数据（DDL 需要审批，规则 demo.ddl.approval）。用户要求审批通过后自动执行。
+                            - paragraph: "POLICY_DENIED: Unbounded DML is blocked (rule demo.dml.no_where.block)"
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: "1. @dba (4 approver(s)) · QA2 DBA One: qa step1"
+                              - generic: "2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA Two: qa step2 cosign"
+                          - generic:
+                            - generic:
+                              - generic: execution_failed
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:40:49 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Auto execute
+                              - generic: Executed by system:auto
+                            - generic: CREATE TABLE public.product_test ( product_id serial PRIMARY KEY, product_name text NOT NULL, category text NOT NULL, price numeric(10,2) NOT NULL, stock integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now() ); INSERT INTO public.product_test (product_name, category, price, stock) SELECT '商品' || g || '号', (ARRAY['电子产品','家居用品','食品饮料','服饰鞋帽','图书文具'])[1 + (g % 5)], round((10 + random() * 990)::numeric, 2), (random() * 1000)::int + 1 FROM generate_series(1, 500) AS g;
+                            - paragraph: Create test table product_test and load 500 generated product rows for QA/demo testing (DDL approval rule demo.ddl.approval).
+                            - paragraph: "ERROR: cannot insert multiple commands into a prepared statement (SQLSTATE 42601) Statement 1 failed; previous 0 statement(s) may have been committed. SQL text omitted from user-facing error; enable debug SQL diagnostics to inspect the original statement."
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · approved
+                            - generic:
+                              - generic: "1. @dba (4 approver(s)) · QA2 DBA One: qa test step1"
+                              - generic: "2. QA2 DBA Two, QA2 DBA One (2 approver(s)) · QA2 DBA Two: qa test step2 co-sign"
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:29:07 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / main
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                            - generic: CREATE TABLE public.product ( id serial PRIMARY KEY, product_no varchar(32) NOT NULL, product_name varchar(100) NOT NULL, category varchar(50) NOT NULL, price numeric(10,2) NOT NULL, stock integer NOT NULL DEFAULT 0, status varchar(16) NOT NULL DEFAULT 'on_sale', created_at timestamptz NOT NULL DEFAULT now() ); INSERT INTO public.product (product_no, product_name, category, price, stock, status, created_at) SELECT 'P' || lpad(g::text, 6, '0') AS product_no, (ARRAY['无线鼠标','机械键盘','蓝牙耳机','移动电源','U盘', '显示器支架','网线','转接头','摄像头','音箱'])[1 + (g - 1) % 10] || ' ' || g AS product_name, (ARRAY['数码配件','办公用品','家居','服饰','食品'])[1 + (g - 1) % 5] AS category, round((9.90 + (g % 500) * 3.70)::numeric, 2) AS price, (g * 7) % 300 AS stock, CASE WHEN g % 10 = 0 THEN 'off_shelf' ELSE 'on_sale' END AS status, now() - make_interval(hours => g % 720) AS created_at FROM generate_series(1, 500) AS g;
+                            - paragraph: 创建商品表 public.product 并生成 500 条演示数据，需 DDL 审批
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA Two
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:21:35 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / postgres
+                              - generic: demo.ddl.approval
+                              - generic: Auto execute
+                            - generic: CREATE TABLE public.products ( id serial PRIMARY KEY, sku varchar(32) NOT NULL UNIQUE, name varchar(100) NOT NULL, category varchar(32) NOT NULL, price numeric(10,2) NOT NULL CHECK (price >= 0), stock integer NOT NULL DEFAULT 0 CHECK (stock >= 0), is_active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now() ); INSERT INTO public.products (sku, name, category, price, stock, is_active, created_at) SELECT 'SKU-' || lpad(g::text, 6, '0') AS sku, cat.category || ' ' || mdl.code || '-' || g AS name, cat.category AS category, round((10 + random() * 990)::numeric, 2) AS price, (random() * 500)::int AS stock, (g % 20 <> 0) AS is_active, now() - (((random() * 365)::int) || ' days')::interval AS created_at FROM generate_series(1, 500) AS g CROSS JOIN LATERAL ( SELECT (ARRAY['数码配件','家用电器','运动户外','美妆个护','食品饮料', '服装鞋包','母婴玩具','办公文具','汽车用品','家居厨具'])[1 + (g - 1) % 10] AS category ) cat CROSS JOIN LATERAL ( SELECT (ARRAY['PRO','PLUS','MAX','LITE','AIR'])[1 + (g - 1) % 5] AS code ) mdl;
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:13:44 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / postgres
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                            - generic: CREATE TABLE public.products ( id serial PRIMARY KEY, sku varchar(32) NOT NULL UNIQUE, name varchar(100) NOT NULL, category varchar(32) NOT NULL, price numeric(10,2) NOT NULL CHECK (price >= 0), stock integer NOT NULL DEFAULT 0 CHECK (stock >= 0), is_active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now() ); INSERT INTO public.products (sku, name, category, price, stock, is_active, created_at) SELECT 'SKU-' || lpad(g::text, 6, '0') AS sku, cat.category || ' ' || mdl.code || '-' || g AS name, cat.category AS category, round((10 + random() * 990)::numeric, 2) AS price, (random() * 500)::int AS stock, (g % 20 <> 0) AS is_active, now() - (((random() * 365)::int) || ' days')::interval AS created_at FROM generate_series(1, 500) AS g CROSS JOIN LATERAL ( SELECT (ARRAY['数码配件','家用电器','运动户外','美妆个护','食品饮料', '服装鞋包','母婴玩具','办公文具','汽车用品','家居厨具'])[1 + (g - 1) % 10] AS category ) cat CROSS JOIN LATERAL ( SELECT (ARRAY['PRO','PLUS','MAX','LITE','AIR'])[1 + (g - 1) % 5] AS code ) mdl;
+                            - paragraph: 在 postgres.public 新建 products 商品表并生成 500 条测试数据（demo 环境，仅为测试用途）。
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:07:16 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                            - generic: create table qa2_ai_multi(id int); insert into qa2_ai_multi values (1)
+                            - paragraph: mock multi-statement acceptance
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:03:30 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / postgres
+                              - generic: demo.ddl.approval
+                              - generic: Last approver executes
+                            - generic: create table qa2_ai_approval_blocked(id int)
+                            - paragraph: UI approval fallback acceptance test
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 7:00:54 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / postgres
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                            - generic: create table qa2_ai_approval_ui2(id int)
+                            - paragraph: mock acceptance approval
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 6:54:20 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Submitter executes
+                            - generic: create table qa2_ai_approval(id int)
+                            - paragraph: mock acceptance approval
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA One
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+                          - generic:
+                            - generic:
+                              - generic: pending
+                              - generic: Administrator
+                              - generic: · 11/4/2026, 1:00:22 PM
+                              - generic: · 11111111-1111-4111-8111-111111111111 / app
+                              - generic: demo.ddl.approval
+                              - generic: Last approver executes
+                            - generic: CREATE OR REPLACE PROCEDURE public.qa2_pg_proc(IN x integer) LANGUAGE plpgsql AS $procedure$ begin insert into qa2_pg_orders(name, amount) values ('qa2r1-proc', x); end $procedure$;
+                            - generic:
+                              - generic: Step 2/2
+                              - generic: 1 · any one · approved
+                              - generic: 2 · all · pending
+                            - generic:
+                              - generic: 1. @dba (4 approver(s)) · DBA Two
+                              - generic: 2. QA2 DBA Two, QA2 DBA One (2 approver(s))
+  - dialog [ref=e633]:
+    - paragraph [ref=e634]
+    - heading "Edit template" [level=2] [ref=e636]
+    - generic [ref=e637]:
+      - generic [ref=e638]:
+        - generic [ref=e639] [cursor=pointer]:
+          - text: Template name
+          - textbox "Template name" [ref=e640]: tpl-bind-test
+        - generic [ref=e641] [cursor=pointer]:
+          - text: Scope
+          - combobox "Scope" [ref=e643]:
+            - option "All connections" [selected]
+            - option "One connection"
+        - generic [ref=e644] [cursor=pointer]:
+          - checkbox "Enabled" [checked] [ref=e645]
+          - text: Enabled
+        - generic [ref=e646] [cursor=pointer]:
+          - text: SLA (seconds)
+          - spinbutton "SLA (seconds)" [ref=e647]
+      - generic [ref=e648]:
+        - button "Visual editor" [ref=e649] [cursor=pointer]
+        - button "JSON" [active] [ref=e650] [cursor=pointer]
+      - textbox [ref=e697]: "{ \"steps\": [ { \"mode\": \"any\", \"roles\": [ \"dba\" ], \"users\": [] } ] }"
+    - generic [ref=e691]:
+      - button "Cancel" [ref=e692] [cursor=pointer]
+      - button "Save" [ref=e693] [cursor=pointer]
+    - button "Close" [ref=e694] [cursor=pointer]

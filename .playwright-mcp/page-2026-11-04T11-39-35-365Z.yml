@@ -1,0 +1,195 @@
+- generic [ref=e1]:
+  - generic [ref=e33]:
+    - generic [ref=e34]:
+      - link "DBX DBX" [ref=e35] [cursor=pointer]:
+        - /url: https://dbxio.com
+        - img "DBX"
+        - generic [ref=e36]: DBX
+      - button "New Connection" [ref=e37] [cursor=pointer]
+      - button "New Query" [ref=e40] [cursor=pointer]
+      - button "Data Transfer" [ref=e42] [cursor=pointer]
+      - button "Driver Manager" [ref=e44] [cursor=pointer]
+      - button "Plugin Center" [ref=e47] [cursor=pointer]
+      - button "More" [ref=e49] [cursor=pointer]
+      - generic [ref=e53]:
+        - button [ref=e54] [cursor=pointer]
+        - button "8" [ref=e57] [cursor=pointer]
+        - button [ref=e59] [cursor=pointer]
+        - button [ref=e60] [cursor=pointer]
+        - button [ref=e61] [cursor=pointer]
+        - button [ref=e62] [cursor=pointer]
+        - button "Theme" [ref=e64] [cursor=pointer]
+        - button [ref=e65] [cursor=pointer]
+      - button "Security governance" [ref=e66] [cursor=pointer]
+      - button [ref=e67] [cursor=pointer]
+      - 'button "Current user: Administrator" [ref=e68] [cursor=pointer]':
+        - generic [ref=e69]: AD
+        - generic [ref=e70]: Administrator
+    - generic [ref=e73]:
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - button "Import / Export" [ref=e77] [cursor=pointer]
+          - generic [ref=e85]:
+            - button [ref=e87] [cursor=pointer]
+            - button [ref=e89] [cursor=pointer]
+            - button [ref=e91] [cursor=pointer]
+            - button [ref=e93] [cursor=pointer]
+        - generic [ref=e95]:
+          - generic [ref=e97]:
+            - generic [ref=e98]:
+              - textbox "Search..." [ref=e102]
+              - generic [ref=e103]:
+                - button "Regex search" [ref=e105] [cursor=pointer]:
+                  - generic [aria-hidden] [ref=e106]: .*
+                - switch "Local search" [ref=e108] [cursor=pointer]
+            - button "Locate in sidebar" [ref=e110] [cursor=pointer]
+            - button "Sort and filter" [ref=e116] [cursor=pointer]
+            - button "Show active connections only" [ref=e120] [cursor=pointer]:
+              - generic [ref=e121]: "Active connections: 1"
+          - generic [ref=e124]:
+            - generic [ref=e127]:
+              - button [ref=e128] [cursor=pointer]
+              - generic [ref=e133]: demo-postgres
+              - button "Select connection" [ref=e137] [cursor=pointer]
+            - generic [ref=e142]:
+              - button [ref=e143] [cursor=pointer]
+              - generic [ref=e148]: demo-mysql
+              - button "Select connection" [ref=e151] [cursor=pointer]
+        - generic "demo-postgres" [ref=e154]: demo-postgres:5432
+      - generic [ref=e166]:
+        - generic [ref=e170]:
+          - generic [ref=e172]:
+            - button "Position, grouping, sorting" [ref=e173] [cursor=pointer]
+            - generic [ref=e178]:
+              - generic [ref=e180]:
+                - generic [ref=e187]:
+                  - generic [aria-hidden] [ref=e188]: "*"
+                  - generic [ref=e189]: demo-mysql
+                - button "Close Tab" [ref=e191] [cursor=pointer]
+              - generic [ref=e196]:
+                - generic [ref=e204]:
+                  - generic [ref=e205]: demo-postgres
+                  - generic [ref=e1172]: "1"
+                - button "Close Tab" [ref=e206] [cursor=pointer]
+              - generic [ref=e1174]:
+                - generic [ref=e1181]:
+                  - generic [aria-hidden] [ref=e1182]: "*"
+                  - generic [ref=e1183]:
+                    - generic [ref=e1184]: demo-postgres
+                    - generic [ref=e1185]: "2"
+                - button "Close Tab" [ref=e1186] [cursor=pointer]
+            - button "New Query" [ref=e211] [cursor=pointer]
+          - generic [ref=e213]:
+            - generic [ref=e214]:
+              - generic [ref=e215]:
+                - button [disabled]
+                - button "Execute all SQL" [disabled]
+                - button "Execute SQL in new result tab" [disabled]
+                - button [disabled]
+                - button "EXPLAIN ANALYZE (executes the query)" [ref=e216] [cursor=pointer]:
+                  - generic [ref=e217]: A
+                - button [disabled]
+                - button [disabled]
+                - button "Fold all" [disabled]
+                - button "Unfold all" [disabled]
+                - button "Use lower-case SQL keywords" [ref=e218] [cursor=pointer]: A
+                - button "Word wrap" [ref=e219] [cursor=pointer]
+                - 'button "SQL semantic diagnostics: Off (click to enable)" [ref=e220] [cursor=pointer]'
+                - 'button "INSERT column hints: On (click to disable)" [pressed] [ref=e221] [cursor=pointer]'
+                - button [disabled]
+                - button [ref=e222] [cursor=pointer]
+                - button [ref=e223] [cursor=pointer]
+                - button [ref=e224] [cursor=pointer]
+                - button "Multi-db execute" [disabled]
+                - group "Auto Commit" [ref=e225]:
+                  - button "Auto Commit" [ref=e226] [cursor=pointer]:
+                    - generic [aria-hidden] [ref=e227]:
+                      - generic [ref=e228]: "Tx:"
+                      - generic [ref=e229]: A
+              - generic [ref=e230]:
+                - button "demo-postgres" [ref=e233] [cursor=pointer]
+                - generic [ref=e237]:
+                  - button "postgres" [ref=e238] [cursor=pointer]
+                  - button [ref=e240] [cursor=pointer]
+                  - button "Set Default" [ref=e241] [cursor=pointer]
+                - button "Select schema" [ref=e243] [cursor=pointer]
+            - generic [ref=e253]:
+              - generic [aria-hidden] [ref=e254]:
+                - generic [ref=e257]: "1"
+                - generic [ref=e260] [cursor=pointer]
+              - textbox [ref=e261]
+        - separator
+      - generic [ref=e265]:
+        - generic [ref=e266]:
+          - generic [ref=e267]: 创建一张包含500条数据的商品表 product_test，插入500条商品测试数据。如果需要审批，
+          - button "Export conversation" [ref=e268] [cursor=pointer]
+          - button "New Chat" [ref=e269] [cursor=pointer]
+          - button "History" [ref=e270] [cursor=pointer]
+          - button "Clear Chat" [ref=e271] [cursor=pointer]
+          - button "Maximize" [ref=e272] [cursor=pointer]
+          - button "Close" [ref=e273] [cursor=pointer]
+        - generic [ref=e1190]:
+          - generic [ref=e1194]:
+            - generic [ref=e1197]:
+              - button "Edit message"
+              - generic [ref=e1198]: 创建一张包含500条数据的商品表 product_test，插入500条商品测试数据。如果需要审批，请自动提交审批工单，并设置审批通过后自动执行。不要反复询问确认。
+              - button "Switch to Generate (no run)" [ref=e1201] [cursor=pointer]:
+                - generic [ref=e1205]: Auto · Generate (no run)
+              - generic [ref=e1206]:
+                - button "Resend this message" [ref=e1207] [cursor=pointer]
+                - button "Copy message" [ref=e1213] [cursor=pointer]
+            - generic [ref=e1217]:
+              - generic [ref=e1218]:
+                - generic [ref=e1219]:
+                  - button "SQL generated" [ref=e1221] [cursor=pointer]
+                  - button "Needs confirmation" [ref=e1227] [cursor=pointer]
+                  - button "Not run" [ref=e1232] [cursor=pointer]
+                - paragraph [ref=e1239]: This SQL changes data or schema. Review it carefully before execution.
+                - generic [ref=e1240]:
+                  - generic [ref=e1241]:
+                    - generic [ref=e1246]: SQL
+                    - generic [ref=e1247]:
+                      - button "Run without modifying editor" [ref=e1248] [cursor=pointer]
+                      - button "Execute SQL" [ref=e1251] [cursor=pointer]
+                      - button "Apply to Editor" [ref=e1254] [cursor=pointer]
+                      - button "Copy SQL" [ref=e1257] [cursor=pointer]
+                      - button "Snapshot Code" [ref=e1261] [cursor=pointer]
+                  - code [ref=e1266]: CREATE TABLE public.product_test ( product_id serial PRIMARY KEY, product_name text NOT NULL, category text NOT NULL, price numeric(10,2) NOT NULL, stock integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now());INSERT INTO public.product_test (product_name, category, price, stock)SELECT '商品' || g || '号', (ARRAY['电子产品','家居用品','食品饮料','服饰鞋帽','图书文具'])[1 + (g % 5)], round((10 + random() * 990)::numeric, 2), (random() * 1000)::int + 1FROM generate_series(1, 500) AS g;
+                - paragraph [ref=e1269]: Execute this SQL once?
+                - generic "Action confirmation required" [ref=e1270]:
+                  - button "Confirm execution" [ref=e1271] [cursor=pointer]
+                  - button "Cancel" [ref=e1272] [cursor=pointer]
+              - generic [ref=e1273]:
+                - generic [ref=e1274]: ↑3,601 ↓837 tokens
+                - generic [ref=e1275]:
+                  - button "Copy message" [ref=e1276] [cursor=pointer]
+                  - button "Export as Markdown" [ref=e1280] [cursor=pointer]
+          - button "Back to bottom" [ref=e1295] [cursor=pointer]
+        - generic [ref=e1041]:
+          - generic [ref=e1042]:
+            - generic [ref=e1043]:
+              - button "demo-postgres" [ref=e1046] [cursor=pointer]
+              - button "app" [ref=e1285] [cursor=pointer]:
+                - generic "Target" [ref=e1122]
+              - button "Select schema" [ref=e1123] [cursor=pointer]
+            - generic [ref=e1058]:
+              - 'button "Templates: Not selected" [ref=e1059] [cursor=pointer]'
+              - button "Skills" [ref=e1068] [cursor=pointer]
+          - textbox "Describe what you want to query, e.g. orders per user in the last 7 days Type @ to add available objects or files as context" [ref=e1299]
+          - generic [ref=e1075]:
+            - button "Attach image or text file" [ref=e1076] [cursor=pointer]
+            - button "Agent · Generate (no run)" [expanded] [ref=e1300] [cursor=pointer]
+            - button "deepseek-flash" [ref=e1085] [cursor=pointer]:
+              - img "DeepSeek" [ref=e1087]
+            - button [disabled] [ref=e1286] [cursor=pointer]
+  - dialog "Agent · Generate (no run)" [ref=e1302]:
+    - generic [ref=e1303]:
+      - button "Ask" [active] [ref=e1304] [cursor=pointer]
+      - button "Agent" [ref=e1307] [cursor=pointer]
+    - generic [ref=e1312]:
+      - button "Auto" [ref=e1313] [cursor=pointer]
+      - button "General" [ref=e1318] [cursor=pointer]
+      - button "Query Data" [ref=e1322] [cursor=pointer]
+      - button "Inspect Schema" [ref=e1327] [cursor=pointer]
+      - button "Run & Explain" [ref=e1331] [cursor=pointer]
+      - button "Generate (no run)" [ref=e1335] [cursor=pointer]

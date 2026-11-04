@@ -1,0 +1,119 @@
+- generic [ref=e33]:
+  - generic [ref=e34]:
+    - link "DBX DBX" [ref=e35] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=e36]: DBX
+    - button "New Connection" [ref=e37] [cursor=pointer]
+    - button "New Query" [ref=e40] [cursor=pointer]
+    - button "Data Transfer" [ref=e42] [cursor=pointer]
+    - button "Driver Manager" [ref=e44] [cursor=pointer]
+    - button "Plugin Center" [ref=e47] [cursor=pointer]
+    - button "More" [ref=e49] [cursor=pointer]
+    - generic [ref=e53]:
+      - button [ref=e54] [cursor=pointer]
+      - button "3" [ref=e957] [cursor=pointer]
+      - button [ref=e59] [cursor=pointer]
+      - button [ref=e60] [cursor=pointer]
+      - button [ref=e61] [cursor=pointer]
+      - button [ref=e62] [cursor=pointer]
+      - button "Theme" [ref=e63] [cursor=pointer]
+      - button [ref=e64] [cursor=pointer]
+    - button "Security governance" [active] [ref=e65] [cursor=pointer]
+    - button [ref=e66] [cursor=pointer]
+    - 'button "Current user: Administrator" [ref=e67] [cursor=pointer]':
+      - generic [ref=e68]: AD
+      - generic [ref=e69]: Administrator
+  - generic [ref=e72]:
+    - generic [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e289]:
+          - generic [ref=e290]: CONNECTIONS
+          - generic [ref=e291]: Selected 1
+        - button [ref=e293] [cursor=pointer]
+        - button "Move to Group" [ref=e296] [cursor=pointer]
+        - button [ref=e301] [cursor=pointer]
+        - button [ref=e303] [cursor=pointer]
+        - button [ref=e305] [cursor=pointer]
+      - generic [ref=e94]:
+        - generic [ref=e96]:
+          - generic [ref=e97]:
+            - textbox "Search..." [ref=e101]
+            - generic [ref=e102]:
+              - button "Regex search" [ref=e104] [cursor=pointer]:
+                - generic [aria-hidden] [ref=e105]: .*
+              - switch "Local search" [ref=e107] [cursor=pointer]
+          - button "Locate in sidebar" [ref=e109] [cursor=pointer]
+          - button "Sort and filter" [ref=e115] [cursor=pointer]
+          - button "Show active connections only" [ref=e119] [cursor=pointer]:
+            - generic [ref=e120]: "Active connections: 2"
+        - generic [ref=e123]:
+          - generic [ref=e126]:
+            - button [ref=e127] [cursor=pointer]
+            - generic [ref=e132]: demo-postgres
+            - button "Deselect connection" [ref=e306] [cursor=pointer]
+          - generic [ref=e140]:
+            - button [ref=e141] [cursor=pointer]
+            - generic [ref=e146]: demo-mysql
+            - button "Select connection" [ref=e150] [cursor=pointer]
+      - generic "demo-postgres" [ref=e328]: demo-postgres:5432
+    - generic [ref=e963]:
+      - generic [ref=e171]:
+        - button "Position, grouping, sorting" [ref=e172] [cursor=pointer]
+        - generic [ref=e177]:
+          - generic [ref=e179]:
+            - generic [ref=e186]:
+              - generic [aria-hidden] [ref=e187]: "*"
+              - generic [ref=e188]:
+                - generic [ref=e189]: demo-mysql
+                - generic [ref=e255]: "1"
+            - button "Close Tab" [ref=e190] [cursor=pointer]
+          - generic [ref=e257]:
+            - generic [ref=e264]: demo-postgres
+            - button "Close Tab" [ref=e268] [cursor=pointer]
+          - button "Security governance" [pressed] [ref=e966]:
+            - button "Close" [ref=e971] [cursor=pointer]
+        - button "New Query" [ref=e195] [cursor=pointer]
+      - generic [ref=e976]:
+        - generic [ref=e978]:
+          - heading "Security governance" [level=2] [ref=e983]
+          - paragraph [ref=e984]: Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+        - generic [ref=e985]:
+          - button "Approvals" [pressed] [ref=e986] [cursor=pointer]
+          - button "Audit log" [ref=e990] [cursor=pointer]
+          - button "Users & roles" [ref=e994] [cursor=pointer]
+          - button "Policies" [ref=e1000] [cursor=pointer]
+        - generic [ref=e1006]:
+          - generic [ref=e1007]:
+            - generic [ref=e1008]:
+              - heading "Approvals" [level=3] [ref=e1009]
+              - paragraph [ref=e1010]: "Statements the high-risk rules put on hold. Approving a request does not change the SQL: the issued execution token is bound to exactly what was reviewed."
+            - button "Refresh" [ref=e1011] [cursor=pointer]
+          - generic [ref=e1012]:
+            - button "My requests" [ref=e1013] [cursor=pointer]
+            - button "Pending approval" [ref=e1014] [cursor=pointer]
+            - button "Approval history" [ref=e1015] [cursor=pointer]
+          - button "Approval templates 2" [ref=e1017] [cursor=pointer]:
+            - generic [ref=e1018]: Approval templates
+            - generic [ref=e1019]: "2"
+          - generic [ref=e1021]:
+            - generic [ref=e1022]:
+              - generic [ref=e1023]: pending
+              - generic [ref=e1024]: 4603ae21-2f60-486e-bda4-360a72c2655f
+              - generic [ref=e1025]: · 11/4/2026, 7:00:54 PM
+              - generic [ref=e1026]: · 11111111-1111-4111-8111-111111111111 / postgres
+              - generic [ref=e1027]: demo.ddl.approval
+              - generic [ref=e1028]: Submitter executes
+            - generic [ref=e1029]: create table qa2_ai_approval_ui2(id int)
+            - paragraph [ref=e1030]: mock acceptance approval
+            - generic [ref=e1031]:
+              - generic [ref=e1032]: Step 1/2
+              - generic "@dba" [ref=e1033]: 1 · any one · pending
+              - generic "507cc906-2bba-4816-94b0-a3e978260a08, c441801f-7e5d-4f40-b8be-3fefda20c92d" [ref=e1034]: 2 · all · pending
+            - generic [ref=e1035]:
+              - generic [ref=e1036]: 1. @dba (4 approver(s))
+              - generic [ref=e1037]: 2. 507cc906-2bba-4816-94b0-a3e978260a08, c441801f-7e5d-4f40-b8be-3fefda20c92d (2 approver(s))
+            - generic [ref=e1038]:
+              - textbox "Comment (optional)" [ref=e1039]
+              - button "Approve" [ref=e1040] [cursor=pointer]
+              - button "Reject" [ref=e1041] [cursor=pointer]

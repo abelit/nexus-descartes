@@ -1,0 +1,199 @@
+- generic [ref=e32]:
+  - generic [ref=e33]:
+    - link "DBX DBX" [ref=e34] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=e35]: DBX
+    - button "New Connection" [ref=e36] [cursor=pointer]
+    - button "New Query" [ref=e39] [cursor=pointer]
+    - button "Data Transfer" [ref=e41] [cursor=pointer]
+    - button "Driver Manager" [ref=e43] [cursor=pointer]
+    - button "Plugin Center" [ref=e46] [cursor=pointer]
+    - button "More" [ref=e48] [cursor=pointer]
+    - generic [ref=e52]:
+      - button [ref=e53] [cursor=pointer]
+      - button "9" [ref=e56] [cursor=pointer]
+      - button [ref=e58] [cursor=pointer]
+      - button [ref=e59] [cursor=pointer]
+      - button [ref=e60] [cursor=pointer]
+      - button [ref=e61] [cursor=pointer]
+      - button "Theme" [ref=e62] [cursor=pointer]
+      - button [ref=e63] [cursor=pointer]
+    - button "Security governance" [ref=e64] [cursor=pointer]
+    - button [ref=e65] [cursor=pointer]
+    - 'button "Current user: Administrator" [ref=e66] [cursor=pointer]':
+      - generic [ref=e67]: AD
+      - generic [ref=e68]: Administrator
+  - generic [ref=e71]:
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - button "Import / Export" [ref=e75] [cursor=pointer]
+        - generic [ref=e83]:
+          - button [ref=e85] [cursor=pointer]
+          - button [ref=e87] [cursor=pointer]
+          - button [ref=e89] [cursor=pointer]
+          - button [ref=e91] [cursor=pointer]
+      - generic [ref=e93]:
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - textbox "Search..." [ref=e100]
+            - generic [ref=e101]:
+              - button "Regex search" [ref=e103] [cursor=pointer]:
+                - generic [aria-hidden] [ref=e104]: .*
+              - switch "Local search" [ref=e106] [cursor=pointer]
+          - button "Locate in sidebar" [ref=e108] [cursor=pointer]
+          - button "Sort and filter" [ref=e114] [cursor=pointer]
+          - button "Show active connections only" [ref=e118] [cursor=pointer]:
+            - generic [ref=e119]: "Active connections: 0"
+        - generic [ref=e122]:
+          - generic [ref=e125]:
+            - button [ref=e126] [cursor=pointer]
+            - generic [ref=e131]: demo-postgres
+            - button "Select connection" [ref=e134] [cursor=pointer]
+          - generic [ref=e139]:
+            - button [ref=e140] [cursor=pointer]
+            - generic [ref=e145]: demo-mysql
+            - button "Select connection" [ref=e148] [cursor=pointer]
+    - generic [ref=e272]:
+      - generic [ref=e274]:
+        - heading "Security governance" [level=2] [ref=e279]
+        - paragraph [ref=e280]: Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+      - generic [ref=e281]:
+        - button "Approvals" [ref=e282] [cursor=pointer]
+        - button "Audit log" [ref=e286] [cursor=pointer]
+        - button "Users & roles" [ref=e290] [cursor=pointer]
+        - button "Policies" [active] [pressed] [ref=e296] [cursor=pointer]
+      - generic [ref=e739]:
+        - generic [ref=e740]:
+          - generic [ref=e741]:
+            - heading "Policy rules" [level=3] [ref=e742]
+            - paragraph [ref=e743]: Versioned rule documents per scope. Publishing validates the document and immediately changes the effective bundle hash; approvals issued earlier stop matching.
+          - button "Refresh" [ref=e744] [cursor=pointer]
+        - generic [ref=e745]:
+          - combobox [ref=e746] [cursor=pointer]:
+            - option "All connections" [selected]
+            - option "One connection"
+            - option "One database"
+          - generic "6b94d326f5aad53733ad1e64d630d3d5587f98743a34aa0ae6f92e63ab0d2a7d" [ref=e747]: 6b94d326f5aa…
+        - generic [ref=e748]:
+          - button "Form" [ref=e749] [cursor=pointer]
+          - button "JSON" [ref=e753] [cursor=pointer]
+        - generic [ref=e759]:
+          - generic [ref=e760]:
+            - generic [ref=e761]:
+              - generic [ref=e762]: Draft rules
+              - paragraph [ref=e763]: Changes stay local until you publish. A rule whose id matches a built-in replaces it; disable a built-in with enabled off.
+            - generic [ref=e764]:
+              - combobox "Add from template" [ref=e765] [cursor=pointer]:
+                - option "Add from template" [selected]
+                - option "Production DDL requires approval"
+                - option "Block unbounded DML"
+                - option "Privilege changes require approval"
+                - option "Warn on TRUNCATE"
+              - button "Add rule" [ref=e766] [cursor=pointer]
+          - generic [ref=e767]:
+            - generic [ref=e768]:
+              - generic [ref=e769]:
+                - generic [ref=e770]: Require approval
+                - generic [ref=e771]: demo.ddl.approval
+                - generic [ref=e772]: "#200"
+                - generic [ref=e773]:
+                  - button "Edit rule" [ref=e774] [cursor=pointer]
+                  - button "Delete rule" [ref=e775] [cursor=pointer]
+              - generic [ref=e776]: ddl
+              - generic [ref=e777]: DDL requires approval
+            - generic [ref=e778]:
+              - generic [ref=e779]:
+                - generic [ref=e780]: Block
+                - generic [ref=e781]: demo.dml.no_where.block
+                - generic [ref=e782]: "#210"
+                - generic [ref=e783]:
+                  - button "Edit rule" [ref=e784] [cursor=pointer]
+                  - button "Delete rule" [ref=e785] [cursor=pointer]
+              - generic [ref=e786]: dml · Unbounded only
+              - generic [ref=e787]: Unbounded DML is blocked
+            - generic [ref=e788]:
+              - generic [ref=e789]:
+                - generic [ref=e790]: Require approval
+                - generic [ref=e791]: all.truncate.approval
+                - generic [ref=e792]: "#0"
+                - generic [ref=e793]:
+                  - button "Edit rule" [ref=e794] [cursor=pointer]
+                  - button "Delete rule" [ref=e795] [cursor=pointer]
+              - generic [ref=e796]: truncate · demo-*, app, prod_*
+              - generic [ref=e797]: truncate需要审批
+          - generic [ref=e798]:
+            - textbox "Change note" [ref=e799]
+            - button "Publish" [ref=e800] [cursor=pointer]
+        - generic [ref=e801]:
+          - generic [ref=e802]: Built-in rules
+          - paragraph [ref=e803]: Built-in rules are the safety floor. Override one by reusing its ID; disable it by turning enabled off.
+          - generic [ref=e804]:
+            - generic [ref=e805]: Require approval
+            - generic [ref=e806]: prod.ddl.approval
+            - generic [ref=e807]: DDL on a production connection requires approval
+            - button "Override" [ref=e808] [cursor=pointer]
+          - generic [ref=e809]:
+            - generic [ref=e810]: Block
+            - generic [ref=e811]: prod.dml.no_where.block
+            - generic [ref=e812]: An unbounded write on a production connection is blocked
+            - button "Override" [ref=e813] [cursor=pointer]
+          - generic [ref=e814]:
+            - generic [ref=e815]: Require approval
+            - generic [ref=e816]: prod.truncate.approval
+            - generic [ref=e817]: TRUNCATE on a production connection requires approval
+            - button "Override" [ref=e818] [cursor=pointer]
+          - generic [ref=e819]:
+            - generic [ref=e820]: Require approval
+            - generic [ref=e821]: prod.privilege.approval
+            - generic [ref=e822]: Privilege changes on a production connection require approval
+            - button "Override" [ref=e823] [cursor=pointer]
+          - generic [ref=e824]:
+            - generic [ref=e825]: Warn
+            - generic [ref=e826]: global.no_where.warn
+            - generic [ref=e827]: This statement has no bounding condition
+            - button "Override" [ref=e828] [cursor=pointer]
+          - generic [ref=e829]:
+            - generic [ref=e830]: Warn
+            - generic [ref=e831]: global.ddl.warn
+            - generic [ref=e832]: Schema changes cannot be rolled back on every backend
+            - button "Override" [ref=e833] [cursor=pointer]
+          - group [ref=e834]:
+            - generic "4 published custom rule(s)" [ref=e835] [cursor=pointer]
+        - generic [ref=e836]:
+          - generic [ref=e837]: Versions
+          - generic [ref=e838]:
+            - generic [ref=e839]:
+              - generic [ref=e840]: v5 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/4/2026, 2:32:12 AM
+              - generic [ref=e841]: —
+            - generic [ref=e842]:
+              - button "Load" [ref=e843] [cursor=pointer]
+              - button "Roll back" [ref=e844] [cursor=pointer]
+          - generic [ref=e845]:
+            - generic [ref=e846]:
+              - generic [ref=e847]: v4 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/4/2026, 2:32:12 AM
+              - generic [ref=e848]: —
+            - generic [ref=e849]:
+              - button "Load" [ref=e850] [cursor=pointer]
+              - button "Roll back" [ref=e851] [cursor=pointer]
+          - generic [ref=e852]:
+            - generic [ref=e853]:
+              - generic [ref=e854]: v3 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/4/2026, 2:32:10 AM
+              - generic [ref=e855]: —
+            - generic [ref=e856]:
+              - button "Load" [ref=e857] [cursor=pointer]
+              - button "Roll back" [ref=e858] [cursor=pointer]
+          - generic [ref=e859]:
+            - generic [ref=e860]:
+              - generic [ref=e861]: v2 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/2/2026, 11:45:41 PM
+              - generic [ref=e862]: acceptance demo
+            - generic [ref=e863]:
+              - button "Load" [ref=e864] [cursor=pointer]
+              - button "Roll back" [ref=e865] [cursor=pointer]
+          - generic [ref=e866]:
+            - generic [ref=e867]:
+              - generic [ref=e868]: v1 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/2/2026, 11:44:34 PM
+              - generic [ref=e869]: acceptance demo
+            - generic [ref=e870]:
+              - button "Load" [ref=e871] [cursor=pointer]
+              - button "Roll back" [ref=e872] [cursor=pointer]

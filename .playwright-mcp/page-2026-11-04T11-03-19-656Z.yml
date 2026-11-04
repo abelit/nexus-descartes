@@ -1,0 +1,310 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic [aria-hidden]:
+          - link:
+            - /url: https://dbxio.com
+            - generic: DBX
+          - button:
+            - generic: New Connection
+          - button:
+            - generic: New Query
+          - button:
+            - generic: Data Transfer
+          - button:
+            - generic: Driver Manager
+          - generic:
+            - button:
+              - generic: Plugin Center
+          - button:
+            - generic: More
+          - generic:
+            - button
+            - generic:
+              - button:
+                - generic: "3"
+            - button
+            - button
+            - button
+            - button
+            - button
+            - button
+          - button
+          - button
+          - button:
+            - generic: AD
+            - generic: Administrator
+        - generic:
+          - generic:
+            - generic:
+              - generic [aria-hidden]:
+                - generic:
+                  - generic: CONNECTIONS
+                  - generic: Selected 1
+                - generic:
+                  - button
+                - generic:
+                  - generic:
+                    - button
+                - generic:
+                  - button
+                - generic:
+                  - button
+                - generic:
+                  - button
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [aria-hidden]:
+                        - textbox:
+                          - /placeholder: Search...
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic [aria-hidden]: .*
+                          - generic:
+                            - switch
+                      - generic [aria-hidden]:
+                        - button
+                      - generic [aria-hidden]:
+                        - generic:
+                          - button
+                      - generic:
+                        - button "Show active connections only":
+                          - generic: "Active connections: 2"
+                  - generic [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-postgres
+                              - button
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-mysql
+                              - button
+              - generic [aria-hidden]:
+                - generic: demo-postgres:5432
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic [aria-hidden]:
+                                  - generic:
+                                    - button
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]: "*"
+                                                  - generic:
+                                                    - generic: demo-mysql
+                                                    - generic: "1"
+                                                - button
+                                            - generic:
+                                              - generic:
+                                                - generic: demo-postgres
+                                                - button
+                                    - button
+                                - generic:
+                                  - generic [aria-hidden]:
+                                    - generic:
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button:
+                                        - generic: A
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button: A
+                                      - button
+                                      - button
+                                      - button [pressed]
+                                      - button [disabled]
+                                      - button
+                                      - button
+                                      - button
+                                      - button [disabled]
+                                      - group:
+                                        - button:
+                                          - generic [aria-hidden]:
+                                            - generic: "Tx:"
+                                            - generic: A
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - button:
+                                            - generic: demo-postgres
+                                      - generic:
+                                        - button:
+                                          - generic: postgres
+                                        - button
+                                        - button: Set Default
+                                      - generic:
+                                        - button:
+                                          - generic: Select schema
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]:
+                                                    - generic [aria-hidden]:
+                                                      - generic: "1"
+                                                    - textbox
+                        - separator [aria-hidden]
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: MOCK_BLOCKED_QUERY 请创建表 qa2_ai_block_ui(id int)
+                  - button
+                  - button
+                  - button
+                  - button
+                  - button
+                  - button
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - button
+                                - generic: MOCK_BLOCKED_QUERY 请创建表 qa2_ai_block_ui(id int)
+                                - generic:
+                                  - button:
+                                    - generic: Auto · General
+                                - generic:
+                                  - button
+                                  - button
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: SQL generated
+                              - generic:
+                                - generic:
+                                  - paragraph: This SQL changes data or schema. Review it carefully before execution.
+                              - generic:
+                                - generic:
+                                  - generic: SQL
+                                  - generic:
+                                    - button
+                                    - button
+                                    - button
+                                    - button
+                                    - button
+                                - generic:
+                                  - code: create table qa2_ai_approval_blocked(id int)
+                              - generic:
+                                - generic:
+                                  - paragraph: Execute this SQL once?
+                            - generic:
+                              - generic:
+                                - button
+                                - button
+                          - generic:
+                            - generic:
+                              - generic:
+                                - button
+                                - generic: Execute the exact SQL shown above once. Do not ask for confirmation again.
+                                - generic:
+                                  - button
+                                  - button
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: Blocked by safety check
+                                    - generic: ": execute_query"
+                                    - generic: 0.0s
+                                  - generic:
+                                    - generic: create table qa2_ai_approval_blocked(id int)
+                                    - button: Request approval
+                                    - generic: "Error: POLICY_APPROVAL_REQUIRED: DDL requires approval (rule demo.ddl.approval)"
+                              - generic:
+                                - generic:
+                                  - paragraph: The statement was blocked by the governance policy. Use the Request approval action.
+                            - generic:
+                              - generic:
+                                - button
+                                - button
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic: demo-postgres
+                          - generic:
+                            - button:
+                              - generic: postgres
+                          - generic:
+                            - button:
+                              - generic: Select schema
+                        - generic:
+                          - button:
+                            - generic: "Templates: Not selected"
+                          - button:
+                            - generic: Skills
+                      - textbox:
+                        - /placeholder: Ask a question and I'll help you analyze it... Type @ to add available objects or files as context
+                      - generic:
+                        - button:
+                          - generic: Attach image or text file
+                        - button:
+                          - generic: Agent · Auto
+                        - button:
+                          - generic: mock-model
+                        - button [disabled]
+  - dialog [ref=e1310]:
+    - paragraph [ref=e1311]
+    - heading "Request approval" [level=2] [ref=e1313]
+    - generic [ref=e1314]:
+      - paragraph [ref=e1315]: A high-risk rule paused this statement. Submit a request; an approver can then review exactly this connection, database, schema, and SQL.
+      - generic [ref=e1316]:
+        - generic [ref=e1317]: "Target: demo-postgres · postgres"
+        - generic [ref=e1318]: "Matched rule: Error: POLICY_APPROVAL_REQUIRED: DDL requires approval (rule demo.ddl.approval)"
+      - generic [ref=e1319]: create table qa2_ai_approval_blocked(id int)
+      - generic [ref=e1320] [cursor=pointer]:
+        - text: Justification
+        - textbox "Justification" [active] [ref=e1321]:
+          - /placeholder: Why is this change needed?
+      - generic [ref=e1322] [cursor=pointer]:
+        - text: After approval
+        - combobox "After approval" [ref=e1323]:
+          - option "Last approver executes" [selected]
+          - option "Submitter executes"
+          - option "Auto execute"
+    - generic [ref=e1324]:
+      - button "Cancel" [ref=e1325] [cursor=pointer]
+      - button "Submit request" [ref=e1326] [cursor=pointer]
+    - button "Close" [ref=e1327] [cursor=pointer]

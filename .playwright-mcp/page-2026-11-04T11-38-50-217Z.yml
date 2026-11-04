@@ -1,0 +1,293 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic [aria-hidden]:
+          - link:
+            - /url: https://dbxio.com
+            - generic: DBX
+          - button:
+            - generic: New Connection
+          - button:
+            - generic: New Query
+          - button:
+            - generic: Data Transfer
+          - button:
+            - generic: Driver Manager
+          - generic:
+            - button:
+              - generic: Plugin Center
+          - button:
+            - generic: More
+          - generic:
+            - button
+            - generic:
+              - button:
+                - generic: "8"
+            - button
+            - button
+            - button
+            - button
+            - button
+            - button
+          - button
+          - button
+          - button:
+            - generic: AD
+            - generic: Administrator
+        - generic:
+          - generic:
+            - generic:
+              - generic [aria-hidden]:
+                - button:
+                  - generic: Import / Export
+                - generic:
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [aria-hidden]:
+                        - textbox:
+                          - /placeholder: Search...
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic [aria-hidden]: .*
+                          - generic:
+                            - switch
+                      - generic [aria-hidden]:
+                        - button
+                      - generic [aria-hidden]:
+                        - generic:
+                          - button
+                      - generic:
+                        - button "Show active connections only":
+                          - generic: "Active connections: 1"
+                  - generic [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-postgres
+                              - button
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-mysql
+                              - button
+              - generic [aria-hidden]:
+                - generic: demo-postgres:5432
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic [aria-hidden]:
+                                  - generic:
+                                    - button
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]: "*"
+                                                  - generic: demo-mysql
+                                                - button
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic:
+                                                    - generic: demo-postgres
+                                                    - generic: "1"
+                                                - button
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]: "*"
+                                                  - generic:
+                                                    - generic: demo-postgres
+                                                    - generic: "2"
+                                                - button
+                                    - button
+                                - generic:
+                                  - generic [aria-hidden]:
+                                    - generic:
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button:
+                                        - generic: A
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button [disabled]
+                                      - button: A
+                                      - button
+                                      - button
+                                      - button [pressed]
+                                      - button [disabled]
+                                      - button
+                                      - button
+                                      - button
+                                      - button [disabled]
+                                      - group:
+                                        - button:
+                                          - generic [aria-hidden]:
+                                            - generic: "Tx:"
+                                            - generic: A
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - button:
+                                            - generic: demo-postgres
+                                      - generic:
+                                        - button:
+                                          - generic: postgres
+                                        - button
+                                        - button: Set Default
+                                      - generic:
+                                        - button:
+                                          - generic: Select schema
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic [aria-hidden]:
+                                                    - generic [aria-hidden]:
+                                                      - generic: "1"
+                                                    - textbox
+                        - separator [aria-hidden]
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 创建一张包含500条数据的商品表 product_test，插入500条商品测试数据。如果需要审批，
+                  - button
+                  - button
+                  - button
+                  - button
+                  - button
+                  - button
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - button
+                                - generic: 创建一张包含500条数据的商品表 product_test，插入500条商品测试数据。如果需要审批，请自动提交审批工单，并设置审批通过后自动执行。不要反复询问确认。
+                                - generic:
+                                  - button:
+                                    - generic: Auto · Generate (no run)
+                                - generic:
+                                  - button
+                                  - button
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic: SQL generated
+                                - generic:
+                                  - button:
+                                    - generic: Needs confirmation
+                                - generic:
+                                  - button:
+                                    - generic: Not run
+                              - generic:
+                                - generic:
+                                  - paragraph: This SQL changes data or schema. Review it carefully before execution.
+                              - generic:
+                                - generic:
+                                  - generic: SQL
+                                  - generic:
+                                    - button
+                                    - button
+                                    - button
+                                    - button
+                                    - button
+                                - generic:
+                                  - code: CREATE TABLE public.product_test ( product_id serial PRIMARY KEY, product_name text NOT NULL, category text NOT NULL, price numeric(10,2) NOT NULL, stock integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now() ); INSERT INTO public.product_test (product_name, category, price, stock) SELECT '商品' || g || '号', (ARRAY['电子产品','家居用品','食品饮料','服饰鞋帽','图书文具'])[1 + (g % 5)], round((10 + random() * 990)::numeric, 2), (random() * 1000)::int + 1 FROM generate_series(1, 500) AS g;
+                              - generic:
+                                - generic:
+                                  - paragraph: Execute this SQL once?
+                              - generic:
+                                - button: Confirm execution
+                                - button: Cancel
+                            - generic:
+                              - generic: ↑3,601 ↓837 tokens
+                              - generic:
+                                - button
+                                - button
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic: demo-postgres
+                          - generic:
+                            - button:
+                              - generic: app
+                          - generic:
+                            - button:
+                              - generic: Select schema
+                        - generic:
+                          - button:
+                            - generic: "Templates: Not selected"
+                          - button:
+                            - generic: Skills
+                      - textbox:
+                        - /placeholder: Ask a question and I'll help you analyze it... Type @ to add available objects or files as context
+                      - generic:
+                        - button:
+                          - generic: Attach image or text file
+                        - button:
+                          - generic: Agent · Auto
+                        - button:
+                          - generic: deepseek-flash
+                        - button [disabled]
+  - dialog [ref=e1150]:
+    - paragraph [ref=e1151]
+    - heading "Dangerous Operation" [level=2] [ref=e1153]
+    - generic [ref=e1156]:
+      - paragraph [ref=e1157]: This SQL statement may modify or delete data irreversibly. Are you sure you want to execute it?
+      - generic [ref=e1158]:
+        - generic [ref=e1159]:
+          - button "Copy full text" [ref=e1160] [cursor=pointer]
+          - button "Toggle word wrap" [ref=e1161] [cursor=pointer]
+        - generic [ref=e1162]: CREATE TABLE public.product_test ( product_id serial PRIMARY KEY, product_name text NOT NULL, category text NOT NULL, price numeric(10,2) NOT NULL, stock integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now());INSERT INTO public.product_test (product_name, category, price, stock)SELECT '商品' || g || '号', (ARRAY['电子产品','家居用品','食品饮料','服饰鞋帽','图书文具'])[1 + (g % 5)], round((10 + random() * 990)::numeric, 2), (random() * 1000)::int + 1FROM generate_series(1, 500) AS g;
+      - generic [ref=e1164]:
+        - generic [ref=e1165] [cursor=pointer]: Do not ask again for dangerous SQL
+        - switch "Do not ask again for dangerous SQL" [ref=e1166] [cursor=pointer]
+    - generic [ref=e1167]:
+      - button "Cancel" [ref=e1168] [cursor=pointer]
+      - button "Execute" [active] [ref=e1169] [cursor=pointer]
+    - button "Close" [ref=e1170] [cursor=pointer]

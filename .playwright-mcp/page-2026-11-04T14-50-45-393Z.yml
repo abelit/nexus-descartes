@@ -1,0 +1,301 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic [aria-hidden]:
+          - link:
+            - /url: https://dbxio.com
+            - generic: DBX
+          - button:
+            - generic: New Connection
+          - button:
+            - generic: New Query
+          - button:
+            - generic: Data Transfer
+          - button:
+            - generic: Driver Manager
+          - generic:
+            - button:
+              - generic: Plugin Center
+          - button:
+            - generic: More
+          - generic:
+            - button
+            - generic:
+              - button:
+                - generic: "9"
+            - button
+            - button
+            - button
+            - button
+            - button
+            - button
+          - button
+          - button
+          - button:
+            - generic: AD
+            - generic: Administrator
+        - generic:
+          - generic:
+            - generic:
+              - generic [aria-hidden]:
+                - button:
+                  - generic: Import / Export
+                - generic:
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+                  - generic:
+                    - button
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic [aria-hidden]:
+                        - textbox:
+                          - /placeholder: Search...
+                        - generic:
+                          - generic:
+                            - button:
+                              - generic [aria-hidden]: .*
+                          - generic:
+                            - switch
+                      - generic [aria-hidden]:
+                        - button
+                      - generic [aria-hidden]:
+                        - generic:
+                          - button
+                      - generic:
+                        - button "Show active connections only":
+                          - generic: "Active connections: 0"
+                  - generic [aria-hidden]:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-postgres
+                              - button
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button
+                              - generic: demo-mysql
+                              - button
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Security governance
+                        - paragraph: Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+                    - generic:
+                      - button: Approvals
+                      - button: Audit log
+                      - button: Users & roles
+                      - button [pressed]: Policies
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - heading [level=3]: Policy rules
+                            - paragraph: Versioned rule documents per scope. Publishing validates the document and immediately changes the effective bundle hash; approvals issued earlier stop matching.
+                          - button: Refresh
+                        - generic:
+                          - combobox
+                          - generic: 6b94d326f5aa…
+                        - generic:
+                          - button: Form
+                          - button: JSON
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Draft rules
+                              - paragraph: Changes stay local until you publish. A rule whose id matches a built-in replaces it; disable a built-in with enabled off.
+                            - generic:
+                              - combobox
+                              - button: Add rule
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic: Require approval
+                                - generic: demo.ddl.approval
+                                - generic: "#200"
+                                - generic:
+                                  - button
+                                  - button
+                              - generic: ddl
+                              - generic: DDL requires approval
+                            - generic:
+                              - generic:
+                                - generic: Block
+                                - generic: demo.dml.no_where.block
+                                - generic: "#210"
+                                - generic:
+                                  - button
+                                  - button
+                              - generic: dml · Unbounded only
+                              - generic: Unbounded DML is blocked
+                            - generic:
+                              - generic:
+                                - generic: Require approval
+                                - generic: all.truncate.approval
+                                - generic: "#0"
+                                - generic:
+                                  - button
+                                  - button
+                              - generic: truncate · demo-*, app, prod_*
+                              - generic: truncate需要审批
+                          - generic:
+                            - textbox:
+                              - /placeholder: Change note
+                            - button: Publish
+                        - generic:
+                          - generic: Built-in rules
+                          - paragraph: Built-in rules are the safety floor. Override one by reusing its ID; disable it by turning enabled off.
+                          - generic:
+                            - generic: Require approval
+                            - generic: prod.ddl.approval
+                            - generic: DDL on a production connection requires approval
+                            - button: Override
+                          - generic:
+                            - generic: Block
+                            - generic: prod.dml.no_where.block
+                            - generic: An unbounded write on a production connection is blocked
+                            - button: Override
+                          - generic:
+                            - generic: Require approval
+                            - generic: prod.truncate.approval
+                            - generic: TRUNCATE on a production connection requires approval
+                            - button: Override
+                          - generic:
+                            - generic: Require approval
+                            - generic: prod.privilege.approval
+                            - generic: Privilege changes on a production connection require approval
+                            - button: Override
+                          - generic:
+                            - generic: Warn
+                            - generic: global.no_where.warn
+                            - generic: This statement has no bounding condition
+                            - button: Override
+                          - generic:
+                            - generic: Warn
+                            - generic: global.ddl.warn
+                            - generic: Schema changes cannot be rolled back on every backend
+                            - button: Override
+                          - group:
+                            - generic: 4 published custom rule(s)
+                        - generic:
+                          - generic: Versions
+                          - generic:
+                            - generic:
+                              - generic: v5 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/4/2026, 2:32:12 AM
+                              - generic: —
+                            - generic:
+                              - button: Load
+                              - button: Roll back
+                          - generic:
+                            - generic:
+                              - generic: v4 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/4/2026, 2:32:12 AM
+                              - generic: —
+                            - generic:
+                              - button: Load
+                              - button: Roll back
+                          - generic:
+                            - generic:
+                              - generic: v3 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/4/2026, 2:32:10 AM
+                              - generic: —
+                            - generic:
+                              - button: Load
+                              - button: Roll back
+                          - generic:
+                            - generic:
+                              - generic: v2 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/2/2026, 11:45:41 PM
+                              - generic: acceptance demo
+                            - generic:
+                              - button: Load
+                              - button: Roll back
+                          - generic:
+                            - generic:
+                              - generic: v1 · 4603ae21-2f60-486e-bda4-360a72c2655f · 11/2/2026, 11:44:34 PM
+                              - generic: acceptance demo
+                            - generic:
+                              - button: Load
+                              - button: Roll back
+  - dialog [ref=e874]:
+    - paragraph [ref=e875]
+    - heading "Add rule" [level=2] [ref=e876]
+    - generic [ref=e877]:
+      - generic [ref=e878]:
+        - generic [ref=e879] [cursor=pointer]:
+          - text: Rule ID
+          - textbox "Rule ID" [active] [ref=e880]
+        - generic [ref=e881] [cursor=pointer]:
+          - text: Priority
+          - spinbutton "Priority" [ref=e882]: "100"
+        - generic [ref=e883] [cursor=pointer]:
+          - text: Action
+          - combobox "Action" [ref=e884]:
+            - option "Allow"
+            - option "Warn" [selected]
+            - option "Require approval"
+            - option "Block"
+        - generic [ref=e885] [cursor=pointer]:
+          - checkbox "Enabled" [checked] [ref=e886]
+          - text: Enabled
+      - generic [ref=e887]:
+        - generic [ref=e888]: Statement types
+        - generic [ref=e889]:
+          - generic [ref=e890] [cursor=pointer]:
+            - checkbox "SELECT" [ref=e891]
+            - text: SELECT
+          - generic [ref=e892] [cursor=pointer]:
+            - checkbox "DML" [ref=e893]
+            - text: DML
+          - generic [ref=e894] [cursor=pointer]:
+            - checkbox "DDL" [ref=e895]
+            - text: DDL
+          - generic [ref=e896] [cursor=pointer]:
+            - checkbox "TRUNCATE" [ref=e897]
+            - text: TRUNCATE
+          - generic [ref=e898] [cursor=pointer]:
+            - checkbox "GRANT/REVOKE" [ref=e899]
+            - text: GRANT/REVOKE
+          - generic [ref=e900] [cursor=pointer]:
+            - checkbox "Transaction" [ref=e901]
+            - text: Transaction
+        - paragraph [ref=e902]: Empty means any statement. TRUNCATE and GRANT/REVOKE are classified separately.
+      - generic [ref=e903]:
+        - generic [ref=e904] [cursor=pointer]:
+          - checkbox "Production connections only" [ref=e905]
+          - text: Production connections only
+        - generic [ref=e906] [cursor=pointer]:
+          - checkbox "Unbounded statements only (no WHERE)" [ref=e907]
+          - text: Unbounded statements only (no WHERE)
+      - generic [ref=e908]:
+        - generic [ref=e909] [cursor=pointer]:
+          - text: Bounding condition
+          - combobox "Bounding condition" [ref=e910]:
+            - option "Any statement" [selected]
+            - option "Must have WHERE"
+            - option "Must not have WHERE"
+        - generic [ref=e911] [cursor=pointer]:
+          - text: Databases
+          - textbox "Databases Comma-separated names; a trailing * is a prefix match. Empty means any database." [ref=e912]:
+            - /placeholder: app, prod_*
+          - text: Comma-separated names; a trailing * is a prefix match. Empty means any database.
+      - generic [ref=e913] [cursor=pointer]:
+        - text: Message
+        - textbox "Message" [ref=e914]:
+          - /placeholder: Shown when this rule matches
+    - generic [ref=e915]:
+      - button "Cancel" [ref=e916] [cursor=pointer]
+      - button "Save rule" [ref=e917] [cursor=pointer]
+    - button "Close" [ref=e918] [cursor=pointer]
