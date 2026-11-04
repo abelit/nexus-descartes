@@ -1,0 +1,287 @@
+- generic [ref=e1]:
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - link "DBX DBX" [ref=e34] [cursor=pointer]:
+        - /url: https://dbxio.com
+        - img "DBX"
+        - generic [ref=e35]: DBX
+      - button "New Connection" [ref=e36] [cursor=pointer]
+      - button "New Query" [ref=e39] [cursor=pointer]
+      - button "Data Transfer" [ref=e41] [cursor=pointer]
+      - button "Driver Manager" [ref=e43] [cursor=pointer]
+      - button "Plugin Center" [ref=e46] [cursor=pointer]
+      - button "More" [ref=e48] [cursor=pointer]
+      - generic [ref=e52]:
+        - button [ref=e53] [cursor=pointer]
+        - button "9" [ref=e56] [cursor=pointer]
+        - button [ref=e58] [cursor=pointer]
+        - button [ref=e59] [cursor=pointer]
+        - button [ref=e60] [cursor=pointer]
+        - button [ref=e61] [cursor=pointer]
+        - button "Theme" [ref=e62] [cursor=pointer]
+        - button [ref=e63] [cursor=pointer]
+      - button "Security governance" [ref=e64] [cursor=pointer]
+      - button [ref=e65] [cursor=pointer]
+      - 'button "Current user: Administrator" [ref=e66] [cursor=pointer]':
+        - generic [ref=e67]: AD
+        - generic [ref=e68]: Administrator
+    - generic [ref=e71]:
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - button "Import / Export" [ref=e75] [cursor=pointer]
+          - generic [ref=e83]:
+            - button [ref=e85] [cursor=pointer]
+            - button [ref=e87] [cursor=pointer]
+            - button [ref=e89] [cursor=pointer]
+            - button [ref=e91] [cursor=pointer]
+        - generic [ref=e93]:
+          - generic [ref=e95]:
+            - generic [ref=e96]:
+              - textbox "Search..." [ref=e100]
+              - generic [ref=e101]:
+                - button "Regex search" [ref=e103] [cursor=pointer]:
+                  - generic [aria-hidden] [ref=e104]: .*
+                - switch "Local search" [ref=e106] [cursor=pointer]
+            - button "Locate in sidebar" [ref=e108] [cursor=pointer]
+            - button "Sort and filter" [ref=e114] [cursor=pointer]
+            - button "Show active connections only" [ref=e118] [cursor=pointer]:
+              - generic [ref=e119]: "Active connections: 1"
+          - generic [ref=e122]:
+            - generic [ref=e125]:
+              - button [ref=e126] [cursor=pointer]
+              - generic [ref=e131]: demo-postgres
+              - button "Select connection" [ref=e134] [cursor=pointer]
+            - generic [ref=e139]:
+              - button [ref=e140] [cursor=pointer]
+              - generic [ref=e145]: demo-mysql
+              - button "Select connection" [ref=e148] [cursor=pointer]
+        - generic "demo-postgres" [ref=e347]: demo-postgres:5432
+      - generic [ref=e158]:
+        - generic [ref=e162]:
+          - generic [ref=e270]:
+            - button "Position, grouping, sorting" [ref=e271] [cursor=pointer]
+            - generic [ref=e278]:
+              - generic [ref=e352]:
+                - generic [aria-hidden] [ref=e401]: "*"
+                - generic [ref=e353]: demo-postgres
+              - button "Close Tab" [ref=e285] [cursor=pointer]
+            - button "New Query" [ref=e290] [cursor=pointer]
+          - generic [ref=e163]:
+            - generic [ref=e292]:
+              - generic [ref=e293]:
+                - button [ref=e402] [cursor=pointer]
+                - button "Execute all SQL" [ref=e403] [cursor=pointer]
+                - button "Execute SQL in new result tab" [ref=e404] [cursor=pointer]
+                - button [ref=e405] [cursor=pointer]
+                - button "EXPLAIN ANALYZE (executes the query)" [ref=e355] [cursor=pointer]:
+                  - generic [ref=e295]: A
+                - button [ref=e406] [cursor=pointer]
+                - button [ref=e407] [cursor=pointer]
+                - button "Fold all" [ref=e408] [cursor=pointer]
+                - button "Unfold all" [ref=e409] [cursor=pointer]
+                - button "Use lower-case SQL keywords" [ref=e296] [cursor=pointer]: A
+                - button "Word wrap" [ref=e297] [cursor=pointer]
+                - 'button "SQL semantic diagnostics: Off (click to enable)" [ref=e298] [cursor=pointer]'
+                - 'button "INSERT column hints: On (click to disable)" [pressed] [ref=e299] [cursor=pointer]'
+                - button [ref=e410] [cursor=pointer]
+                - button [ref=e300] [cursor=pointer]
+                - button [ref=e301] [cursor=pointer]
+                - button [ref=e302] [cursor=pointer]
+                - button "Multi-db execute" [ref=e411] [cursor=pointer]
+                - group "Auto Commit" [ref=e356]:
+                  - button "Auto Commit" [ref=e357] [cursor=pointer]:
+                    - generic [aria-hidden] [ref=e358]:
+                      - generic [ref=e359]: "Tx:"
+                      - generic [ref=e360]: A
+              - generic [ref=e303]:
+                - button "demo-postgres" [ref=e361] [cursor=pointer]
+                - generic [ref=e308]:
+                  - button "app" [ref=e394] [cursor=pointer]
+                  - button [ref=e366] [cursor=pointer]
+                  - button "Set Default" [ref=e367] [cursor=pointer]
+                - button "Select schema" [ref=e369] [cursor=pointer]
+            - generic [ref=e318]:
+              - generic [aria-hidden] [ref=e319]:
+                - button [ref=e412] [cursor=pointer]
+                - generic [ref=e322]: "1"
+                - generic [ref=e325] [cursor=pointer]
+              - textbox [ref=e326]:
+                - generic [ref=e327]:
+                  - text: SELECT * FROM
+                  - generic [ref=e413]: reading_list
+                  - text: LIMIT 100;
+        - separator [ref=e414]
+        - generic [ref=e421]:
+          - generic [ref=e422]:
+            - button "Auto-keep query results" [ref=e423] [cursor=pointer]
+            - button "Close result" [ref=e424] [cursor=pointer]
+            - group "Result sets" [ref=e426]:
+              - button "app.reading_list" [pressed] [ref=e430] [cursor=pointer]
+            - generic [ref=e432]:
+              - button "Columns" [ref=e433] [cursor=pointer]
+              - button "Go to column" [ref=e436] [cursor=pointer]
+              - button "View DDL" [ref=e438] [cursor=pointer]: DDL
+              - button "View options" [ref=e439] [cursor=pointer]
+              - button "Hide results" [ref=e441] [cursor=pointer]
+          - generic [ref=e442]:
+            - generic [ref=e443]:
+              - generic [ref=e444]:
+                - generic [ref=e446]:
+                  - button "Table Data" [pressed] [ref=e447] [cursor=pointer]
+                  - button "Summary" [ref=e450] [cursor=pointer]
+                  - button "Chart" [ref=e453] [cursor=pointer]
+                  - generic [ref=e455]:
+                    - button "Messages" [disabled]
+                - combobox [ref=e459] [cursor=pointer]:
+                  - generic: All rows
+                - generic [ref=e460]:
+                  - generic [ref=e461]:
+                    - generic [ref=e462]:
+                      - button "Explain Plan" [disabled]
+                    - button "Save Results" [ref=e464] [cursor=pointer]
+                  - button "Virtual Key" [ref=e466] [cursor=pointer]
+                  - generic [ref=e468]: No stable row identifier
+                  - button "Refresh" [ref=e472] [cursor=pointer]
+                  - button "Auto-refresh results" [ref=e474] [cursor=pointer]:
+                    - generic [ref=e475]: Auto
+                  - generic [ref=e476]:
+                    - button "Add Row" [ref=e477] [cursor=pointer]
+                    - button "Add Row" [ref=e479] [cursor=pointer]
+                  - button "Delete Row" [ref=e723] [cursor=pointer]
+                  - button "Commit" [disabled]
+                  - button "Rollback" [disabled]
+              - generic [ref=e481]:
+                - generic [ref=e483]:
+                  - generic [ref=e484]: "#"
+                  - generic [ref=e486]:
+                    - generic [ref=e488]:
+                      - generic [ref=e489]: id
+                      - generic "int" [ref=e491]
+                    - generic [ref=e493]:
+                      - button "Sort" [ref=e495] [cursor=pointer]
+                      - button "Column actions" [ref=e500] [cursor=pointer]
+                  - generic [ref=e505]:
+                    - generic [ref=e507]:
+                      - generic [ref=e508]: title
+                      - generic "text" [ref=e510]
+                    - generic [ref=e512]:
+                      - button "Sort" [ref=e514] [cursor=pointer]
+                      - button "Column actions" [ref=e519] [cursor=pointer]
+                  - generic [ref=e524]:
+                    - generic [ref=e526]:
+                      - generic [ref=e527]: author
+                      - generic "text" [ref=e529]
+                    - generic [ref=e531]:
+                      - button "Sort" [ref=e533] [cursor=pointer]
+                      - button "Column actions" [ref=e538] [cursor=pointer]
+                  - generic [ref=e543]:
+                    - generic [ref=e545]:
+                      - generic [ref=e546]: category
+                      - generic "text" [ref=e548]
+                    - generic [ref=e550]:
+                      - button "Sort" [ref=e552] [cursor=pointer]
+                      - button "Column actions" [ref=e557] [cursor=pointer]
+                  - generic [ref=e562]:
+                    - generic [ref=e564]:
+                      - generic [ref=e565]: status
+                      - generic "text" [ref=e567]
+                    - generic [ref=e569]:
+                      - button "Sort" [ref=e571] [cursor=pointer]
+                      - button "Column actions" [ref=e576] [cursor=pointer]
+                  - generic [ref=e581]:
+                    - generic [ref=e583]:
+                      - generic [ref=e584]: rating
+                      - generic "numeric" [ref=e586]
+                    - generic [ref=e588]:
+                      - button "Sort" [ref=e590] [cursor=pointer]
+                      - button "Column actions" [ref=e595] [cursor=pointer]
+                  - generic [ref=e600]:
+                    - generic [ref=e602]:
+                      - generic [ref=e603]: pages
+                      - generic "int" [ref=e605]
+                    - generic [ref=e607]:
+                      - button "Sort" [ref=e609] [cursor=pointer]
+                      - button "Column actions" [ref=e614] [cursor=pointer]
+                  - generic [ref=e619]:
+                    - generic [ref=e621]:
+                      - generic [ref=e622]: start_date
+                      - generic "date" [ref=e624]
+                    - generic [ref=e626]:
+                      - button "Sort" [ref=e628] [cursor=pointer]
+                      - button "Column actions" [ref=e633] [cursor=pointer]
+                  - generic [ref=e638]:
+                    - generic [ref=e640]:
+                      - generic [ref=e641]: finish_date
+                      - generic "date" [ref=e643]
+                    - generic [ref=e645]:
+                      - button "Sort" [ref=e647] [cursor=pointer]
+                      - button "Column actions" [ref=e652] [cursor=pointer]
+                  - generic [ref=e657]:
+                    - generic [ref=e659]:
+                      - generic [ref=e660]: notes
+                      - generic "text" [ref=e662]
+                    - generic [ref=e664]:
+                      - button "Sort" [ref=e666] [cursor=pointer]
+                      - button "Column actions" [ref=e671] [cursor=pointer]
+                  - generic [ref=e676]:
+                    - generic [ref=e678]:
+                      - generic [ref=e679]: created_at
+                      - generic "timestamptz" [ref=e681]
+                    - generic [ref=e683]:
+                      - button "Sort" [ref=e685] [cursor=pointer]
+                      - button "Column actions" [ref=e690] [cursor=pointer]
+                - generic [ref=e694]:
+                  - generic [ref=e698] [cursor=pointer]
+                  - generic [ref=e700] [cursor=pointer]
+            - generic [ref=e702]:
+              - generic [ref=e703]:
+                - generic [ref=e704]:
+                  - text: Total 100 rows
+                  - button "(100 total)" [ref=e705] [cursor=pointer]
+                - 'button "Query timing details: 28 ms" [ref=e706]': 28 ms
+              - button "Copy SQL" [ref=e708] [cursor=pointer]: "Current page SQL: SELECT * FROM reading_list LIMIT 100;"
+              - generic [ref=e709]:
+                - button "Selection statistics" [ref=e725] [cursor=pointer]:
+                  - generic [ref=e728]: "Sum: 3.3"
+                - button "100 rows" [ref=e710] [cursor=pointer]
+                - button [disabled]
+                - button [disabled]
+                - spinbutton "Jump to page" [ref=e714]: "1"
+                - button [disabled]
+                - button [disabled]
+                - button "Load all and go to the last row" [ref=e715] [cursor=pointer]
+                - button "Export" [ref=e716] [cursor=pointer]
+  - generic [ref=e731]:
+    - button "Sort Database Ascending" [ref=e732]
+    - button "Sort Database Descending" [ref=e739]
+    - button "Sort Current Page Ascending" [ref=e748]
+    - button "Sort Current Page Descending" [ref=e753]
+    - button "Filter" [ref=e760]
+    - button "Highlight" [ref=e769]
+    - button "Hide Columns with Identical Values (1)" [ref=e779]
+    - button "Open Cell Details" [ref=e782]
+    - button "Open Column Details" [ref=e790]
+    - button "Open Row Details" [ref=e795]
+    - button "Copy" [ref=e803]
+    - button "Set NULL" [ref=e811]
+    - button "Bulk Edit Selection" [ref=e817]
+    - button "Generate Value" [ref=e823]
+    - button "Transpose Row" [ref=e831]
+    - button "Clear Selection" [ref=e836]
+    - button "Screenshot selected cells" [ref=e846]
+    - button "Clone as New Row" [ref=e854]
+    - button "Delete Row" [ref=e860]
+    - button "AI assistant" [active] [ref=e868]
+    - button "Export" [ref=e876]
+    - button "Refresh Ctrl R" [ref=e886]:
+      - generic [ref=e893]: Refresh
+      - generic [ref=e894]:
+        - generic [ref=e895]: Ctrl
+        - generic [ref=e896]: R
+  - generic [ref=e897]:
+    - button "AI explain this value" [ref=e898]
+    - button "AI analyze this column" [ref=e904]
+    - button "AI generate filter SQL" [ref=e910]
+    - button "AI check data quality" [ref=e918]
+    - button "AI explain this field" [ref=e924]
+    - button "AI draft UPDATE" [ref=e932]

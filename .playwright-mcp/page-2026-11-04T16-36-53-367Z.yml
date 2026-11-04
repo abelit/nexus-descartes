@@ -1,0 +1,361 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: DBX · Data Grid interaction
+        - heading "数据网格的 AI 右键菜单" [level=1] [ref=e6]
+        - paragraph [ref=e7]: 在单元格、行和选中文字上提供上下文相关的 AI 动作。切换三种菜单样式，勾选右侧选项后，右下角的推荐组合会变短或变长。
+      - generic [ref=e8]:
+        - strong [ref=e11]: 可交互示例
+        - generic [ref=e12]:
+          - text: 表
+          - strong [ref=e13]: app.reading_list
+        - generic [ref=e14]: 100 行
+    - region "菜单方案" [ref=e15]:
+      - generic [ref=e16]: 场景
+      - generic [ref=e17]:
+        - button "单元格" [pressed] [ref=e18] [cursor=pointer]
+        - button "整行" [ref=e19] [cursor=pointer]
+        - button "选中文字" [ref=e20] [cursor=pointer]
+      - generic [ref=e21]: 方案
+      - generic [ref=e22]:
+        - button "A · 扁平" [pressed] [ref=e23] [cursor=pointer]
+        - button "B · 二级" [ref=e24] [cursor=pointer]
+        - button "C · 浮条" [ref=e25] [cursor=pointer]
+      - generic [ref=e26]:
+        - text: 右键网格，或选中文字松开鼠标
+        - generic [ref=e27]: Esc
+        - text: 关闭
+    - main [ref=e28]:
+      - generic [ref=e29]:
+        - region "数据网格示例" [ref=e30]:
+          - generic [ref=e31]:
+            - generic [ref=e32]: app.reading_list
+            - generic [ref=e35]:
+              - generic [ref=e36]: 100 行
+              - generic [ref=e37]: 23 ms
+            - generic [ref=e38]:
+              - generic [ref=e39]: 字段筛选
+              - generic [ref=e40]: 跳转列
+              - generic [ref=e41]: DDL
+              - generic [ref=e42]: 无稳定行标识
+          - table "reading_list 数据" [ref=e46]:
+            - rowgroup [ref=e47]:
+              - row [ref=e48]:
+                - columnheader "#" [ref=e49]
+                - columnheader "id int" [ref=e50]:
+                  - text: id
+                  - generic [ref=e51]: int
+                - columnheader "title text" [ref=e52]:
+                  - text: title
+                  - generic [ref=e53]: text
+                - columnheader "author text" [ref=e54]:
+                  - text: author
+                  - generic [ref=e55]: text
+                - columnheader "category text" [ref=e56]:
+                  - text: category
+                  - generic [ref=e57]: text
+                - columnheader "status text" [ref=e58]:
+                  - text: status
+                  - generic [ref=e59]: text
+                - columnheader "rating numeric" [ref=e60]:
+                  - text: rating
+                  - generic [ref=e61]: numeric
+                - columnheader "pages int" [ref=e62]:
+                  - text: pages
+                  - generic [ref=e63]: int
+                - columnheader "start_date date" [ref=e64]:
+                  - text: start_date
+                  - generic [ref=e65]: date
+            - rowgroup [ref=e66]:
+              - row [ref=e67]:
+                - cell "1" [ref=e68]
+                - cell "1" [ref=e69]
+                - cell "深入理解计算机系统（第3版）" [ref=e70]
+                - cell "Randal E. Bryant" [ref=e71]
+                - cell "计算机" [ref=e72]
+                - cell "未读" [ref=e73]
+                - cell "NULL" [ref=e75]
+                - cell "737" [ref=e76]
+                - cell "2025-01-01" [ref=e77]
+              - row [ref=e78]:
+                - cell "2" [ref=e79]
+                - cell "2" [ref=e80]
+                - cell "三体（第1版）" [ref=e81]
+                - cell "刘慈欣" [ref=e82]
+                - cell "科幻" [ref=e83]
+                - cell "在读" [ref=e84]
+                - cell "NULL" [ref=e86]
+                - cell "302" [ref=e87]
+                - cell "2025-01-04" [ref=e88]
+              - row [ref=e89]:
+                - cell "3" [ref=e90]
+                - cell "3" [ref=e91]
+                - cell "人类简史（第1版）" [ref=e92]
+                - cell "尤瓦尔·赫拉利" [ref=e93]
+                - cell "历史" [ref=e94]
+                - cell "已读" [ref=e95]
+                - cell "3.3" [ref=e97]
+                - cell "440" [ref=e98]
+                - cell "2025-01-07" [ref=e99]
+              - row [ref=e100]:
+                - cell "4" [ref=e101]
+                - cell "4" [ref=e102]
+                - cell "万历十五年（第1版）" [ref=e103]
+                - cell "黄仁宇" [ref=e104]
+                - cell "历史" [ref=e105]
+                - cell "未读" [ref=e106]
+                - cell "NULL" [ref=e108]
+                - cell "286" [ref=e109]
+                - cell "2025-01-10" [ref=e110]
+              - row [ref=e111]:
+                - cell "5" [ref=e112]
+                - cell "5" [ref=e113]
+                - cell "思考，快与慢（第1版）" [ref=e114]
+                - cell "丹尼尔·卡尼曼" [ref=e115]
+                - cell "心理学" [ref=e116]
+                - cell "在读" [ref=e117]
+                - cell "NULL" [ref=e119]
+                - cell "418" [ref=e120]
+                - cell "2025-01-13" [ref=e121]
+              - row [ref=e122]:
+                - cell "6" [ref=e123]
+                - cell "6" [ref=e124]
+                - cell "活着（第1版）" [ref=e125]
+                - cell "余华" [ref=e126]
+                - cell "文学" [ref=e127]
+                - cell "已读" [ref=e128]
+                - cell "3.6" [ref=e130]
+                - cell "191" [ref=e131]
+                - cell "2025-01-16" [ref=e132]
+              - row [ref=e133]:
+                - cell "7" [ref=e134]
+                - cell "7" [ref=e135]
+                - cell "国富论（第1版）" [ref=e136]
+                - cell "亚当·斯密" [ref=e137]
+                - cell "经济学" [ref=e138]
+                - cell "未读" [ref=e139]
+                - cell "NULL" [ref=e141]
+                - cell "562" [ref=e142]
+                - cell "2025-01-19" [ref=e143]
+              - row [ref=e144]:
+                - cell "8" [ref=e145]
+                - cell "8" [ref=e146]
+                - cell "时间简史（第1版）" [ref=e147]
+                - cell "史蒂芬·霍金" [ref=e148]
+                - cell "科普" [ref=e149]
+                - cell "在读" [ref=e150]
+                - cell "NULL" [ref=e152]
+                - cell "210" [ref=e153]
+                - cell "2025-01-22" [ref=e154]
+          - generic [ref=e155]:
+            - strong [ref=e156]: 100 行
+            - generic [ref=e157]: 总计 100 行
+            - generic [ref=e158]: SELECT * FROM reading_list rl LIMIT 100
+        - region "AI 上下文范围" [ref=e159]:
+          - generic [ref=e160]:
+            - heading "AI 上下文范围" [level=2] [ref=e161]
+            - generic [ref=e162]: 只带当前对象，不默认上传整表
+          - generic [ref=e163]:
+            - generic [ref=e164]:
+              - generic [ref=e165]: 单元格
+              - paragraph [ref=e168]: 表、行号、列名和当前值。
+              - code [ref=e169]: app.reading_list · row 4 · title
+            - generic [ref=e170]:
+              - generic [ref=e171]: 整行
+              - paragraph [ref=e174]: 当前行全部字段，适合解释与异常分析。
+              - code [ref=e175]: id, title, author, category, status …
+            - generic [ref=e176]:
+              - generic [ref=e177]: 选中文字
+              - paragraph [ref=e180]: 表、行、列和选中的文本片段。
+              - code [ref=e181]: "title: “万历十五年”"
+      - complementary "AI 选项" [ref=e182]:
+        - generic [ref=e183]:
+          - heading "AI 选项" [level=2] [ref=e184]
+          - generic [ref=e185]: 10 / 16
+          - button "恢复推荐" [ref=e186] [cursor=pointer]
+        - generic [ref=e187]:
+          - generic [ref=e188]:
+            - generic [ref=e189]:
+              - generic [ref=e192]: 单元格
+              - generic [ref=e193]: 3/6
+            - generic [ref=e194] [cursor=pointer]:
+              - checkbox "AI 解释此值 推荐 说明当前单元格的含义、取值范围与可能异常" [checked] [ref=e195]
+              - generic [ref=e196]:
+                - generic [ref=e197]:
+                  - text: AI 解释此值
+                  - generic [ref=e198]: 推荐
+                - generic [ref=e199]: 说明当前单元格的含义、取值范围与可能异常
+            - generic [ref=e200] [cursor=pointer]:
+              - checkbox "AI 分析这一列 推荐 分布、空值、重复值、异常值概览" [checked] [ref=e201]
+              - generic [ref=e202]:
+                - generic [ref=e203]:
+                  - text: AI 分析这一列
+                  - generic [ref=e204]: 推荐
+                - generic [ref=e205]: 分布、空值、重复值、异常值概览
+            - generic [ref=e206] [cursor=pointer]:
+              - checkbox "AI 生成筛选 SQL 推荐 基于当前值生成 WHERE 条件" [checked] [ref=e207]
+              - generic [ref=e208]:
+                - generic [ref=e209]:
+                  - text: AI 生成筛选 SQL
+                  - generic [ref=e210]: 推荐
+                - generic [ref=e211]: 基于当前值生成 WHERE 条件
+            - generic [ref=e212] [cursor=pointer]:
+              - checkbox "AI 检查数据质量 空值、格式、范围与重复问题" [ref=e213]
+              - generic [ref=e214]:
+                - generic [ref=e215]: AI 检查数据质量
+                - generic [ref=e216]: 空值、格式、范围与重复问题
+            - generic [ref=e217] [cursor=pointer]:
+              - checkbox "AI 解释字段含义 结合表结构和业务语义说明这一列" [ref=e218]
+              - generic [ref=e219]:
+                - generic [ref=e220]: AI 解释字段含义
+                - generic [ref=e221]: 结合表结构和业务语义说明这一列
+            - generic [ref=e222] [cursor=pointer]:
+              - checkbox "AI 生成 UPDATE 谨慎 为目标行生成可审阅的更新语句" [ref=e223]
+              - generic [ref=e224]:
+                - generic [ref=e225]:
+                  - text: AI 生成 UPDATE
+                  - generic [ref=e226]: 谨慎
+                - generic [ref=e227]: 为目标行生成可审阅的更新语句
+          - generic [ref=e228]:
+            - generic [ref=e229]:
+              - generic [ref=e232]: 整行
+              - generic [ref=e233]: 3/5
+            - generic [ref=e234] [cursor=pointer]:
+              - checkbox "AI 解释这一行 推荐 用业务语言概括整行记录" [checked] [ref=e235]
+              - generic [ref=e236]:
+                - generic [ref=e237]:
+                  - text: AI 解释这一行
+                  - generic [ref=e238]: 推荐
+                - generic [ref=e239]: 用业务语言概括整行记录
+            - generic [ref=e240] [cursor=pointer]:
+              - checkbox "AI 分析异常 推荐 标记可疑、缺失或互相矛盾的字段" [checked] [ref=e241]
+              - generic [ref=e242]:
+                - generic [ref=e243]:
+                  - text: AI 分析异常
+                  - generic [ref=e244]: 推荐
+                - generic [ref=e245]: 标记可疑、缺失或互相矛盾的字段
+            - generic [ref=e246] [cursor=pointer]:
+              - checkbox "AI 生成关联查询 推荐 基于主外键或同义字段提示 JOIN" [checked] [ref=e247]
+              - generic [ref=e248]:
+                - generic [ref=e249]:
+                  - text: AI 生成关联查询
+                  - generic [ref=e250]: 推荐
+                - generic [ref=e251]: 基于主外键或同义字段提示 JOIN
+            - generic [ref=e252] [cursor=pointer]:
+              - checkbox "AI 总结该行 压缩成一句话摘要，适合报告" [ref=e253]
+              - generic [ref=e254]:
+                - generic [ref=e255]: AI 总结该行
+                - generic [ref=e256]: 压缩成一句话摘要，适合报告
+            - generic [ref=e257] [cursor=pointer]:
+              - checkbox "AI 生成 UPDATE 谨慎 为目标行生成可审阅的更新语句" [ref=e258]
+              - generic [ref=e259]:
+                - generic [ref=e260]:
+                  - text: AI 生成 UPDATE
+                  - generic [ref=e261]: 谨慎
+                - generic [ref=e262]: 为目标行生成可审阅的更新语句
+          - generic [ref=e263]:
+            - generic [ref=e264]:
+              - generic [ref=e267]: 选中文字
+              - generic [ref=e268]: 4/5
+            - generic [ref=e269] [cursor=pointer]:
+              - checkbox "AI 解释选中文字 推荐 解释术语、缩写或整段文本" [checked] [ref=e270]
+              - generic [ref=e271]:
+                - generic [ref=e272]:
+                  - text: AI 解释选中文字
+                  - generic [ref=e273]: 推荐
+                - generic [ref=e274]: 解释术语、缩写或整段文本
+            - generic [ref=e275] [cursor=pointer]:
+              - checkbox "AI 翻译 推荐 保持数据库术语准确的翻译" [checked] [ref=e276]
+              - generic [ref=e277]:
+                - generic [ref=e278]:
+                  - text: AI 翻译
+                  - generic [ref=e279]: 推荐
+                - generic [ref=e280]: 保持数据库术语准确的翻译
+            - generic [ref=e281] [cursor=pointer]:
+              - checkbox "AI 提取关键信息 推荐 提取人名、日期、编号等结构化信息" [checked] [ref=e282]
+              - generic [ref=e283]:
+                - generic [ref=e284]:
+                  - text: AI 提取关键信息
+                  - generic [ref=e285]: 推荐
+                - generic [ref=e286]: 提取人名、日期、编号等结构化信息
+            - generic [ref=e287] [cursor=pointer]:
+              - checkbox "AI 生成模糊匹配 SQL 推荐 生成 LIKE / 全文检索条件" [checked] [ref=e288]
+              - generic [ref=e289]:
+                - generic [ref=e290]:
+                  - text: AI 生成模糊匹配 SQL
+                  - generic [ref=e291]: 推荐
+                - generic [ref=e292]: 生成 LIKE / 全文检索条件
+            - generic [ref=e293] [cursor=pointer]:
+              - checkbox "AI 纠错与格式化 修正错别字或统一格式" [ref=e294]
+              - generic [ref=e295]:
+                - generic [ref=e296]: AI 纠错与格式化
+                - generic [ref=e297]: 修正错别字或统一格式
+        - generic [ref=e298]:
+          - strong [ref=e299]: 推荐组合：
+          - text: 解释此值 · 分析这一列 · 生成筛选 SQL · 解释这一行 · 分析异常 · 生成关联查询 · 解释选中文字 · 翻译 · 提取关键信息 · 生成模糊匹配 SQL
+    - region "方案对比" [ref=e300]:
+      - generic [ref=e301]:
+        - heading "三种交互方案" [level=2] [ref=e302]
+        - paragraph [ref=e303]: 切换上方方案，网格里的菜单会实时变化。
+      - table [ref=e305]:
+        - rowgroup [ref=e306]:
+          - row [ref=e307]:
+            - columnheader "方案" [ref=e308]
+            - columnheader "交互路径" [ref=e309]
+            - columnheader "优点" [ref=e310]
+            - columnheader "适合" [ref=e311]
+        - rowgroup [ref=e312]:
+          - row [ref=e313]:
+            - cell "A 扁平菜单" [ref=e314]:
+              - generic [ref=e315]:
+                - generic [ref=e316]: A
+                - text: 扁平菜单
+            - cell "右键 → 直接看到全部 AI 动作" [ref=e317]
+            - cell "一步可达，动作数量可控时最快" [ref=e318]
+            - cell "单元格 / 行的常用动作" [ref=e319]
+          - row [ref=e320]:
+            - cell "B 二级菜单" [ref=e321]:
+              - generic [ref=e322]:
+                - generic [ref=e323]: B
+                - text: 二级菜单
+            - cell "右键 → “AI 助手” → 展开动作" [ref=e324]
+            - cell "主菜单干净，后续可扩展更多 AI 能力" [ref=e325]
+            - cell "AI 动作较多或会持续增加" [ref=e326]
+          - row [ref=e327]:
+            - cell "C 浮动工具条" [ref=e328]:
+              - generic [ref=e329]:
+                - generic [ref=e330]: C
+                - text: 浮动工具条
+            - cell "选中文字 / 右键 → 靠近内容的浮条" [ref=e331]
+            - cell "轻量、贴近内容，适合选中文字后快速解释" [ref=e332]
+            - cell "文本解释 / 翻译 / 提取" [ref=e333]
+      - generic [ref=e337]:
+        - strong [ref=e338]: 建议的落地组合：
+        - text: 单元格和行使用 A 扁平菜单；文本选中使用 C 浮动工具条。如果后续 AI 动作超过 6 个，再把单元格/行的 AI 动作收进 B 的“AI 助手”二级菜单。右侧勾选的选项会实时反映到网格菜单中，便于先确认最终保留哪些动作。
+  - menu [ref=e339]:
+    - generic [ref=e340]:
+      - generic "单元格 · title" [ref=e341]: title · row 4
+      - generic [ref=e342]: AI 操作
+    - generic [ref=e343]: AI 助手
+    - menuitem "AI 解释此值 推荐 说明当前单元格的含义、取值范围与可能异常" [ref=e344] [cursor=pointer]:
+      - generic [ref=e348]:
+        - generic [ref=e349]:
+          - text: AI 解释此值
+          - generic [ref=e350]: 推荐
+        - generic [ref=e351]: 说明当前单元格的含义、取值范围与可能异常
+    - menuitem "AI 分析这一列 推荐 分布、空值、重复值、异常值概览" [ref=e352] [cursor=pointer]:
+      - generic [ref=e356]:
+        - generic [ref=e357]:
+          - text: AI 分析这一列
+          - generic [ref=e358]: 推荐
+        - generic [ref=e359]: 分布、空值、重复值、异常值概览
+    - menuitem "AI 生成筛选 SQL 推荐 基于当前值生成 WHERE 条件" [ref=e360] [cursor=pointer]:
+      - generic [ref=e364]:
+        - generic [ref=e365]:
+          - text: AI 生成筛选 SQL
+          - generic [ref=e366]: 推荐
+        - generic [ref=e367]: 基于当前值生成 WHERE 条件
+    - menuitem "复制单元格值" [ref=e369] [cursor=pointer]
+    - menuitem "以此值筛选" [ref=e372] [cursor=pointer]
+    - menuitem "查看列统计" [ref=e375] [cursor=pointer]

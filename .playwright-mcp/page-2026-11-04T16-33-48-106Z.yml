@@ -1,0 +1,343 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: DBX Â· Data Grid interaction
+        - 'heading "æ•°æ®ç½‘æ ¼çš„ AI å³é”®èœå•" [level=1] [ref=e6]'
+        - paragraph [ref=e7]: "åœ¨å\x8d•å…ƒæ ¼ã€\x81è¡Œå’Œé€‰ä¸æ–‡å—ä¸Šæ\x8f\x90ä¾›ä¸Šä¸‹æ–‡ç›¸å…³çš„ AI åŠ¨ä½œã€‚åˆ‡æ\x8d¢ä¸‰ç§\x8dè\x8fœå\x8d•æ ·å¼\x8fï¼Œå‹¾é€‰å\x8f³ä¾§é€‰é¡¹å\x90Žï¼Œå\x8f³ä¸‹è§’çš„æŽ¨è\x8d\x90ç»„å\x90ˆä¼šå\x8f˜çŸæˆ–å\x8f˜é•¿ã€‚"
+      - generic [ref=e8]:
+        - strong [ref=e11]: "å\x8f¯äº¤äº’ç¤ºä¾‹"
+        - generic [ref=e12]:
+          - text: è¡¨
+          - strong [ref=e13]: app.reading_list
+        - generic [ref=e14]: 100 è¡Œ
+    - 'region "èœå•æ–¹æ¡ˆ" [ref=e15]':
+      - generic [ref=e16]: åœºæ™¯
+      - generic [ref=e17]:
+        - 'button "å•å…ƒæ ¼" [pressed] [ref=e18] [cursor=pointer]'
+        - button "æ•´è¡Œ" [ref=e19] [cursor=pointer]
+        - button "é€‰ä¸æ–‡å—" [ref=e20] [cursor=pointer]
+      - generic [ref=e21]: æ–¹æ¡ˆ
+      - generic [ref=e22]:
+        - 'button "A Â· æ‰å¹³" [pressed] [ref=e23] [cursor=pointer]'
+        - button "B Â· äºŒçº§" [ref=e24] [cursor=pointer]
+        - 'button "C Â· æµ®æ¡" [ref=e25] [cursor=pointer]'
+      - generic [ref=e26]:
+        - text: "å\x8f³é”®ç½‘æ ¼ï¼Œæˆ–é€‰ä¸æ–‡å—æ\x9d¾å¼€é¼ æ ‡"
+        - generic [ref=e27]: Esc
+        - text: å…³é—
+    - main [ref=e28]:
+      - 'region "æ•°æ®ç½‘æ ¼ç¤ºä¾‹" [ref=e29]':
+        - generic [ref=e30]:
+          - generic [ref=e31]: app.reading_list
+          - generic [ref=e34]:
+            - generic [ref=e35]: 100 è¡Œ
+            - generic [ref=e36]: 23 ms
+          - generic [ref=e37]:
+            - generic [ref=e38]: å—æ®µç›é€‰
+            - generic [ref=e39]: è·³è½¬åˆ—
+            - generic [ref=e40]: DDL
+            - generic [ref=e41]: æ— ç¨³å®šè¡Œæ ‡è¯†
+        - 'table "reading_list æ•°æ®" [ref=e45]':
+          - rowgroup [ref=e46]:
+            - row [ref=e47]:
+              - columnheader "#" [ref=e48]
+              - columnheader "id int" [ref=e49]:
+                - text: id
+                - generic [ref=e50]: int
+              - columnheader "title text" [ref=e51]:
+                - text: title
+                - generic [ref=e52]: text
+              - columnheader "author text" [ref=e53]:
+                - text: author
+                - generic [ref=e54]: text
+              - columnheader "category text" [ref=e55]:
+                - text: category
+                - generic [ref=e56]: text
+              - columnheader "status text" [ref=e57]:
+                - text: status
+                - generic [ref=e58]: text
+              - columnheader "rating numeric" [ref=e59]:
+                - text: rating
+                - generic [ref=e60]: numeric
+              - columnheader "pages int" [ref=e61]:
+                - text: pages
+                - generic [ref=e62]: int
+              - columnheader "start_date date" [ref=e63]:
+                - text: start_date
+                - generic [ref=e64]: date
+          - rowgroup [ref=e65]:
+            - row [ref=e66]:
+              - cell "1" [ref=e67]
+              - cell "1" [ref=e68]
+              - 'cell "æ·±å…¥ç†è§£è®¡ç®—æœºç³»ç»Ÿï¼ˆç¬¬3ç‰ˆï¼‰" [ref=e69]'
+              - cell "Randal E. Bryant" [ref=e70]
+              - cell "è®¡ç®—æœº" [ref=e71]
+              - cell "æœªè¯»" [ref=e72]
+              - cell "NULL" [ref=e74]
+              - cell "737" [ref=e75]
+              - cell "2025-01-01" [ref=e76]
+            - row [ref=e77]:
+              - cell "2" [ref=e78]
+              - cell "2" [ref=e79]
+              - cell "ä¸‰ä½“ï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e80]
+              - cell "åˆ˜æ…ˆæ¬£" [ref=e81]
+              - cell "ç§‘å¹»" [ref=e82]
+              - cell "åœ¨è¯»" [ref=e83]
+              - cell "NULL" [ref=e85]
+              - cell "302" [ref=e86]
+              - cell "2025-01-04" [ref=e87]
+            - row [ref=e88]:
+              - cell "3" [ref=e89]
+              - cell "3" [ref=e90]
+              - 'cell "äººç±»ç®€å²ï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e91]'
+              - cell "å°¤ç“¦å°”Â·èµ«æ‹‰åˆ©" [ref=e92]
+              - 'cell "åŽ†å²" [ref=e93]'
+              - cell "å·²è¯»" [ref=e94]
+              - cell "3.3" [ref=e96]
+              - cell "440" [ref=e97]
+              - cell "2025-01-07" [ref=e98]
+            - row [ref=e99]:
+              - cell "4" [ref=e100]
+              - cell "4" [ref=e101]
+              - 'cell "ä¸‡åŽ†åäº”å¹´ï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e102]'
+              - 'cell "é»„ä»å®‡" [ref=e103]'
+              - 'cell "åŽ†å²" [ref=e104]'
+              - cell "æœªè¯»" [ref=e105]
+              - cell "NULL" [ref=e107]
+              - cell "286" [ref=e108]
+              - cell "2025-01-10" [ref=e109]
+            - row [ref=e110]:
+              - cell "5" [ref=e111]
+              - cell "5" [ref=e112]
+              - 'cell "æ€è€ƒï¼Œå¿«ä¸Žæ…¢ï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e113]'
+              - 'cell "ä¸¹å°¼å°”Â·å¡å°¼æ›¼" [ref=e114]'
+              - 'cell "å¿ƒç†å¦" [ref=e115]'
+              - cell "åœ¨è¯»" [ref=e116]
+              - cell "NULL" [ref=e118]
+              - cell "418" [ref=e119]
+              - cell "2025-01-13" [ref=e120]
+            - row [ref=e121]:
+              - cell "6" [ref=e122]
+              - cell "6" [ref=e123]
+              - 'cell "æ´»ç€ï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e124]'
+              - 'cell "ä½™åŽ" [ref=e125]'
+              - cell "æ–‡å¦" [ref=e126]
+              - cell "å·²è¯»" [ref=e127]
+              - cell "3.6" [ref=e129]
+              - cell "191" [ref=e130]
+              - cell "2025-01-16" [ref=e131]
+            - row [ref=e132]:
+              - cell "7" [ref=e133]
+              - cell "7" [ref=e134]
+              - cell "å›½å¯Œè®ºï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e135]
+              - cell "äºšå½“Â·æ–¯å¯†" [ref=e136]
+              - 'cell "ç»æµŽå¦" [ref=e137]'
+              - cell "æœªè¯»" [ref=e138]
+              - cell "NULL" [ref=e140]
+              - cell "562" [ref=e141]
+              - cell "2025-01-19" [ref=e142]
+            - row [ref=e143]:
+              - cell "8" [ref=e144]
+              - cell "8" [ref=e145]
+              - 'cell "æ—¶é—´ç®€å²ï¼ˆç¬¬1ç‰ˆï¼‰" [ref=e146]'
+              - 'cell "å²è’‚èŠ¬Â·éœé‡‘" [ref=e147]'
+              - cell "ç§‘æ™®" [ref=e148]
+              - cell "åœ¨è¯»" [ref=e149]
+              - cell "NULL" [ref=e151]
+              - cell "210" [ref=e152]
+              - cell "2025-01-22" [ref=e153]
+        - generic [ref=e154]:
+          - strong [ref=e155]: 100 è¡Œ
+          - generic [ref=e156]: æ€»è®¡ 100 è¡Œ
+          - generic [ref=e157]: SELECT * FROM reading_list rl LIMIT 100
+      - complementary "AI é€‰é¡¹" [ref=e158]:
+        - generic [ref=e159]:
+          - heading "AI é€‰é¡¹" [level=2] [ref=e160]
+          - generic [ref=e161]: 10 / 16
+          - 'button "æ¢å¤æŽ¨è" [ref=e162] [cursor=pointer]'
+        - generic [ref=e163]:
+          - generic [ref=e164]:
+            - generic [ref=e165]:
+              - generic [ref=e168]: "å\x8d•å…ƒæ ¼"
+              - generic [ref=e169]: 3/6
+            - generic [ref=e170] [cursor=pointer]:
+              - 'checkbox "AI è§£é‡Šæ¤å€¼ æŽ¨è è¯´æ˜Žå½“å‰å•å…ƒæ ¼çš„å«ä¹‰ã€å–å€¼èŒƒå›´ä¸Žå¯èƒ½å¼‚å¸¸" [checked] [ref=e171]'
+              - generic [ref=e172]:
+                - generic [ref=e173]:
+                  - text: AI è§£é‡Šæ¤å€¼
+                  - generic [ref=e174]: "æŽ¨è\x8d\x90"
+                - generic [ref=e175]: "è¯´æ˜Žå½“å‰\x8då\x8d•å…ƒæ ¼çš„å\x90«ä¹‰ã€\x81å\x8f–å€¼èŒƒå›´ä¸Žå\x8f¯èƒ½å¼‚å¸¸"
+            - generic [ref=e176] [cursor=pointer]:
+              - 'checkbox "AI åˆ†æžè¿™ä¸€åˆ— æŽ¨è åˆ†å¸ƒã€ç©ºå€¼ã€é‡å¤å€¼ã€å¼‚å¸¸å€¼æ¦‚è§ˆ" [checked] [ref=e177]'
+              - generic [ref=e178]:
+                - generic [ref=e179]:
+                  - text: "AI åˆ†æž\x90è¿™ä¸€åˆ—"
+                  - generic [ref=e180]: "æŽ¨è\x8d\x90"
+                - generic [ref=e181]: "åˆ†å¸ƒã€\x81ç©ºå€¼ã€\x81é‡\x8då¤\x8då€¼ã€\x81å¼‚å¸¸å€¼æ¦‚è§ˆ"
+            - generic [ref=e182] [cursor=pointer]:
+              - 'checkbox "AI ç”Ÿæˆç›é€‰ SQL æŽ¨è åŸºäºŽå½“å‰å€¼ç”Ÿæˆ WHERE æ¡ä»¶" [checked] [ref=e183]'
+              - generic [ref=e184]:
+                - generic [ref=e185]:
+                  - text: "AI ç”Ÿæˆ\x90ç›é€‰ SQL"
+                  - generic [ref=e186]: "æŽ¨è\x8d\x90"
+                - generic [ref=e187]: "åŸºäºŽå½“å‰\x8då€¼ç”Ÿæˆ\x90 WHERE æ\x9d¡ä»¶"
+            - generic [ref=e188] [cursor=pointer]:
+              - 'checkbox "AI æ£€æŸ¥æ•°æ®è´¨é‡ ç©ºå€¼ã€æ ¼å¼ã€èŒƒå›´ä¸Žé‡å¤é—®é¢˜" [ref=e189]'
+              - generic [ref=e190]:
+                - generic [ref=e191]: "AI æ£€æŸ¥æ•°æ\x8d®è´¨é‡\x8f"
+                - generic [ref=e192]: "ç©ºå€¼ã€\x81æ ¼å¼\x8fã€\x81èŒƒå›´ä¸Žé‡\x8då¤\x8dé—®é¢˜"
+            - generic [ref=e193] [cursor=pointer]:
+              - 'checkbox "AI è§£é‡Šå—æ®µå«ä¹‰ ç»“åˆè¡¨ç»“æž„å’Œä¸šåŠ¡è¯ä¹‰è¯´æ˜Žè¿™ä¸€åˆ—" [ref=e194]'
+              - generic [ref=e195]:
+                - generic [ref=e196]: "AI è§£é‡Šå—æ®µå\x90«ä¹‰"
+                - generic [ref=e197]: "ç»“å\x90ˆè¡¨ç»“æž„å’Œä¸šåŠ¡è¯ä¹‰è¯´æ˜Žè¿™ä¸€åˆ—"
+            - generic [ref=e198] [cursor=pointer]:
+              - 'checkbox "AI ç”Ÿæˆ UPDATE è°¨æ…Ž ä¸ºç›®æ ‡è¡Œç”Ÿæˆå¯å®¡é˜…çš„æ›´æ–°è¯å¥" [ref=e199]'
+              - generic [ref=e200]:
+                - generic [ref=e201]:
+                  - text: "AI ç”Ÿæˆ\x90 UPDATE"
+                  - generic [ref=e202]: è°¨æ…Ž
+                - generic [ref=e203]: "ä¸ºç›®æ ‡è¡Œç”Ÿæˆ\x90å\x8f¯å®¡é˜…çš„æ›´æ–°è¯å\x8f¥"
+          - generic [ref=e204]:
+            - generic [ref=e205]:
+              - generic [ref=e208]: æ•´è¡Œ
+              - generic [ref=e209]: 3/5
+            - generic [ref=e210] [cursor=pointer]:
+              - 'checkbox "AI è§£é‡Šè¿™ä¸€è¡Œ æŽ¨è ç”¨ä¸šåŠ¡è¯è¨€æ¦‚æ‹¬æ•´è¡Œè®°å½•" [checked] [ref=e211]'
+              - generic [ref=e212]:
+                - generic [ref=e213]:
+                  - text: AI è§£é‡Šè¿™ä¸€è¡Œ
+                  - generic [ref=e214]: "æŽ¨è\x8d\x90"
+                - generic [ref=e215]: ç”¨ä¸šåŠ¡è¯è¨€æ¦‚æ‹¬æ•´è¡Œè®°å½•
+            - generic [ref=e216] [cursor=pointer]:
+              - 'checkbox "AI åˆ†æžå¼‚å¸¸ æŽ¨è æ ‡è®°å¯ç–‘ã€ç¼ºå¤±æˆ–äº’ç›¸çŸ›ç›¾çš„å—æ®µ" [checked] [ref=e217]'
+              - generic [ref=e218]:
+                - generic [ref=e219]:
+                  - text: "AI åˆ†æž\x90å¼‚å¸¸"
+                  - generic [ref=e220]: "æŽ¨è\x8d\x90"
+                - generic [ref=e221]: "æ ‡è®°å\x8f¯ç–‘ã€\x81ç¼ºå¤±æˆ–äº’ç›¸çŸ›ç›¾çš„å—æ®µ"
+            - generic [ref=e222] [cursor=pointer]:
+              - 'checkbox "AI ç”Ÿæˆå…³è”æŸ¥è¯¢ æŽ¨è åŸºäºŽä¸»å¤–é”®æˆ–åŒä¹‰å—æ®µæç¤º JOIN" [checked] [ref=e223]'
+              - generic [ref=e224]:
+                - generic [ref=e225]:
+                  - text: "AI ç”Ÿæˆ\x90å…³è\x81”æŸ¥è¯¢"
+                  - generic [ref=e226]: "æŽ¨è\x8d\x90"
+                - generic [ref=e227]: "åŸºäºŽä¸»å¤–é”®æˆ–å\x90Œä¹‰å—æ®µæ\x8f\x90ç¤º JOIN"
+            - generic [ref=e228] [cursor=pointer]:
+              - 'checkbox "AI æ€»ç»“è¯¥è¡Œ åŽ‹ç¼©æˆä¸€å¥è¯æ‘˜è¦ï¼Œé€‚åˆæŠ¥å‘Š" [ref=e229]'
+              - generic [ref=e230]:
+                - generic [ref=e231]: AI æ€»ç»“è¯¥è¡Œ
+                - generic [ref=e232]: "åŽ‹ç¼©æˆ\x90ä¸€å\x8f¥è¯\x9dæ‘˜è¦\x81ï¼Œé€‚å\x90ˆæŠ¥å‘Š"
+            - generic [ref=e233] [cursor=pointer]:
+              - 'checkbox "AI ç”Ÿæˆ UPDATE è°¨æ…Ž ä¸ºç›®æ ‡è¡Œç”Ÿæˆå¯å®¡é˜…çš„æ›´æ–°è¯å¥" [ref=e234]'
+              - generic [ref=e235]:
+                - generic [ref=e236]:
+                  - text: "AI ç”Ÿæˆ\x90 UPDATE"
+                  - generic [ref=e237]: è°¨æ…Ž
+                - generic [ref=e238]: "ä¸ºç›®æ ‡è¡Œç”Ÿæˆ\x90å\x8f¯å®¡é˜…çš„æ›´æ–°è¯å\x8f¥"
+          - generic [ref=e239]:
+            - generic [ref=e240]:
+              - generic [ref=e243]: é€‰ä¸æ–‡å—
+              - generic [ref=e244]: 4/5
+            - generic [ref=e245] [cursor=pointer]:
+              - 'checkbox "AI è§£é‡Šé€‰ä¸æ–‡å— æŽ¨è è§£é‡Šæœ¯è¯ã€ç¼©å†™æˆ–æ•´æ®µæ–‡æœ¬" [checked] [ref=e246]'
+              - generic [ref=e247]:
+                - generic [ref=e248]:
+                  - text: AI è§£é‡Šé€‰ä¸æ–‡å—
+                  - generic [ref=e249]: "æŽ¨è\x8d\x90"
+                - generic [ref=e250]: "è§£é‡Šæœ¯è¯ã€\x81ç¼©å†™æˆ–æ•´æ®µæ–‡æœ¬"
+            - generic [ref=e251] [cursor=pointer]:
+              - 'checkbox "AI ç¿»è¯‘ æŽ¨è ä¿æŒæ•°æ®åº“æœ¯è¯å‡†ç¡®çš„ç¿»è¯‘" [checked] [ref=e252]'
+              - generic [ref=e253]:
+                - generic [ref=e254]:
+                  - text: AI ç¿»è¯‘
+                  - generic [ref=e255]: "æŽ¨è\x8d\x90"
+                - generic [ref=e256]: "ä¿\x9dæŒ\x81æ•°æ\x8d®åº“æœ¯è¯å‡†ç¡®çš„ç¿»è¯‘"
+            - generic [ref=e257] [cursor=pointer]:
+              - 'checkbox "AI æå–å…³é”®ä¿¡æ¯ æŽ¨è æå–äººåã€æ—¥æœŸã€ç¼–å·ç‰ç»“æž„åŒ–ä¿¡æ¯" [checked] [ref=e258]'
+              - generic [ref=e259]:
+                - generic [ref=e260]:
+                  - text: "AI æ\x8f\x90å\x8f–å…³é”®ä¿¡æ\x81¯"
+                  - generic [ref=e261]: "æŽ¨è\x8d\x90"
+                - generic [ref=e262]: "æ\x8f\x90å\x8f–äººå\x90\x8dã€\x81æ—¥æœŸã€\x81ç¼–å\x8f·ç‰ç»“æž„åŒ–ä¿¡æ\x81¯"
+            - generic [ref=e263] [cursor=pointer]:
+              - 'checkbox "AI ç”Ÿæˆæ¨¡ç³ŠåŒ¹é… SQL æŽ¨è ç”Ÿæˆ LIKE / å…¨æ–‡æ£€ç´¢æ¡ä»¶" [checked] [ref=e264]'
+              - generic [ref=e265]:
+                - generic [ref=e266]:
+                  - text: "AI ç”Ÿæˆ\x90æ¨¡ç³ŠåŒ¹é…\x8d SQL"
+                  - generic [ref=e267]: "æŽ¨è\x8d\x90"
+                - generic [ref=e268]: "ç”Ÿæˆ\x90 LIKE / å…¨æ–‡æ£€ç´¢æ\x9d¡ä»¶"
+            - generic [ref=e269] [cursor=pointer]:
+              - 'checkbox "AI çº é”™ä¸Žæ ¼å¼åŒ– ä¿®æ£é”™åˆ«å—æˆ–ç»Ÿä¸€æ ¼å¼" [ref=e270]'
+              - generic [ref=e271]:
+                - generic [ref=e272]: "AI çº é”™ä¸Žæ ¼å¼\x8fåŒ–"
+                - generic [ref=e273]: "ä¿®æ£é”™åˆ«å—æˆ–ç»Ÿä¸€æ ¼å¼\x8f"
+        - generic [ref=e274]:
+          - strong [ref=e275]: "æŽ¨è\x8d\x90ç»„å\x90ˆï¼š"
+          - text: "è§£é‡Šæ¤å€¼ Â· åˆ†æž\x90è¿™ä¸€åˆ— Â· ç”Ÿæˆ\x90ç›é€‰ SQL Â· è§£é‡Šè¿™ä¸€è¡Œ Â· åˆ†æž\x90å¼‚å¸¸ Â· ç”Ÿæˆ\x90å…³è\x81”æŸ¥è¯¢ Â· è§£é‡Šé€‰ä¸æ–‡å— Â· ç¿»è¯‘ Â· æ\x8f\x90å\x8f–å…³é”®ä¿¡æ\x81¯ Â· ç”Ÿæˆ\x90æ¨¡ç³ŠåŒ¹é…\x8d SQL"
+    - region "æ–¹æ¡ˆå¯¹æ¯”" [ref=e276]:
+      - generic [ref=e277]:
+        - 'heading "ä¸‰ç§äº¤äº’æ–¹æ¡ˆ" [level=2] [ref=e278]'
+        - paragraph [ref=e279]: "åˆ‡æ\x8d¢ä¸Šæ–¹æ–¹æ¡ˆï¼Œç½‘æ ¼é‡Œçš„è\x8fœå\x8d•ä¼šå®žæ—¶å\x8f˜åŒ–ã€‚"
+      - table [ref=e281]:
+        - rowgroup [ref=e282]:
+          - row [ref=e283]:
+            - columnheader "æ–¹æ¡ˆ" [ref=e284]
+            - columnheader "äº¤äº’è·¯å¾„" [ref=e285]
+            - columnheader "ä¼˜ç‚¹" [ref=e286]
+            - 'columnheader "é€‚åˆ" [ref=e287]'
+        - rowgroup [ref=e288]:
+          - row [ref=e289]:
+            - 'cell "A æ‰å¹³èœå•" [ref=e290]':
+              - generic [ref=e291]:
+                - generic [ref=e292]: A
+                - text: "æ‰\x81å¹³è\x8fœå\x8d•"
+            - 'cell "å³é”® â†’ ç›´æŽ¥çœ‹åˆ°å…¨éƒ¨ AI åŠ¨ä½œ" [ref=e293]'
+            - 'cell "ä¸€æ¥å¯è¾¾ï¼ŒåŠ¨ä½œæ•°é‡å¯æŽ§æ—¶æœ€å¿«" [ref=e294]'
+            - 'cell "å•å…ƒæ ¼ / è¡Œçš„å¸¸ç”¨åŠ¨ä½œ" [ref=e295]'
+          - row [ref=e296]:
+            - 'cell "B äºŒçº§èœå•" [ref=e297]':
+              - generic [ref=e298]:
+                - generic [ref=e299]: B
+                - text: "äºŒçº§è\x8fœå\x8d•"
+            - 'cell "å³é”® â†’ â€œAI åŠ©æ‰‹â€ â†’ å±•å¼€åŠ¨ä½œ" [ref=e300]'
+            - 'cell "ä¸»èœå•å¹²å‡€ï¼ŒåŽç»å¯æ‰©å±•æ›´å¤š AI èƒ½åŠ›" [ref=e301]'
+            - 'cell "AI åŠ¨ä½œè¾ƒå¤šæˆ–ä¼šæŒç»å¢žåŠ" [ref=e302]'
+          - row [ref=e303]:
+            - 'cell "C æµ®åŠ¨å·¥å…·æ¡" [ref=e304]':
+              - generic [ref=e305]:
+                - generic [ref=e306]: C
+                - text: "æµ®åŠ¨å·¥å…·æ\x9d¡"
+            - 'cell "é€‰ä¸æ–‡å— / å³é”® â†’ é è¿‘å†…å®¹çš„æµ®æ¡" [ref=e307]'
+            - 'cell "è½»é‡ã€è´´è¿‘å†…å®¹ï¼Œé€‚åˆé€‰ä¸æ–‡å—åŽå¿«é€Ÿè§£é‡Š" [ref=e308]'
+            - 'cell "æ–‡æœ¬è§£é‡Š / ç¿»è¯‘ / æå–" [ref=e309]'
+      - generic [ref=e313]:
+        - strong [ref=e314]: "å»ºè®®çš„è\x90½åœ°ç»„å\x90ˆï¼š"
+        - text: "å\x8d•å…ƒæ ¼å’Œè¡Œä½¿ç”¨ A æ‰\x81å¹³è\x8fœå\x8d•ï¼›æ–‡æœ¬é€‰ä¸ä½¿ç”¨ C æµ®åŠ¨å·¥å…·æ\x9d¡ã€‚å¦‚æžœå\x90Žç» AI åŠ¨ä½œè¶…è¿‡ 6 ä¸ªï¼Œå†\x8dæŠŠå\x8d•å…ƒæ ¼/è¡Œçš„ AI åŠ¨ä½œæ”¶è¿› B çš„â€œAI åŠ©æ‰‹â€\x9däºŒçº§è\x8fœå\x8d•ã€‚å\x8f³ä¾§å‹¾é€‰çš„é€‰é¡¹ä¼šå®žæ—¶å\x8f\x8dæ˜ åˆ°ç½‘æ ¼è\x8fœå\x8d•ä¸ï¼Œä¾¿äºŽå…ˆç¡®è®¤æœ€ç»ˆä¿\x9dç•™å“ªäº›åŠ¨ä½œã€‚"
+  - menu [ref=e315]:
+    - generic [ref=e316]:
+      - 'generic "å•å…ƒæ ¼ Â· title" [ref=e317]': title Â· row 4
+      - generic [ref=e318]: "AI æ“\x8dä½œ"
+    - generic [ref=e319]: AI åŠ©æ‰‹
+    - 'menuitem "AI è§£é‡Šæ¤å€¼ æŽ¨è è¯´æ˜Žå½“å‰å•å…ƒæ ¼çš„å«ä¹‰ã€å–å€¼èŒƒå›´ä¸Žå¯èƒ½å¼‚å¸¸" [ref=e320] [cursor=pointer]':
+      - generic [ref=e324]:
+        - generic [ref=e325]:
+          - text: AI è§£é‡Šæ¤å€¼
+          - generic [ref=e326]: "æŽ¨è\x8d\x90"
+        - generic [ref=e327]: "è¯´æ˜Žå½“å‰\x8då\x8d•å…ƒæ ¼çš„å\x90«ä¹‰ã€\x81å\x8f–å€¼èŒƒå›´ä¸Žå\x8f¯èƒ½å¼‚å¸¸"
+    - 'menuitem "AI åˆ†æžè¿™ä¸€åˆ— æŽ¨è åˆ†å¸ƒã€ç©ºå€¼ã€é‡å¤å€¼ã€å¼‚å¸¸å€¼æ¦‚è§ˆ" [ref=e328] [cursor=pointer]':
+      - generic [ref=e332]:
+        - generic [ref=e333]:
+          - text: "AI åˆ†æž\x90è¿™ä¸€åˆ—"
+          - generic [ref=e334]: "æŽ¨è\x8d\x90"
+        - generic [ref=e335]: "åˆ†å¸ƒã€\x81ç©ºå€¼ã€\x81é‡\x8då¤\x8då€¼ã€\x81å¼‚å¸¸å€¼æ¦‚è§ˆ"
+    - 'menuitem "AI ç”Ÿæˆç›é€‰ SQL æŽ¨è åŸºäºŽå½“å‰å€¼ç”Ÿæˆ WHERE æ¡ä»¶" [ref=e336] [cursor=pointer]':
+      - generic [ref=e340]:
+        - generic [ref=e341]:
+          - text: "AI ç”Ÿæˆ\x90ç›é€‰ SQL"
+          - generic [ref=e342]: "æŽ¨è\x8d\x90"
+        - generic [ref=e343]: "åŸºäºŽå½“å‰\x8då€¼ç”Ÿæˆ\x90 WHERE æ\x9d¡ä»¶"
+    - 'menuitem "å¤åˆ¶å•å…ƒæ ¼å€¼" [ref=e345] [cursor=pointer]'
+    - menuitem "ä»¥æ¤å€¼ç›é€‰" [ref=e348] [cursor=pointer]
+    - menuitem "æŸ¥çœ‹åˆ—ç»Ÿè®¡" [ref=e351] [cursor=pointer]
