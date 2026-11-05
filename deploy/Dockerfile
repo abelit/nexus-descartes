@@ -5,7 +5,7 @@
 # the FROM images with accelerated copies.
 
 # Stage 1: Build frontend (native, no emulation)
-FROM --platform=$BUILDPLATFORM node:22-slim AS frontend
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS frontend
 WORKDIR /app
 # Alibaba Cloud npm mirror for both npm and pnpm.
 RUN npm config set registry https://registry.npmmirror.com \
@@ -26,7 +26,7 @@ COPY crates/dbx-core/assets/database-drivers.manifest.json crates/dbx-core/asset
 RUN pnpm build
 
 # Stage 2: Cross-compile Rust backend for the requested platform (native, no emulation)
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS backend
+FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b AS backend
 ARG TARGETARCH
 WORKDIR /app
 RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
@@ -139,7 +139,7 @@ RUN case "$TARGETARCH" in \
     cp "/app/target/$rust_target/release/dbx-web" "/out/linux/$TARGETARCH/"
 
 # Stage 3: Final image
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 ARG TARGETPLATFORM
 RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
         [ -f "$f" ] && sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
