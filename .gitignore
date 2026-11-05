@@ -85,6 +85,9 @@ target-ai-write-confirmation/
 .serena/
 .mimosa/
 
+# Playwright MCP artifacts (screenshots and page snapshots)
+.playwright-mcp/
+
 # Code review tool artifacts
 review_diff.json
 review_classified.json
