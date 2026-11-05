@@ -48,6 +48,12 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("governance/simulate", MethodClass::Any, Permission::QueryRead),
     // Approval reads; mutations additionally check `approval:act`.
     ("approvals", MethodClass::Any, Permission::ApprovalRead),
+    // Access requests: any signed-in data user may file and read their own.
+    // Approve/reject require `admin:users` in the handlers; cancel is limited
+    // to the requester; the options endpoint returns no credentials.
+    ("access-requests", MethodClass::Any, Permission::QueryRead),
+    // Personal task center: the handler scopes every bucket to the actor.
+    ("my-tasks", MethodClass::Any, Permission::QueryRead),
     // Template reads; writes additionally check `policy:publish`.
     ("approval-templates", MethodClass::Any, Permission::ApprovalRead),
     // Policy reads; write/publish are checked in the handlers.

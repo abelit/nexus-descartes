@@ -248,6 +248,7 @@ pub async fn execute_multi(
     execution_mode: Option<dbx_core::query::QueryExecutionMode>,
     preserve_explicit_transaction: Option<bool>,
     defer_lobs: Option<bool>,
+    report_compilation_errors: Option<bool>,
 ) -> Result<Vec<dbx_core::query::ExecuteMultiResult>, BackendError> {
     let execution_id = execution_id.filter(|id| !id.trim().is_empty());
     let registered_query = execution_id.as_ref().map(|id| {
@@ -338,6 +339,7 @@ pub async fn execute_multi(
                         request_id: None,
                         execution_id: None,
                     }),
+                    report_compilation_errors: report_compilation_errors.unwrap_or(false),
                 },
                 progress,
             )
@@ -723,6 +725,7 @@ pub async fn execute_in_manual_transaction(
     timeout_secs: Option<u64>,
     bound_statements: Option<Vec<db::BlobBoundStatement>>,
     defer_lobs: Option<bool>,
+    report_compilation_errors: Option<bool>,
 ) -> Result<Vec<dbx_core::query::ExecuteMultiResult>, ManualTransactionCommandError> {
     let messages = query_messages_callback(&app, execution_id.as_deref());
     dbx_core::query::query_messages::with_query_messages(
@@ -743,6 +746,7 @@ pub async fn execute_in_manual_transaction(
                 classification_sql,
                 execution_id,
                 timeout_secs,
+                report_compilation_errors: report_compilation_errors.unwrap_or(false),
             },
         ),
     )

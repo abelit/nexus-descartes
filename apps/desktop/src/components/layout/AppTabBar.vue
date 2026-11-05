@@ -241,7 +241,7 @@ function handleCancelClose() {
     :open="queryStore.showCloseConfirm"
     @update:open="
       (open) => {
-        if (!open) queryStore.cancelClosePendingTab();
+        if (!open) handleCancelClose();
       }
     "
   >

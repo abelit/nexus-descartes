@@ -44,6 +44,8 @@ pub struct ExecuteQueryRequest {
     /// ROLLBACK. Defaults to the historical cleanup when omitted.
     #[serde(default)]
     pub preserve_explicit_transaction: bool,
+    #[serde(default)]
+    pub report_compilation_errors: bool,
 }
 
 #[derive(Deserialize)]
@@ -722,6 +724,7 @@ pub async fn execute_multi(
             audit: dbx_core::audit::current_audit_context(),
             approval_token: approval_token_from(&headers),
             policy_approved: false,
+            report_compilation_errors: req.report_compilation_errors,
         },
     )
     .await;

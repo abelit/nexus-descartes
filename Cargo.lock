@@ -2164,7 +2164,7 @@ dependencies = [
 
 [[package]]
 name = "dbx"
-version = "0.6.62"
+version = "0.6.66"
 dependencies = [
  "anyhow",
  "axum",
@@ -2252,7 +2252,7 @@ dependencies = [
 
 [[package]]
 name = "dbx-cli"
-version = "0.4.136"
+version = "0.4.139"
 dependencies = [
  "async-trait",
  "dbx-core",
@@ -2596,7 +2596,7 @@ dependencies = [
 
 [[package]]
 name = "dbx-mcp"
-version = "0.4.136"
+version = "0.4.139"
 dependencies = [
  "async-trait",
  "axum",
@@ -2630,6 +2630,7 @@ name = "dbx-platform"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "httpdate",
  "nix 0.31.3",
  "reqwest 0.12.28",
  "semver",
@@ -2781,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "dbx-web"
-version = "0.6.62"
+version = "0.6.66"
 dependencies = [
  "aes-gcm 0.10.3",
  "argon2",
@@ -2792,6 +2793,7 @@ dependencies = [
  "dbx-core",
  "dbx-mcp",
  "futures",
+ "getrandom 0.3.4",
  "log",
  "mime_guess",
  "pbkdf2 0.12.2",
@@ -5944,7 +5946,7 @@ dependencies = [
 [[package]]
 name = "mysql_async"
 version = "0.37.0"
-source = "git+https://github.com/zipg/mysql_async.git?rev=4a9e60a62f5a48e35ef9ccc9fc8277d5012b19dd#4a9e60a62f5a48e35ef9ccc9fc8277d5012b19dd"
+source = "git+https://github.com/zipg/mysql_async.git?rev=c613f68ad32669c1c1392735e7d06966789b3aa6#c613f68ad32669c1c1392735e7d06966789b3aa6"
 dependencies = [
  "bytes",
  "crossbeam-queue",

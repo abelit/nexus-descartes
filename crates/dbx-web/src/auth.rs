@@ -7,11 +7,13 @@ use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use dbx_core::audit::{
     Actor, ActorKind, AuditContext, AuditDecision, AuditEventInsert, AuditOperation, AuditOutcome, AuditSource,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::captcha::CAPTCHA_TTL;
 use crate::state::WebState;
 
 #[derive(Deserialize)]
@@ -29,6 +31,13 @@ pub struct LoginRequest {
     /// SSO lands.
     #[serde(default)]
     pub operator: Option<String>,
+    /// Challenge id returned by `GET /auth/captcha`. Optional at the type level
+    /// so `auth::setup` can reuse this body; `auth::login` rejects a missing or
+    /// stale pair with `captcha_invalid`.
+    #[serde(default)]
+    pub captcha_id: Option<String>,
+    #[serde(default)]
+    pub captcha_code: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -64,6 +73,15 @@ impl From<&Actor> for AuthActorView {
             permissions,
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct CaptchaResponse {
+    pub id: String,
+    /// `data:image/png;base64,...` so the client needs no second request and
+    /// the challenge cannot be cached by an intermediary.
+    pub image: String,
+    pub expires_in: u64,
 }
 
 #[derive(Deserialize)]
@@ -169,6 +187,37 @@ fn record_auth_event(
     state.app.record_audit(event);
 }
 
+/// Issue a login challenge. Unauthenticated by design (it is the pre-login
+/// handshake), but bounded: `CaptchaStore` caps pending entries and expires
+/// them, so this endpoint cannot be turned into a memory sink.
+pub async fn captcha(State(state): State<Arc<WebState>>) -> Response {
+    // `auto` only asks for a challenge once an attempt has failed, and `off`
+    // never does, so the form decides from this response whether to show the
+    // field at all. Login throttling is per client+account, so the endpoint
+    // uses the highest outstanding failure count as its signal.
+    let failed_attempts = state
+        .login_rate_limit
+        .lock()
+        .await
+        .attempts
+        .values()
+        .map(|attempt| attempt.fail_count)
+        .max()
+        .unwrap_or(0);
+    let mode = *state.captcha_mode.read().await;
+    if !mode.requires_challenge(failed_attempts) {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    let (id, png) = state.captchas.issue();
+    let image = format!("data:image/png;base64,{}", BASE64.encode(&png));
+    (
+        StatusCode::OK,
+        [("cache-control", "no-store")],
+        Json(CaptchaResponse { id, image, expires_in: CAPTCHA_TTL.as_secs() }),
+    )
+        .into_response()
+}
+
 pub async fn login(
     State(state): State<Arc<WebState>>,
     client_ip: Option<crate::client_ip::ClientIp>,
@@ -190,6 +239,31 @@ pub async fn login(
     let email = body.email.as_deref().map(str::trim).filter(|value| !value.is_empty()).unwrap_or("admin").to_string();
     let rate_key =
         format!("{}|{}", client_ip.map(|ip| ip.0).unwrap_or_else(|| "unknown".to_string()), email.to_lowercase());
+
+    // Captcha gate, when the configured mode demands one. It runs before the
+    // password lockout check and the argon2 verification on purpose: a wrong or
+    // missing challenge must not consume the password lockout budget (otherwise
+    // five bogus captchas would lock the administrator out), and a bot must not
+    // be able to spend our hashing CPU without solving an image first. `verify`
+    // consumes the challenge either way, so the same image can never be
+    // replayed.
+    let failed_attempts = state
+        .login_rate_limit
+        .lock()
+        .await
+        .attempts
+        .get(&rate_key)
+        .map(|attempt| attempt.fail_count)
+        .unwrap_or(0);
+    if state.captcha_mode.read().await.requires_challenge(failed_attempts) {
+        let captcha_ok = state
+            .captchas
+            .verify(body.captcha_id.as_deref().unwrap_or_default(), body.captcha_code.as_deref().unwrap_or_default());
+        if !captcha_ok {
+            return Ok((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "captcha_invalid"}))).into_response());
+        }
+    }
+
     if let Some(lockout) = state.login_locked_for(&rate_key).await {
         let remaining = lockout.as_secs().max(1);
         record_auth_event(
@@ -461,7 +535,7 @@ pub async fn auth_middleware(
     // login/setup/check. change-password and logout require one: change-password
     // must not be an unauthenticated password oracle.
     let api_suffix = middleware_api_path_suffix(req.uri().path(), &state.public_base_path);
-    if api_suffix.is_some_and(|suffix| matches!(suffix, "auth/login" | "auth/setup" | "auth/check")) {
+    if api_suffix.is_some_and(|suffix| matches!(suffix, "auth/login" | "auth/setup" | "auth/check" | "auth/captcha")) {
         let mut response = next.run(req).await;
         attach_request_id(&mut response, &request_id);
         return response;
