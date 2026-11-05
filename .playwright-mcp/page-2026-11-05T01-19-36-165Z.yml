@@ -1,0 +1,731 @@
+- generic [ref=e32]:
+  - generic [ref=e33]:
+    - link "DBX DBX" [ref=e34] [cursor=pointer]:
+      - /url: https://dbxio.com
+      - img "DBX"
+      - generic [ref=e35]: DBX
+    - button "New Connection" [ref=e36] [cursor=pointer]
+    - button "New Query" [ref=e39] [cursor=pointer]
+    - button "Data Transfer" [ref=e41] [cursor=pointer]
+    - button "Driver Manager" [ref=e43] [cursor=pointer]
+    - button "Plugin Center" [ref=e46] [cursor=pointer]
+    - button "More" [ref=e48] [cursor=pointer]
+    - generic [ref=e52]:
+      - button [ref=e53] [cursor=pointer]
+      - button "9" [ref=e56] [cursor=pointer]
+      - button [ref=e58] [cursor=pointer]
+      - button [ref=e59] [cursor=pointer]
+      - button [ref=e60] [cursor=pointer]
+      - button [ref=e61] [cursor=pointer]
+      - button "Theme" [ref=e62] [cursor=pointer]
+      - button [ref=e63] [cursor=pointer]
+    - button "Security governance" [ref=e64] [cursor=pointer]
+    - button [ref=e65] [cursor=pointer]
+    - 'button "Current user: Administrator" [ref=e66] [cursor=pointer]':
+      - generic [ref=e67]: AD
+      - generic [ref=e68]: Administrator
+  - generic [ref=e71]:
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - button "Import / Export" [ref=e75] [cursor=pointer]
+        - generic [ref=e83]:
+          - button [ref=e85] [cursor=pointer]
+          - button [ref=e87] [cursor=pointer]
+          - button [ref=e89] [cursor=pointer]
+          - button [ref=e91] [cursor=pointer]
+      - generic [ref=e93]:
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - textbox "Search..." [ref=e100]
+            - generic [ref=e101]:
+              - button "Regex search" [ref=e103] [cursor=pointer]:
+                - generic [aria-hidden] [ref=e104]: .*
+              - switch "Local search" [ref=e106] [cursor=pointer]
+          - button "Locate in sidebar" [ref=e108] [cursor=pointer]
+          - button "Sort and filter" [ref=e114] [cursor=pointer]
+          - button "Show active connections only" [ref=e118] [cursor=pointer]:
+            - generic [ref=e119]: "Active connections: 0"
+        - generic [ref=e122]:
+          - generic [ref=e125]:
+            - button [ref=e126] [cursor=pointer]
+            - generic [ref=e131]: demo-postgres
+            - button "Select connection" [ref=e134] [cursor=pointer]
+          - generic [ref=e139]:
+            - button [ref=e140] [cursor=pointer]
+            - generic [ref=e145]: demo-mysql
+            - button "Select connection" [ref=e148] [cursor=pointer]
+    - generic [ref=e272]:
+      - generic [ref=e274]:
+        - heading "Security governance" [level=2] [ref=e279]
+        - paragraph [ref=e280]: Approval tickets, the server-side audit trail, users and roles, and policies. Every view is permission-filtered; approvals stay bound to the exact SQL, connection, and rules that were reviewed.
+      - generic [ref=e281]:
+        - button "Approvals" [ref=e282] [cursor=pointer]
+        - button "Audit log" [pressed] [ref=e286] [cursor=pointer]
+        - button "Users & roles" [ref=e290] [cursor=pointer]
+        - button "Policies" [ref=e296] [cursor=pointer]
+      - generic [ref=e700]:
+        - generic [ref=e701]:
+          - heading "Audit Log" [level=3] [ref=e702]
+          - paragraph [ref=e703]: Server-side, append-only record of database and administrative operations. Entries cannot be edited or deleted from DBX.
+        - generic [ref=e704]:
+          - generic [ref=e705]: Retention
+          - paragraph [ref=e707]: Retention is a policy and warning threshold. Deleting audit events is always manual and requires a signed checkpoint plus an external export covering the range; set 0 to keep events forever.
+          - generic [ref=e708]:
+            - spinbutton "Days (0 = forever)" [ref=e709]: "180"
+            - generic [ref=e710]: Days (0 = forever)
+            - button "Save retention" [ref=e711] [cursor=pointer]
+            - 'button "Prune up to #76306" [disabled]'
+          - generic [ref=e712]:
+            - generic [ref=e713]: "Oldest event: 2 days"
+            - generic [ref=e714]: "Head #76319"
+            - generic [ref=e715]: "Checkpoint #76306"
+            - generic [ref=e716]: "Exported #76319"
+            - generic [ref=e717]: Pruning is disabled. Set DBX_AUDIT_ALLOW_PRUNE=1 on the server.
+        - generic [ref=e718]:
+          - button "Actor" [ref=e719] [cursor=pointer]
+          - combobox [ref=e721] [cursor=pointer]:
+            - option "All operations" [selected]
+            - option "query"
+            - option "dml"
+            - option "ddl"
+            - option "transaction"
+            - option "export"
+            - option "import"
+            - option "backup"
+            - option "config"
+            - option "connection"
+            - option "auth"
+            - option "policy"
+            - option "approval"
+            - option "admin"
+          - combobox [ref=e722] [cursor=pointer]:
+            - option "All decisions" [selected]
+            - option "allowed"
+            - option "denied"
+            - option "warned"
+            - option "approval_required"
+            - option "blocked"
+            - option "error"
+          - combobox [ref=e723] [cursor=pointer]:
+            - option "Last hour"
+            - option "Last 24 hours" [selected]
+            - option "Last 7 days"
+            - option "All time"
+            - option "Custom range"
+          - textbox "Search target" [active] [ref=e725]: demo-mysql
+          - textbox "Search SQL" [ref=e727]
+          - button "Refresh" [ref=e728] [cursor=pointer]
+          - button "JSONL" [ref=e729] [cursor=pointer]
+          - button "CSV" [ref=e730] [cursor=pointer]
+          - button "Verify chain" [ref=e731] [cursor=pointer]
+        - table [ref=e733]:
+          - rowgroup [ref=e734]:
+            - row [ref=e735]:
+              - columnheader "#" [ref=e736]
+              - columnheader "Time" [ref=e737]
+              - columnheader "Actor" [ref=e738]
+              - columnheader "Operation" [ref=e739]
+              - columnheader "Decision" [ref=e740]
+              - columnheader "Target" [ref=e741]
+              - columnheader "Duration" [ref=e742]
+          - rowgroup [ref=e743]:
+            - row [ref=e1646] [cursor=pointer]:
+              - cell "75982" [ref=e1647]
+              - cell "11/5/2026, 12:02:52 AM" [ref=e1648]
+              - cell "Administrator" [ref=e1649]
+              - cell "ddl" [ref=e1650]
+              - cell "allowed" [ref=e1651]
+              - cell "demo-mysql / app" [ref=e1653]
+              - cell "78 ms" [ref=e1654]
+            - row [ref=e1655] [cursor=pointer]:
+              - cell "74093" [ref=e1656]
+              - cell "11/4/2026, 3:20:58 PM" [ref=e1657]
+              - cell "Administrator" [ref=e1658]
+              - cell "query" [ref=e1659]
+              - cell "allowed" [ref=e1660]
+              - cell "demo-mysql / app" [ref=e1662]
+              - cell "11 ms" [ref=e1663]
+            - row [ref=e1664] [cursor=pointer]:
+              - cell "74068" [ref=e1665]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1666]
+              - cell "QA2 Requester" [ref=e1667]
+              - cell "ddl" [ref=e1668]
+              - cell "approval_required" [ref=e1669]
+              - cell "demo-mysql / app" [ref=e1671]
+              - cell "0 ms" [ref=e1672]
+            - row [ref=e1673] [cursor=pointer]:
+              - cell "74066" [ref=e1674]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1675]
+              - cell "QA2 Requester" [ref=e1676]
+              - cell "ddl" [ref=e1677]
+              - cell "allowed" [ref=e1678]
+              - cell "demo-mysql / app" [ref=e1680]
+              - cell "2 ms" [ref=e1681]
+            - row [ref=e1682] [cursor=pointer]:
+              - cell "74021" [ref=e1683]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1684]
+              - cell "Administrator" [ref=e1685]
+              - cell "query" [ref=e1686]
+              - cell "allowed" [ref=e1687]
+              - cell "demo-mysql / app" [ref=e1689]
+              - cell "1 ms" [ref=e1690]
+            - row [ref=e1691] [cursor=pointer]:
+              - cell "74019" [ref=e1692]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1693]
+              - cell "QA2 Requester" [ref=e1694]
+              - cell "dml" [ref=e1695]
+              - cell "allowed" [ref=e1696]
+              - cell "demo-mysql / app" [ref=e1698]
+              - cell "4 ms" [ref=e1699]
+            - row [ref=e1700] [cursor=pointer]:
+              - cell "74017" [ref=e1701]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1702]
+              - cell "QA2 Requester" [ref=e1703]
+              - cell "query" [ref=e1704]
+              - cell "allowed" [ref=e1705]
+              - cell "demo-mysql / app" [ref=e1707]
+              - cell "1 ms" [ref=e1708]
+            - row [ref=e1709] [cursor=pointer]:
+              - cell "74015" [ref=e1710]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1711]
+              - cell "QA2 Requester" [ref=e1712]
+              - cell "dml" [ref=e1713]
+              - cell "allowed" [ref=e1714]
+              - cell "demo-mysql / app" [ref=e1716]
+              - cell "4 ms" [ref=e1717]
+            - row [ref=e1718] [cursor=pointer]:
+              - cell "74013" [ref=e1719]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1720]
+              - cell "Administrator" [ref=e1721]
+              - cell "query" [ref=e1722]
+              - cell "allowed" [ref=e1723]
+              - cell "demo-mysql / app" [ref=e1725]
+              - cell "5 ms" [ref=e1726]
+            - row [ref=e1727] [cursor=pointer]:
+              - cell "74010" [ref=e1728]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1729]
+              - cell "QA2 Requester" [ref=e1730]
+              - cell "ddl" [ref=e1731]
+              - cell "allowed" [ref=e1732]
+              - cell "demo-mysql / app" [ref=e1734]
+              - cell "12 ms" [ref=e1735]
+            - row [ref=e1736] [cursor=pointer]:
+              - cell "74004" [ref=e1737]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1738]
+              - cell "QA2 Requester" [ref=e1739]
+              - cell "ddl" [ref=e1740]
+              - cell "allowed" [ref=e1741]
+              - cell "demo-mysql / app" [ref=e1743]
+              - cell "15 ms" [ref=e1744]
+            - row [ref=e1745] [cursor=pointer]:
+              - cell "73998" [ref=e1746]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1747]
+              - cell "QA2 Requester" [ref=e1748]
+              - cell "ddl" [ref=e1749]
+              - cell "allowed" [ref=e1750]
+              - cell "demo-mysql / app" [ref=e1752]
+              - cell "4 ms" [ref=e1753]
+            - row [ref=e1754] [cursor=pointer]:
+              - cell "73992" [ref=e1755]
+              - cell "11/4/2026, 3:20:54 PM" [ref=e1756]
+              - cell "QA2 Requester" [ref=e1757]
+              - cell "ddl" [ref=e1758]
+              - cell "allowed" [ref=e1759]
+              - cell "demo-mysql / app" [ref=e1761]
+              - cell "3 ms" [ref=e1762]
+            - row [ref=e1763] [cursor=pointer]:
+              - cell "73986" [ref=e1764]
+              - cell "11/4/2026, 3:20:53 PM" [ref=e1765]
+              - cell "QA2 Requester" [ref=e1766]
+              - cell "ddl" [ref=e1767]
+              - cell "allowed" [ref=e1768]
+              - cell "demo-mysql / app" [ref=e1770]
+              - cell "7 ms" [ref=e1771]
+            - row [ref=e1772] [cursor=pointer]:
+              - cell "73980" [ref=e1773]
+              - cell "11/4/2026, 3:20:53 PM" [ref=e1774]
+              - cell "QA2 Requester" [ref=e1775]
+              - cell "ddl" [ref=e1776]
+              - cell "allowed" [ref=e1777]
+              - cell "demo-mysql / app" [ref=e1779]
+              - cell "13 ms" [ref=e1780]
+            - row [ref=e1781] [cursor=pointer]:
+              - cell "73974" [ref=e1782]
+              - cell "11/4/2026, 3:20:53 PM" [ref=e1783]
+              - cell "QA2 Requester" [ref=e1784]
+              - cell "ddl" [ref=e1785]
+              - cell "allowed" [ref=e1786]
+              - cell "demo-mysql / app" [ref=e1788]
+              - cell "2 ms" [ref=e1789]
+            - row [ref=e1790] [cursor=pointer]:
+              - cell "73968" [ref=e1791]
+              - cell "11/4/2026, 3:20:53 PM" [ref=e1792]
+              - cell "QA2 Requester" [ref=e1793]
+              - cell "ddl" [ref=e1794]
+              - cell "allowed" [ref=e1795]
+              - cell "demo-mysql / app" [ref=e1797]
+              - cell "23 ms" [ref=e1798]
+            - row [ref=e1799] [cursor=pointer]:
+              - cell "73913" [ref=e1800]
+              - cell "11/4/2026, 3:20:53 PM" [ref=e1801]
+              - cell "QA2 Requester" [ref=e1802]
+              - cell "ddl" [ref=e1803]
+              - cell "approval_required" [ref=e1804]
+              - cell "demo-mysql / app" [ref=e1806]
+              - cell "0 ms" [ref=e1807]
+            - row [ref=e1808] [cursor=pointer]:
+              - cell "73911" [ref=e1809]
+              - cell "11/4/2026, 3:20:53 PM" [ref=e1810]
+              - cell "QA2 Requester" [ref=e1811]
+              - cell "ddl" [ref=e1812]
+              - cell "approval_required" [ref=e1813]
+              - cell "demo-mysql / app" [ref=e1815]
+              - cell "0 ms" [ref=e1816]
+            - row [ref=e1817] [cursor=pointer]:
+              - cell "73789" [ref=e1818]
+              - cell "11/4/2026, 2:56:48 PM" [ref=e1819]
+              - cell "Administrator" [ref=e1820]
+              - cell "query" [ref=e1821]
+              - cell "allowed" [ref=e1822]
+              - cell "demo-mysql" [ref=e1824]
+              - cell "6 ms" [ref=e1825]
+            - row [ref=e1826] [cursor=pointer]:
+              - cell "73787" [ref=e1827]
+              - cell "11/4/2026, 2:56:47 PM" [ref=e1828]
+              - cell "Administrator" [ref=e1829]
+              - cell "query" [ref=e1830]
+              - cell "allowed" [ref=e1831]
+              - cell "demo-mysql" [ref=e1833]
+              - cell "12 ms" [ref=e1834]
+            - row [ref=e1835] [cursor=pointer]:
+              - cell "73481" [ref=e1836]
+              - cell "11/4/2026, 1:09:14 PM" [ref=e1837]
+              - cell "Administrator" [ref=e1838]
+              - cell "query" [ref=e1839]
+              - cell "allowed" [ref=e1840]
+              - cell "demo-mysql / app" [ref=e1842]
+              - cell "1 ms" [ref=e1843]
+            - row [ref=e1844] [cursor=pointer]:
+              - cell "73476" [ref=e1845]
+              - cell "11/4/2026, 1:09:14 PM" [ref=e1846]
+              - cell "Administrator" [ref=e1847]
+              - cell "query" [ref=e1848]
+              - cell "allowed" [ref=e1849]
+              - cell "demo-mysql / app" [ref=e1851]
+              - cell "2 ms" [ref=e1852]
+            - row [ref=e1853] [cursor=pointer]:
+              - cell "73311" [ref=e1854]
+              - cell "11/4/2026, 12:59:44 PM" [ref=e1855]
+              - cell "Administrator" [ref=e1856]
+              - cell "query" [ref=e1857]
+              - cell "allowed" [ref=e1858]
+              - cell "demo-mysql / app" [ref=e1860]
+              - cell "1 ms" [ref=e1861]
+            - row [ref=e1862] [cursor=pointer]:
+              - cell "73306" [ref=e1863]
+              - cell "11/4/2026, 12:59:43 PM" [ref=e1864]
+              - cell "Administrator" [ref=e1865]
+              - cell "query" [ref=e1866]
+              - cell "allowed" [ref=e1867]
+              - cell "demo-mysql / app" [ref=e1869]
+              - cell "3 ms" [ref=e1870]
+            - row [ref=e1871] [cursor=pointer]:
+              - cell "73300" [ref=e1872]
+              - cell "11/4/2026, 12:59:42 PM" [ref=e1873]
+              - cell "Administrator" [ref=e1874]
+              - cell "query" [ref=e1875]
+              - cell "allowed" [ref=e1876]
+              - cell "demo-mysql / app" [ref=e1878]
+              - cell "2 ms" [ref=e1879]
+            - row [ref=e1880] [cursor=pointer]:
+              - cell "73295" [ref=e1881]
+              - cell "11/4/2026, 12:59:41 PM" [ref=e1882]
+              - cell "Administrator" [ref=e1883]
+              - cell "query" [ref=e1884]
+              - cell "allowed" [ref=e1885]
+              - cell "demo-mysql / app" [ref=e1887]
+              - cell "2 ms" [ref=e1888]
+            - row [ref=e1889] [cursor=pointer]:
+              - cell "73252" [ref=e1890]
+              - cell "11/4/2026, 12:59:23 PM" [ref=e1891]
+              - cell "Administrator" [ref=e1892]
+              - cell "query" [ref=e1893]
+              - cell "allowed" [ref=e1894]
+              - cell "demo-mysql" [ref=e1896]
+              - cell "7 ms" [ref=e1897]
+            - row [ref=e1898] [cursor=pointer]:
+              - cell "73148" [ref=e1899]
+              - cell "11/4/2026, 11:01:03 AM" [ref=e1900]
+              - cell "Administrator" [ref=e1901]
+              - cell "query" [ref=e1902]
+              - cell "allowed" [ref=e1903]
+              - cell "demo-mysql / app" [ref=e1905]
+              - cell "1 ms" [ref=e1906]
+            - row [ref=e1907] [cursor=pointer]:
+              - cell "73122" [ref=e1908]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1909]
+              - cell "QA2 Requester" [ref=e1910]
+              - cell "ddl" [ref=e1911]
+              - cell "approval_required" [ref=e1912]
+              - cell "demo-mysql / app" [ref=e1914]
+              - cell "0 ms" [ref=e1915]
+            - row [ref=e1916] [cursor=pointer]:
+              - cell "73120" [ref=e1917]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1918]
+              - cell "QA2 Requester" [ref=e1919]
+              - cell "ddl" [ref=e1920]
+              - cell "allowed" [ref=e1921]
+              - cell "demo-mysql / app" [ref=e1923]
+              - cell "3 ms" [ref=e1924]
+            - row [ref=e1925] [cursor=pointer]:
+              - cell "73075" [ref=e1926]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1927]
+              - cell "Administrator" [ref=e1928]
+              - cell "query" [ref=e1929]
+              - cell "allowed" [ref=e1930]
+              - cell "demo-mysql / app" [ref=e1932]
+              - cell "1 ms" [ref=e1933]
+            - row [ref=e1934] [cursor=pointer]:
+              - cell "73073" [ref=e1935]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1936]
+              - cell "QA2 Requester" [ref=e1937]
+              - cell "dml" [ref=e1938]
+              - cell "allowed" [ref=e1939]
+              - cell "demo-mysql / app" [ref=e1941]
+              - cell "3 ms" [ref=e1942]
+            - row [ref=e1943] [cursor=pointer]:
+              - cell "73071" [ref=e1944]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1945]
+              - cell "QA2 Requester" [ref=e1946]
+              - cell "query" [ref=e1947]
+              - cell "allowed" [ref=e1948]
+              - cell "demo-mysql / app" [ref=e1950]
+              - cell "1 ms" [ref=e1951]
+            - row [ref=e1952] [cursor=pointer]:
+              - cell "73069" [ref=e1953]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1954]
+              - cell "QA2 Requester" [ref=e1955]
+              - cell "dml" [ref=e1956]
+              - cell "allowed" [ref=e1957]
+              - cell "demo-mysql / app" [ref=e1959]
+              - cell "4 ms" [ref=e1960]
+            - row [ref=e1961] [cursor=pointer]:
+              - cell "73067" [ref=e1962]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1963]
+              - cell "Administrator" [ref=e1964]
+              - cell "query" [ref=e1965]
+              - cell "allowed" [ref=e1966]
+              - cell "demo-mysql / app" [ref=e1968]
+              - cell "3 ms" [ref=e1969]
+            - row [ref=e1970] [cursor=pointer]:
+              - cell "73064" [ref=e1971]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1972]
+              - cell "QA2 Requester" [ref=e1973]
+              - cell "ddl" [ref=e1974]
+              - cell "allowed" [ref=e1975]
+              - cell "demo-mysql / app" [ref=e1977]
+              - cell "10 ms" [ref=e1978]
+            - row [ref=e1979] [cursor=pointer]:
+              - cell "73058" [ref=e1980]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1981]
+              - cell "QA2 Requester" [ref=e1982]
+              - cell "ddl" [ref=e1983]
+              - cell "allowed" [ref=e1984]
+              - cell "demo-mysql / app" [ref=e1986]
+              - cell "9 ms" [ref=e1987]
+            - row [ref=e1988] [cursor=pointer]:
+              - cell "73052" [ref=e1989]
+              - cell "11/4/2026, 11:00:59 AM" [ref=e1990]
+              - cell "QA2 Requester" [ref=e1991]
+              - cell "ddl" [ref=e1992]
+              - cell "allowed" [ref=e1993]
+              - cell "demo-mysql / app" [ref=e1995]
+              - cell "3 ms" [ref=e1996]
+            - row [ref=e1997] [cursor=pointer]:
+              - cell "73046" [ref=e1998]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e1999]
+              - cell "QA2 Requester" [ref=e2000]
+              - cell "ddl" [ref=e2001]
+              - cell "allowed" [ref=e2002]
+              - cell "demo-mysql / app" [ref=e2004]
+              - cell "3 ms" [ref=e2005]
+            - row [ref=e2006] [cursor=pointer]:
+              - cell "73040" [ref=e2007]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e2008]
+              - cell "QA2 Requester" [ref=e2009]
+              - cell "ddl" [ref=e2010]
+              - cell "allowed" [ref=e2011]
+              - cell "demo-mysql / app" [ref=e2013]
+              - cell "4 ms" [ref=e2014]
+            - row [ref=e2015] [cursor=pointer]:
+              - cell "73034" [ref=e2016]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e2017]
+              - cell "QA2 Requester" [ref=e2018]
+              - cell "ddl" [ref=e2019]
+              - cell "allowed" [ref=e2020]
+              - cell "demo-mysql / app" [ref=e2022]
+              - cell "6 ms" [ref=e2023]
+            - row [ref=e2024] [cursor=pointer]:
+              - cell "73028" [ref=e2025]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e2026]
+              - cell "QA2 Requester" [ref=e2027]
+              - cell "ddl" [ref=e2028]
+              - cell "allowed" [ref=e2029]
+              - cell "demo-mysql / app" [ref=e2031]
+              - cell "3 ms" [ref=e2032]
+            - row [ref=e2033] [cursor=pointer]:
+              - cell "73022" [ref=e2034]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e2035]
+              - cell "QA2 Requester" [ref=e2036]
+              - cell "ddl" [ref=e2037]
+              - cell "allowed" [ref=e2038]
+              - cell "demo-mysql / app" [ref=e2040]
+              - cell "6 ms" [ref=e2041]
+            - row [ref=e2042] [cursor=pointer]:
+              - cell "72967" [ref=e2043]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e2044]
+              - cell "QA2 Requester" [ref=e2045]
+              - cell "ddl" [ref=e2046]
+              - cell "approval_required" [ref=e2047]
+              - cell "demo-mysql / app" [ref=e2049]
+              - cell "0 ms" [ref=e2050]
+            - row [ref=e2051] [cursor=pointer]:
+              - cell "72965" [ref=e2052]
+              - cell "11/4/2026, 11:00:58 AM" [ref=e2053]
+              - cell "QA2 Requester" [ref=e2054]
+              - cell "ddl" [ref=e2055]
+              - cell "approval_required" [ref=e2056]
+              - cell "demo-mysql / app" [ref=e2058]
+              - cell "0 ms" [ref=e2059]
+            - row [ref=e2060] [cursor=pointer]:
+              - cell "72944" [ref=e2061]
+              - cell "11/4/2026, 10:53:37 AM" [ref=e2062]
+              - cell "QA2 Requester" [ref=e2063]
+              - cell "dml" [ref=e2064]
+              - cell "blocked" [ref=e2065]
+              - cell "demo-mysql / app" [ref=e2067]
+              - cell "0 ms" [ref=e2068]
+            - row [ref=e2069] [cursor=pointer]:
+              - cell "72929" [ref=e2070]
+              - cell "11/4/2026, 10:50:01 AM" [ref=e2071]
+              - cell "QA2 Requester" [ref=e2072]
+              - cell "ddl" [ref=e2073]
+              - cell "approval_required" [ref=e2074]
+              - cell "demo-mysql / app" [ref=e2076]
+              - cell "0 ms" [ref=e2077]
+            - row [ref=e2078] [cursor=pointer]:
+              - cell "72927" [ref=e2079]
+              - cell "11/4/2026, 10:50:01 AM" [ref=e2080]
+              - cell "QA2 Requester" [ref=e2081]
+              - cell "ddl" [ref=e2082]
+              - cell "allowed" [ref=e2083]
+              - cell "demo-mysql / app" [ref=e2085]
+              - cell "16 ms" [ref=e2086]
+            - row [ref=e2087] [cursor=pointer]:
+              - cell "72884" [ref=e2088]
+              - cell "11/4/2026, 10:50:01 AM" [ref=e2089]
+              - cell "QA2 Requester" [ref=e2090]
+              - cell "dml" [ref=e2091]
+              - cell "allowed" [ref=e2092]
+              - cell "demo-mysql / app" [ref=e2094]
+              - cell "2 ms" [ref=e2095]
+            - row [ref=e2096] [cursor=pointer]:
+              - cell "72882" [ref=e2097]
+              - cell "11/4/2026, 10:50:01 AM" [ref=e2098]
+              - cell "QA2 Requester" [ref=e2099]
+              - cell "query" [ref=e2100]
+              - cell "allowed" [ref=e2101]
+              - cell "demo-mysql / app" [ref=e2103]
+              - cell "1 ms" [ref=e2104]
+            - row [ref=e2105] [cursor=pointer]:
+              - cell "72880" [ref=e2106]
+              - cell "11/4/2026, 10:50:01 AM" [ref=e2107]
+              - cell "QA2 Requester" [ref=e2108]
+              - cell "dml" [ref=e2109]
+              - cell "allowed" [ref=e2110]
+              - cell "demo-mysql / app" [ref=e2112]
+              - cell "5 ms" [ref=e2113]
+            - row [ref=e2114] [cursor=pointer]:
+              - cell "72877" [ref=e2115]
+              - cell "11/4/2026, 10:50:01 AM" [ref=e2116]
+              - cell "QA2 Requester" [ref=e2117]
+              - cell "ddl" [ref=e2118]
+              - cell "allowed" [ref=e2119]
+              - cell "demo-mysql / app" [ref=e2121]
+              - cell "11 ms" [ref=e2122]
+            - row [ref=e2123] [cursor=pointer]:
+              - cell "72871" [ref=e2124]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2125]
+              - cell "QA2 Requester" [ref=e2126]
+              - cell "ddl" [ref=e2127]
+              - cell "allowed" [ref=e2128]
+              - cell "demo-mysql / app" [ref=e2130]
+              - cell "5 ms" [ref=e2131]
+            - row [ref=e2132] [cursor=pointer]:
+              - cell "72865" [ref=e2133]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2134]
+              - cell "QA2 Requester" [ref=e2135]
+              - cell "ddl" [ref=e2136]
+              - cell "error" [ref=e2137]
+              - cell "demo-mysql / app" [ref=e2139]
+              - cell "1 ms" [ref=e2140]
+            - row [ref=e2141] [cursor=pointer]:
+              - cell "72858" [ref=e2142]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2143]
+              - cell "QA2 Requester" [ref=e2144]
+              - cell "ddl" [ref=e2145]
+              - cell "allowed" [ref=e2146]
+              - cell "demo-mysql / app" [ref=e2148]
+              - cell "2 ms" [ref=e2149]
+            - row [ref=e2150] [cursor=pointer]:
+              - cell "72852" [ref=e2151]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2152]
+              - cell "QA2 Requester" [ref=e2153]
+              - cell "ddl" [ref=e2154]
+              - cell "allowed" [ref=e2155]
+              - cell "demo-mysql / app" [ref=e2157]
+              - cell "16 ms" [ref=e2158]
+            - row [ref=e2159] [cursor=pointer]:
+              - cell "72845" [ref=e2160]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2161]
+              - cell "QA2 Requester" [ref=e2162]
+              - cell "ddl" [ref=e2163]
+              - cell "allowed" [ref=e2164]
+              - cell "demo-mysql / app" [ref=e2166]
+              - cell "2 ms" [ref=e2167]
+            - row [ref=e2168] [cursor=pointer]:
+              - cell "72839" [ref=e2169]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2170]
+              - cell "QA2 Requester" [ref=e2171]
+              - cell "ddl" [ref=e2172]
+              - cell "allowed" [ref=e2173]
+              - cell "demo-mysql / app" [ref=e2175]
+              - cell "11 ms" [ref=e2176]
+            - row [ref=e2177] [cursor=pointer]:
+              - cell "72790" [ref=e2178]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2179]
+              - cell "QA2 Requester" [ref=e2180]
+              - cell "ddl" [ref=e2181]
+              - cell "approval_required" [ref=e2182]
+              - cell "demo-mysql / app" [ref=e2184]
+              - cell "0 ms" [ref=e2185]
+            - row [ref=e2186] [cursor=pointer]:
+              - cell "72788" [ref=e2187]
+              - cell "11/4/2026, 10:50:00 AM" [ref=e2188]
+              - cell "QA2 Requester" [ref=e2189]
+              - cell "ddl" [ref=e2190]
+              - cell "approval_required" [ref=e2191]
+              - cell "demo-mysql / app" [ref=e2193]
+              - cell "0 ms" [ref=e2194]
+            - row [ref=e2195] [cursor=pointer]:
+              - cell "72742" [ref=e2196]
+              - cell "11/4/2026, 10:44:46 AM" [ref=e2197]
+              - cell "QA2 Requester" [ref=e2198]
+              - cell "ddl" [ref=e2199]
+              - cell "approval_required" [ref=e2200]
+              - cell "demo-mysql / app" [ref=e2202]
+              - cell "0 ms" [ref=e2203]
+            - row [ref=e2204] [cursor=pointer]:
+              - cell "72740" [ref=e2205]
+              - cell "11/4/2026, 10:44:46 AM" [ref=e2206]
+              - cell "QA2 Requester" [ref=e2207]
+              - cell "ddl" [ref=e2208]
+              - cell "approval_required" [ref=e2209]
+              - cell "demo-mysql / app" [ref=e2211]
+              - cell "0 ms" [ref=e2212]
+            - row [ref=e2213] [cursor=pointer]:
+              - cell "72711" [ref=e2214]
+              - cell "11/4/2026, 10:44:46 AM" [ref=e2215]
+              - cell "QA2 Requester" [ref=e2216]
+              - cell "dml" [ref=e2217]
+              - cell "allowed" [ref=e2218]
+              - cell "demo-mysql / app" [ref=e2220]
+              - cell "2 ms" [ref=e2221]
+            - row [ref=e2222] [cursor=pointer]:
+              - cell "72709" [ref=e2223]
+              - cell "11/4/2026, 10:44:46 AM" [ref=e2224]
+              - cell "QA2 Requester" [ref=e2225]
+              - cell "query" [ref=e2226]
+              - cell "allowed" [ref=e2227]
+              - cell "demo-mysql / app" [ref=e2229]
+              - cell "2 ms" [ref=e2230]
+            - row [ref=e2231] [cursor=pointer]:
+              - cell "72707" [ref=e2232]
+              - cell "11/4/2026, 10:44:46 AM" [ref=e2233]
+              - cell "QA2 Requester" [ref=e2234]
+              - cell "dml" [ref=e2235]
+              - cell "allowed" [ref=e2236]
+              - cell "demo-mysql / app" [ref=e2238]
+              - cell "10 ms" [ref=e2239]
+            - row [ref=e2240] [cursor=pointer]:
+              - cell "72704" [ref=e2241]
+              - cell "11/4/2026, 10:44:46 AM" [ref=e2242]
+              - cell "QA2 Requester" [ref=e2243]
+              - cell "ddl" [ref=e2244]
+              - cell "allowed" [ref=e2245]
+              - cell "demo-mysql / app" [ref=e2247]
+              - cell "17 ms" [ref=e2248]
+            - row [ref=e2249] [cursor=pointer]:
+              - cell "72698" [ref=e2250]
+              - cell "11/4/2026, 10:44:45 AM" [ref=e2251]
+              - cell "QA2 Requester" [ref=e2252]
+              - cell "ddl" [ref=e2253]
+              - cell "allowed" [ref=e2254]
+              - cell "demo-mysql / app" [ref=e2256]
+              - cell "7 ms" [ref=e2257]
+            - row [ref=e2258] [cursor=pointer]:
+              - cell "72692" [ref=e2259]
+              - cell "11/4/2026, 10:44:45 AM" [ref=e2260]
+              - cell "QA2 Requester" [ref=e2261]
+              - cell "ddl" [ref=e2262]
+              - cell "allowed" [ref=e2263]
+              - cell "demo-mysql / app" [ref=e2265]
+              - cell "14 ms" [ref=e2266]
+            - row [ref=e2267] [cursor=pointer]:
+              - cell "72686" [ref=e2268]
+              - cell "11/4/2026, 10:44:45 AM" [ref=e2269]
+              - cell "QA2 Requester" [ref=e2270]
+              - cell "ddl" [ref=e2271]
+              - cell "allowed" [ref=e2272]
+              - cell "demo-mysql / app" [ref=e2274]
+              - cell "34 ms" [ref=e2275]
+            - row [ref=e2276] [cursor=pointer]:
+              - cell "72680" [ref=e2277]
+              - cell "11/4/2026, 10:44:45 AM" [ref=e2278]
+              - cell "QA2 Requester" [ref=e2279]
+              - cell "ddl" [ref=e2280]
+              - cell "allowed" [ref=e2281]
+              - cell "demo-mysql / app" [ref=e2283]
+              - cell "124 ms" [ref=e2284]
+            - row [ref=e2285] [cursor=pointer]:
+              - cell "72631" [ref=e2286]
+              - cell "11/4/2026, 10:44:45 AM" [ref=e2287]
+              - cell "QA2 Requester" [ref=e2288]
+              - cell "ddl" [ref=e2289]
+              - cell "approval_required" [ref=e2290]
+              - cell "demo-mysql / app" [ref=e2292]
+              - cell "0 ms" [ref=e2293]
+            - row [ref=e2294] [cursor=pointer]:
+              - cell "72629" [ref=e2295]
+              - cell "11/4/2026, 10:44:45 AM" [ref=e2296]
+              - cell "QA2 Requester" [ref=e2297]
+              - cell "ddl" [ref=e2298]
+              - cell "approval_required" [ref=e2299]
+              - cell "demo-mysql / app" [ref=e2301]
+              - cell "0 ms" [ref=e2302]
+            - row [ref=e2303] [cursor=pointer]:
+              - cell "72596" [ref=e2304]
+              - cell "11/4/2026, 10:43:36 AM" [ref=e2305]
+              - cell "Administrator" [ref=e2306]
+              - cell "ddl" [ref=e2307]
+              - cell "approval_required" [ref=e2308]
+              - cell "demo-mysql / app" [ref=e2310]
+              - cell "0 ms" [ref=e2311]
+            - row [ref=e2312] [cursor=pointer]:
+              - cell "72594" [ref=e2313]
+              - cell "11/4/2026, 10:43:36 AM" [ref=e2314]
+              - cell "Administrator" [ref=e2315]
+              - cell "ddl" [ref=e2316]
+              - cell "approval_required" [ref=e2317]
+              - cell "demo-mysql / app" [ref=e2319]
+              - cell "0 ms" [ref=e2320]
