@@ -1,9 +1,16 @@
 # syntax=docker/dockerfile:1
 
+# Base images still come from Docker Hub. On a CN network, configure the Docker
+# daemon registry mirror (your own https://<id>.mirror.aliyuncs.com) or override
+# the FROM images with accelerated copies.
+
 # Stage 1: Build frontend (native, no emulation)
 FROM --platform=$BUILDPLATFORM node:22-slim AS frontend
 WORKDIR /app
-RUN npm i -g pnpm
+# Alibaba Cloud npm mirror for both npm and pnpm.
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm i -g pnpm \
+    && pnpm config set registry https://registry.npmmirror.com
 # Keep the workspace package available because Vite resolves it directly from source.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/mongo-shell/ packages/mongo-shell/
@@ -22,13 +29,27 @@ RUN pnpm build
 FROM --platform=$BUILDPLATFORM rust:1-bookworm AS backend
 ARG TARGETARCH
 WORKDIR /app
-RUN dpkg --add-architecture arm64 \
+RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] && sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
+            -e 's|security.debian.org|mirrors.aliyun.com|g' "$f"; \
+    done; \
+    dpkg --add-architecture arm64 \
     && apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake pkg-config perl python3-pip gcc-aarch64-linux-gnu \
     libfontconfig-dev:arm64 libfreetype-dev:arm64 \
-    && pip3 install --break-system-packages ziglang \
+    && pip3 install --break-system-packages -i https://mirrors.aliyun.com/pypi/simple/ ziglang \
+    && mkdir -p /root/.cargo \
+    && printf '%s\n' \
+        '[source.crates-io]' \
+        'replace-with = "aliyun"' \
+        '' \
+        '[source.aliyun]' \
+        'registry = "sparse+https://mirrors.aliyun.com/crates.io-index/"' \
+        > /root/.cargo/config.toml \
     && cargo install cargo-zigbuild \
-    && rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+    && RUSTUP_DIST_SERVER=https://mirrors.aliyun.com/rustup \
+       RUSTUP_UPDATE_ROOT=https://mirrors.aliyun.com/rustup/rustup \
+       rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency manifests only and create dummy sources to pre-compile dependencies.
@@ -120,7 +141,11 @@ RUN case "$TARGETARCH" in \
 # Stage 3: Final image
 FROM debian:bookworm-slim
 ARG TARGETPLATFORM
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] && sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
+            -e 's|security.debian.org|mirrors.aliyun.com|g' "$f"; \
+    done; \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     fontconfig \
     fonts-dejavu-core \
