@@ -1,6 +1,31 @@
 import { apiUrl } from "@/lib/common/webPath";
 import { backendResponseError } from "./http";
 
+export type PolicyEffect = "allow" | "warn" | "require_approval" | "block";
+
+export interface PolicyRuleMatch {
+  statement_types?: string[];
+  production_only?: boolean;
+  requires_where?: boolean | null;
+  unbounded_only?: boolean;
+  databases?: string[];
+  tables?: string[];
+}
+
+export interface PolicyRule {
+  id: string;
+  enabled?: boolean;
+  priority?: number;
+  action: PolicyEffect;
+  message: string;
+  approval_template_id?: string | null;
+  match?: PolicyRuleMatch;
+}
+
+export interface PolicyDocument {
+  rules: PolicyRule[];
+}
+
 export interface PolicyVersion {
   id: string;
   scope_type: string;
@@ -9,7 +34,7 @@ export interface PolicyVersion {
   created_by?: string | null;
   created_at_ms: number;
   note: string;
-  document: unknown;
+  document: PolicyDocument;
 }
 
 export interface EffectiveRule {
@@ -18,8 +43,9 @@ export interface EffectiveRule {
   priority: number;
   effect: string;
   scope: unknown;
-  match: unknown;
+  match: PolicyRuleMatch;
   message: string;
+  approval_template_id?: string | null;
   builtin: boolean;
 }
 
@@ -41,7 +67,7 @@ export function listPolicies(scopeType: string, scopeId: string): Promise<Policy
   return request<PolicyVersion[]>(`/api/policies?${search.toString()}`);
 }
 
-export function publishPolicy(input: { scope_type: string; scope_id: string; document: unknown; note?: string }): Promise<PolicyVersion> {
+export function publishPolicy(input: { scope_type: string; scope_id: string; document: PolicyDocument; note?: string }): Promise<PolicyVersion> {
   return request<PolicyVersion>("/api/policies", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -50,6 +50,8 @@ pub struct RuleHit {
     pub rule_id: String,
     pub effect: PolicyEffect,
     pub reason: String,
+    /// Approval template bound to this rule, if any.
+    pub approval_template_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +60,8 @@ pub struct PolicyDecision {
     pub rule_id: Option<String>,
     pub reason: String,
     pub matched: Vec<RuleHit>,
+    /// Template bound to the rule that determined a `require_approval` result.
+    pub approval_template_id: Option<String>,
     pub policy_bundle_hash: String,
 }
 
@@ -68,6 +72,7 @@ impl PolicyDecision {
             rule_id: None,
             reason: "no rule matched".to_string(),
             matched: Vec::new(),
+            approval_template_id: None,
             policy_bundle_hash: bundle_hash.to_string(),
         }
     }
@@ -99,6 +104,10 @@ pub struct RuleMatch {
     /// Database-name globs (`*` allowed). Empty means any database.
     #[serde(default)]
     pub databases: Vec<String>,
+    /// Table globs (`*`/`?` allowed). A rule with this list only matches when
+    /// at least one referenced table matches; unparseable SQL does not match.
+    #[serde(default)]
+    pub tables: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,6 +118,8 @@ pub struct Rule {
     pub effect: PolicyEffect,
     pub rule_match: RuleMatch,
     pub message: String,
+    /// Optional approval template binding for `require_approval` rules.
+    pub approval_template_id: Option<String>,
     pub scope: RuleScope,
     /// Built-in rules cannot be deleted, only overridden by id in a stored
     /// document.
@@ -180,7 +191,16 @@ fn scope_applies(rule: &Rule, ctx: &RuleContext<'_>) -> bool {
     }
 }
 
-fn matches(rule: &Rule, ctx: &RuleContext<'_>) -> bool {
+fn table_pattern_matches(pattern: &str, table: &crate::sql_analysis::SqlTableReference) -> bool {
+    let qualified = table.schema.as_ref().map(|schema| format!("{schema}.{}", table.name));
+    let mut candidates = vec![table.name.as_str()];
+    if let Some(qualified) = qualified.as_deref() {
+        candidates.push(qualified);
+    }
+    candidates.into_iter().any(|candidate| crate::governance::data_policies::glob_matches(pattern, candidate))
+}
+
+fn matches(rule: &Rule, ctx: &RuleContext<'_>, tables: Option<&[crate::sql_analysis::SqlTableReference]>) -> bool {
     if !rule.enabled || !scope_applies(rule, ctx) {
         return false;
     }
@@ -195,6 +215,14 @@ fn matches(rule: &Rule, ctx: &RuleContext<'_>) -> bool {
     }
     if !rule_match.databases.is_empty() && !rule_match.databases.iter().any(|pattern| like(pattern, ctx.database)) {
         return false;
+    }
+    if !rule_match.tables.is_empty() {
+        let Some(tables) = tables else {
+            return false;
+        };
+        if !tables.iter().any(|table| rule_match.tables.iter().any(|pattern| table_pattern_matches(pattern, table))) {
+            return false;
+        }
     }
     let dangerous = is_dangerous_sql_for_database(ctx.sql, ctx.db_type);
     if rule_match.unbounded_only && !dangerous {
@@ -218,6 +246,7 @@ pub fn builtin_rules() -> Vec<Rule> {
         effect,
         rule_match,
         message: message.to_string(),
+        approval_template_id: None,
         scope: RuleScope::Global,
         builtin: true,
     };
@@ -283,10 +312,23 @@ pub fn evaluate(rules: &[Rule], context: &RuleContext<'_>, bundle_hash: &str) ->
             .then_with(|| scope_rank(&left.scope).cmp(&scope_rank(&right.scope)))
     });
 
+    // Parse table references once for all table-scoped rules.
+    let table_refs = rules.iter().any(|rule| !rule.rule_match.tables.is_empty()).then(|| {
+        crate::sql_analysis::analyze_sql_references(context.sql, Some(context.db_type.as_str()))
+            .ok()
+            .map(|analysis| analysis.tables)
+    });
+    let table_refs = table_refs.flatten();
+
     let mut matched = Vec::new();
     for rule in ordered {
-        if matches(rule, context) {
-            matched.push(RuleHit { rule_id: rule.id.clone(), effect: rule.effect, reason: rule.message.clone() });
+        if matches(rule, context, table_refs.as_deref()) {
+            matched.push(RuleHit {
+                rule_id: rule.id.clone(),
+                effect: rule.effect,
+                reason: rule.message.clone(),
+                approval_template_id: rule.approval_template_id.clone(),
+            });
         }
     }
 
@@ -300,6 +342,17 @@ pub fn evaluate(rules: &[Rule], context: &RuleContext<'_>, bundle_hash: &str) ->
         effect: strictest.effect,
         rule_id: Some(strictest.rule_id.clone()),
         reason: strictest.reason.clone(),
+        // `matched` is priority-ordered: the first bound require-approval rule
+        // wins, so a template binding is deterministic even when several rules
+        // trigger the same approval.
+        approval_template_id: if strictest.effect == PolicyEffect::RequireApproval {
+            matched
+                .iter()
+                .find(|hit| hit.effect == PolicyEffect::RequireApproval && hit.approval_template_id.is_some())
+                .and_then(|hit| hit.approval_template_id.clone())
+        } else {
+            None
+        },
         matched,
         policy_bundle_hash: bundle_hash.to_string(),
     }
@@ -371,6 +424,25 @@ mod tests {
     }
 
     #[test]
+    fn a_require_approval_rule_carries_its_template_binding() {
+        let mut rules = builtin_rules();
+        rules.push(Rule {
+            id: "custom.templated-ddl".into(),
+            enabled: true,
+            priority: 300,
+            effect: PolicyEffect::RequireApproval,
+            rule_match: RuleMatch { statement_types: vec!["ddl".into()], ..Default::default() },
+            message: "templated approval".into(),
+            approval_template_id: Some("tpl-1".into()),
+            scope: RuleScope::Global,
+            builtin: false,
+        });
+        let decision = evaluate(&rules, &context("CREATE TABLE t(id int)", false), "b");
+        assert_eq!(decision.effect, PolicyEffect::RequireApproval);
+        assert_eq!(decision.approval_template_id.as_deref(), Some("tpl-1"));
+    }
+
+    #[test]
     fn scoped_rules_only_apply_to_their_scope() {
         let mut rules = builtin_rules();
         rules.push(Rule {
@@ -380,6 +452,7 @@ mod tests {
             effect: PolicyEffect::Block,
             rule_match: RuleMatch { statement_types: vec!["dml".into()], ..Default::default() },
             message: "deletes are blocked on this connection".into(),
+            approval_template_id: None,
             scope: RuleScope::Connection("conn".into()),
             builtin: false,
         });
@@ -402,6 +475,7 @@ mod tests {
             effect: PolicyEffect::Block,
             rule_match: RuleMatch { statement_types: vec!["select".into()], ..Default::default() },
             message: "pinned".into(),
+            approval_template_id: None,
             scope: RuleScope::Database("conn::app".into()),
             builtin: false,
         }];
@@ -434,6 +508,7 @@ mod tests {
             effect: PolicyEffect::Block,
             rule_match: RuleMatch { databases: vec!["prod_*".into()], ..Default::default() },
             message: "blocked".into(),
+            approval_template_id: None,
             scope: RuleScope::Global,
             builtin: false,
         }];
@@ -445,5 +520,40 @@ mod tests {
             evaluate(&rules, &RuleContext { database: "staging", ..context("SELECT 1", false) }, "b").effect,
             PolicyEffect::Allow
         );
+    }
+
+    #[test]
+    fn table_scoped_rules_only_match_referenced_tables() {
+        let rules = vec![Rule {
+            id: "table.require-approval".into(),
+            enabled: true,
+            priority: 200,
+            effect: PolicyEffect::RequireApproval,
+            rule_match: RuleMatch {
+                statement_types: vec!["select".into()],
+                tables: vec!["customers".into()],
+                ..Default::default()
+            },
+            message: "customer data requires approval".into(),
+            approval_template_id: None,
+            scope: RuleScope::Global,
+            builtin: false,
+        }];
+        assert_eq!(
+            evaluate(&rules, &context("SELECT * FROM customers", false), "b").effect,
+            PolicyEffect::RequireApproval
+        );
+        assert_eq!(evaluate(&rules, &context("SELECT * FROM orders", false), "b").effect, PolicyEffect::Allow);
+        // Schema-qualified patterns and suffix wildcards are supported.
+        let qualified = vec![Rule {
+            rule_match: RuleMatch { tables: vec!["public.cust*".into()], ..rules[0].rule_match.clone() },
+            ..rules[0].clone()
+        }];
+        assert_eq!(
+            evaluate(&qualified, &context("SELECT * FROM public.customers", false), "b").effect,
+            PolicyEffect::RequireApproval
+        );
+        // Unparseable SQL does not match a table-scoped rule.
+        assert_eq!(evaluate(&rules, &context("SELECT * FROM", false), "b").effect, PolicyEffect::Allow);
     }
 }

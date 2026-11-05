@@ -6,6 +6,11 @@
 //! database-wide operation, and statements whose object references cannot be
 //! proven require a connection/database/schema grant ("fail closed for narrow
 //! grants").
+//!
+//! Grants attach either to a user (`principal_type = "user"`) or to an access
+//! group (`principal_type = "group"`). Access groups exist only in the asset
+//! layer: membership never adds a global role, so a group is the way to give a
+//! team the same fine-grained access without granting them the role globally.
 
 use std::collections::{HashMap, HashSet};
 
@@ -83,6 +88,15 @@ impl AssetGrant {
     pub fn is_expired(&self, now: &str) -> bool {
         self.expires_at.as_deref().is_some_and(|expires| expires <= now)
     }
+
+    /// Whether this grant's table selector matches `table`. Only table grants
+    /// can carry a pattern; broad grants match every table beneath them.
+    pub fn matches_table_name(&self, table: &str) -> bool {
+        match self.target_kind {
+            AssetTargetKind::Table => name_matches(self.table_name.as_deref(), Some(table), self.name_pattern),
+            _ => true,
+        }
+    }
 }
 
 /// Builds a grant from the legacy `scope_type`/`scope_id` API shape. Returns
@@ -151,11 +165,97 @@ pub fn grant_from_scope(
     })
 }
 
+/// An access group. Groups are named collections of users that can hold asset
+/// grants; they are not global roles and grant no permission by themselves.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetGroup {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Group plus the counters shown in the administration list.
+#[derive(Clone, Debug, Default)]
+pub struct AssetGroupSummary {
+    pub group: AssetGroup,
+    pub member_count: i64,
+    pub grant_count: i64,
+}
+
+/// One group membership row with the audit fields the management UI shows.
+#[derive(Clone, Debug)]
+pub struct AssetGroupMember {
+    pub group_id: String,
+    pub user_id: String,
+    pub added_by: Option<String>,
+    pub created_at: String,
+}
+
+/// Self-service request for a time-bound personal asset grant. Approval creates
+/// a normal user grant whose expiry is the requested window end.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessRequest {
+    pub id: String,
+    pub requester_id: String,
+    pub role_code: String,
+    pub target_kind: AssetTargetKind,
+    pub connection_group_id: Option<String>,
+    pub connection_id: Option<String>,
+    pub database_name: Option<String>,
+    pub schema_name: Option<String>,
+    pub table_name: Option<String>,
+    pub name_pattern: bool,
+    pub duration_hours: i64,
+    pub expires_at: String,
+    pub justification: String,
+    pub status: AccessRequestStatus,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<String>,
+    pub decision_note: String,
+    pub grant_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessRequestStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Cancelled,
+}
+
+impl AccessRequestStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "approved" => Some(Self::Approved),
+            "rejected" => Some(Self::Rejected),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
 /// Rows needed to build a snapshot; storage fills this without depending on the
 /// resolver.
 #[derive(Clone, Debug, Default)]
 pub struct AssetSnapshotData {
     pub global_roles: Vec<String>,
+    /// Direct user grants plus grants inherited from the user's access groups.
     pub grants: Vec<AssetGrant>,
     pub group_members: Vec<(String, String)>,
     pub groups: Vec<(String, Option<String>)>,
@@ -663,6 +763,17 @@ mod tests {
             false
         )
         .is_err());
+    }
+
+    #[test]
+    fn grant_table_matching_handles_patterns_and_broad_targets() {
+        let mut patterned =
+            grant("g1", "viewer", AssetTargetKind::Table, Some("app"), Some("public"), Some("report_*"));
+        patterned.name_pattern = true;
+        assert!(patterned.matches_table_name("REPORT_Q1"));
+        assert!(!patterned.matches_table_name("orders"));
+        let connection = grant("g2", "viewer", AssetTargetKind::Connection, None, None, None);
+        assert!(connection.matches_table_name("anything"));
     }
 
     #[test]

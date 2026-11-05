@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
 
@@ -358,6 +361,33 @@ fn execute_get_current_time(tool_call: &ToolCall) -> Result<String, String> {
     .to_string())
 }
 
+/// Input for creating a DBX governance approval from an agent tool call.
+#[derive(Debug, Clone)]
+pub struct GovernanceApprovalInput {
+    pub connection_id: String,
+    pub database: String,
+    pub schema: Option<String>,
+    pub sql: String,
+    pub justification: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GovernanceApprovalOutput {
+    pub approval_id: String,
+    pub status: String,
+    pub step_count: i64,
+    pub execution_mode: String,
+    pub deduplicated: bool,
+}
+
+/// Web-owned approval creation hook. Desktop and non-governance runtimes leave
+/// it unset, which also removes `request_approval` from the tool catalog.
+pub type GovernanceApprovalCreator = Arc<
+    dyn Fn(GovernanceApprovalInput) -> Pin<Box<dyn Future<Output = Result<GovernanceApprovalOutput, String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 /// Get read-only tool definitions for the given database type.
 /// Returns vector tools for vector DBs, SQL tools otherwise.
 pub fn read_only_tools(db_type: DatabaseType) -> Vec<ToolDefinition> {
@@ -374,6 +404,16 @@ pub fn read_only_tools(db_type: DatabaseType) -> Vec<ToolDefinition> {
 /// Includes read-only tools plus execute_query, get_sample_data, and
 /// explain_query for database types that support them.
 pub fn all_tools(db_type: DatabaseType, sql_permissions: AgentSqlPermissions) -> Vec<ToolDefinition> {
+    all_tools_with_approvals(db_type, sql_permissions, false)
+}
+
+/// As [`all_tools`], optionally adding `request_approval` when the host can
+/// create DBX governance approvals.
+pub fn all_tools_with_approvals(
+    db_type: DatabaseType,
+    sql_permissions: AgentSqlPermissions,
+    approval_enabled: bool,
+) -> Vec<ToolDefinition> {
     if db_type == DatabaseType::Plugin {
         return vec![get_current_time_tool()];
     }
@@ -399,6 +439,9 @@ pub fn all_tools(db_type: DatabaseType, sql_permissions: AgentSqlPermissions) ->
     }
     if supports_explain_plan(Some(db_type)) {
         tools.push(explain_query_tool());
+    }
+    if approval_enabled && supports_sql_query(db_type) {
+        tools.push(request_approval_tool());
     }
     tools
 }
@@ -652,6 +695,32 @@ fn execute_query_tool(sql_permissions: AgentSqlPermissions) -> ToolDefinition {
             "required": ["sql"]
         }),
         read_only: true,
+        parallel_ok: false,
+    }
+}
+
+/// Request a DBX governance approval for a SQL statement that the platform
+/// policy blocked. The tool only creates a pending request; it never approves
+/// or executes it.
+fn request_approval_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "request_approval".into(),
+        description: "Create a pending DBX governance approval request for SQL that execute_query reported as POLICY_APPROVAL_REQUIRED. Use the exact SQL that was blocked. This does not execute anything: the request must be approved and executed through the DBX approval center. Do not retry execute_query after creating the request.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "The exact SQL statement (or batch) that requires approval"
+                },
+                "justification": {
+                    "type": "string",
+                    "description": "Short reason for the change, shown to approvers"
+                }
+            },
+            "required": ["sql"]
+        }),
+        read_only: false,
         parallel_ok: false,
     }
 }
@@ -1107,7 +1176,7 @@ fn truncate_sql_for_error(sql: &str) -> String {
 /// Check whether `executed_sql` matches the user-confirmed write SQL. Returns
 /// `true` when no confirmation is required (confirmed is `None`) or when the
 /// trimmed forms match.
-fn sql_matches_confirmed_write(executed_sql: &str, confirmed: &Option<String>) -> bool {
+pub(crate) fn sql_matches_confirmed_write(executed_sql: &str, confirmed: &Option<String>) -> bool {
     match confirmed {
         None => true,
         Some(confirmed) => normalize_sql_for_confirmation(executed_sql) == normalize_sql_for_confirmation(confirmed),
@@ -3178,6 +3247,17 @@ for line in sys.stdin:
         let tool = get_current_time_tool();
         assert!(tool.read_only, "get_current_time must be read_only");
         assert!(tool.parallel_ok, "get_current_time must be parallel_ok");
+    }
+
+    #[test]
+    fn request_approval_is_only_offered_when_enabled_for_sql() {
+        let permissions = AgentSqlPermissions::default();
+        let without = all_tools(DatabaseType::Postgres, permissions.clone());
+        assert!(!without.iter().any(|tool| tool.name == "request_approval"));
+        let with = all_tools_with_approvals(DatabaseType::Postgres, permissions.clone(), true);
+        assert!(with.iter().any(|tool| tool.name == "request_approval"));
+        let with_mongo = all_tools_with_approvals(DatabaseType::MongoDb, permissions, true);
+        assert!(!with_mongo.iter().any(|tool| tool.name == "request_approval"));
     }
 
     /// `tool_uses_database` is a closed whitelist, so this pins the whole

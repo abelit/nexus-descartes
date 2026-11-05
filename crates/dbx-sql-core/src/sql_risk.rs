@@ -102,6 +102,13 @@ fn classify_statement(stmt: &Statement, detect_select_into: bool) -> SqlRisk {
         | Statement::CreateSequence { .. }
         | Statement::CreateRole { .. }
         | Statement::CreateType { .. }
+        | Statement::CreateFunction(_)
+        | Statement::CreateProcedure { .. }
+        | Statement::CreateTrigger(_)
+        | Statement::DropFunction(_)
+        | Statement::DropProcedure { .. }
+        | Statement::DropTrigger(_)
+        | Statement::AlterFunction(_)
         | Statement::AlterTable { .. }
         | Statement::AlterIndex { .. }
         | Statement::AlterView { .. }
@@ -158,6 +165,10 @@ fn statement_is_dangerous(stmt: &Statement, detect_select_into: bool) -> bool {
         // `USE` only changes connection-local state. MCP separately requires
         // a pinned session for it, so it does not need dangerous-SQL approval.
         Statement::Use(_) => false,
+        // `CALL` invokes a named routine. It is a write, but it is not an
+        // unbounded table mutation, so an `unbounded_only` rule must not treat
+        // every routine call as a blanket DELETE/UPDATE.
+        Statement::Call(_) => false,
         Statement::Query(query) => query_is_dangerous(query, detect_select_into),
         Statement::Insert(insert) => {
             insert.replace_into
@@ -874,6 +885,13 @@ fn classify_sql_risk_with_database(
             }
         }
         _ => {
+            // Routine DDL that the dialect parser cannot represent (for
+            // example a MySQL procedure body without `AS`) must still be DDL:
+            // otherwise it falls into the conservative Write bucket and is
+            // mistaken for an unbounded table mutation.
+            if routine_ddl_statement(sql, parser_dialect.as_ref()) {
+                return Ok(SqlRisk::Ddl);
+            }
             // Fallback: keyword-based classification
             let is_write = database_type.map_or_else(
                 || crate::query_execution_sql::is_write_sql(sql),
@@ -885,6 +903,35 @@ fn classify_sql_risk_with_database(
                 Ok(SqlRisk::ReadOnly)
             }
         }
+    }
+}
+
+/// Detects routine DDL from the leading keywords. Used only when the dialect
+/// parser rejects the statement, so a body form the parser does not model
+/// still lands in the DDL tier instead of the unbounded-write tier.
+fn routine_ddl_statement(sql: &str, dialect: &dyn sqlparser::dialect::Dialect) -> bool {
+    let Ok(tokens) = Tokenizer::new(dialect, sql).tokenize() else { return false };
+    let mut words: Vec<String> = Vec::with_capacity(4);
+    for token in tokens {
+        match token {
+            Token::Word(word) if word.quote_style.is_none() => words.push(word.value.to_ascii_uppercase()),
+            Token::Whitespace(_) => {}
+            _ if words.is_empty() => {}
+            _ => break,
+        }
+        if words.len() == 4 {
+            break;
+        }
+    }
+    let word = |index: usize| words.get(index).map(String::as_str);
+    match (word(0), word(1), word(2)) {
+        (Some("CREATE"), Some("FUNCTION" | "PROCEDURE" | "TRIGGER" | "EVENT"), _) => true,
+        (Some("CREATE"), Some("OR"), Some("REPLACE")) => {
+            matches!(word(3), Some("FUNCTION" | "PROCEDURE" | "TRIGGER" | "EVENT"))
+        }
+        (Some("DROP"), Some("FUNCTION" | "PROCEDURE" | "TRIGGER" | "EVENT"), _) => true,
+        (Some("ALTER"), Some("FUNCTION" | "PROCEDURE" | "EVENT"), _) => true,
+        _ => false,
     }
 }
 
@@ -2032,6 +2079,40 @@ mod tests {
         assert_eq!(classify_sql_risk("DROP TABLE users", "postgres").unwrap(), SqlRisk::Ddl);
         assert_eq!(classify_sql_risk("ALTER TABLE users ADD COLUMN age INT", "postgres").unwrap(), SqlRisk::Ddl);
         assert_eq!(classify_sql_risk("TRUNCATE TABLE users", "postgres").unwrap(), SqlRisk::Ddl);
+    }
+
+    #[test]
+    fn classify_routine_statements_as_ddl() {
+        for (sql, dialect) in [
+            ("CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$", "postgres"),
+            ("CREATE OR REPLACE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$", "postgres"),
+            ("CREATE PROCEDURE p() LANGUAGE sql AS $$ SELECT 1 $$", "postgres"),
+            ("CREATE TRIGGER t AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION f()", "postgres"),
+            ("DROP FUNCTION f()", "postgres"),
+            ("DROP PROCEDURE p()", "postgres"),
+            ("DROP TRIGGER t ON users", "postgres"),
+            ("ALTER FUNCTION f() RENAME TO g", "postgres"),
+        ] {
+            assert_eq!(classify_sql_risk(sql, dialect).unwrap(), SqlRisk::Ddl, "{sql}");
+        }
+        for sql in [
+            "CREATE FUNCTION f() RETURNS INT DETERMINISTIC RETURN 1",
+            "CREATE PROCEDURE p() SELECT 1",
+            "CREATE TRIGGER t AFTER INSERT ON users FOR EACH ROW SET @x = 1",
+            "DROP FUNCTION f",
+            "DROP PROCEDURE p",
+            "DROP TRIGGER t",
+        ] {
+            assert_eq!(classify_sql_risk(sql, "mysql").unwrap(), SqlRisk::Ddl, "{sql}");
+        }
+    }
+
+    #[test]
+    fn call_is_a_write_but_not_an_unbounded_mutation() {
+        assert_eq!(classify_sql_risk("CALL p()", "mysql").unwrap(), SqlRisk::Write);
+        assert_eq!(classify_sql_risk("CALL p()", "postgres").unwrap(), SqlRisk::Write);
+        assert!(!is_dangerous_sql_for_database("CALL p()", DatabaseType::Mysql));
+        assert!(!is_dangerous_sql_for_database("CALL p()", DatabaseType::Postgres));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAgentToolName, formatToolDurationMs, toolCallStepKey, updateAgentStepApproval, upsertAgentStep, type AiAgentStepApproval, type AiAgentStepItem } from "@/lib/ai/aiAgentStepPresentation";
+import { formatAgentToolName, formatToolDurationMs, isGovernanceApprovalRequired, toolCallStepKey, updateAgentStepApproval, upsertAgentStep, type AiAgentStepApproval, type AiAgentStepItem } from "@/lib/ai/aiAgentStepPresentation";
 
 const startStep: AiAgentStepItem = {
   key: "tool-call-1",
@@ -124,6 +124,19 @@ describe("aiAgentStepPresentation", () => {
       expect(formatToolDurationMs(10_000)).toBe("10s");
       expect(formatToolDurationMs(12_000)).toBe("12s");
       expect(formatToolDurationMs(65_432)).toBe("65s");
+    });
+  });
+  describe("isGovernanceApprovalRequired", () => {
+    it("recognizes the policy marker with and without the tool error prefix", () => {
+      expect(isGovernanceApprovalRequired("execute_query", true, "POLICY_APPROVAL_REQUIRED: DDL requires approval")).toBe(true);
+      expect(isGovernanceApprovalRequired("execute_query", true, "Error: POLICY_APPROVAL_REQUIRED: DDL requires approval")).toBe(true);
+      expect(isGovernanceApprovalRequired("dbx_execute_query", true, "APPROVAL_REQUIRED: x")).toBe(true);
+    });
+
+    it("ignores successful calls, other tools, and markers that are not at the start", () => {
+      expect(isGovernanceApprovalRequired("execute_query", false, "POLICY_APPROVAL_REQUIRED: x")).toBe(false);
+      expect(isGovernanceApprovalRequired("list_tables", true, "POLICY_APPROVAL_REQUIRED: x")).toBe(false);
+      expect(isGovernanceApprovalRequired("execute_query", true, "syntax error near POLICY_APPROVAL_REQUIRED:")).toBe(false);
     });
   });
 });

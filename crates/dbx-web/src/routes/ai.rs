@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::Json;
+use axum::{Extension, Json};
 use futures::stream::Stream;
 use serde::Deserialize;
 
@@ -13,6 +13,7 @@ use dbx_core::ai::{
     AiChatSelectionState, AiCompletionRequest, AiConfig, AiConfigItem, AiConversation, AiEffortCapability, AiModelInfo,
     AiProvider, AiStreamChunk, AiTestConnectionResult,
 };
+use dbx_core::audit::Actor;
 use dbx_core::models::connection::DatabaseType;
 
 use crate::error::AppError;
@@ -458,6 +459,7 @@ pub async fn ai_stream(
 
 pub async fn ai_agent_stream(
     State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
     Json(body): Json<AiAgentStreamRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, AppError> {
     let session_id = body.session_id;
@@ -505,6 +507,22 @@ pub async fn ai_agent_stream(
         allow_write_sql.unwrap_or(false),
         confirmed_write_sql,
     );
+    let approval_creator: Option<dbx_core::ai::agent_tools::GovernanceApprovalCreator> = {
+        let state_for_approval = state.clone();
+        let actor_for_approval = actor.clone();
+        Some(Arc::new(move |input: dbx_core::ai::agent_tools::GovernanceApprovalInput| {
+            let state = state_for_approval.clone();
+            let actor = actor_for_approval.clone();
+            Box::pin(async move { crate::routes::approvals::create_approval_for_agent(&state, &actor, input).await })
+                as std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<
+                                Output = Result<dbx_core::ai::agent_tools::GovernanceApprovalOutput, String>,
+                            > + Send,
+                    >,
+                >
+        }))
+    };
     let agent_ctx = AgentLoopContext {
         state: state.app.clone(),
         connection_id: body.connection_id,
@@ -525,6 +543,7 @@ pub async fn ai_agent_stream(
         // never exposes (prd 09-30-skill-listing-use-skill, Requirement 16).
         // A future caller cannot opt in by adding a JSON key.
         allow_skills: false,
+        approval_creator,
     };
 
     let sid = session_id.clone();

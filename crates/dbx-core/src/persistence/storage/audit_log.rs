@@ -1,8 +1,8 @@
 use super::{params, params_from_iter, OptionalExtension, Storage, TransactionBehavior};
 use crate::audit::{
-    Actor, ActorKind, AuditChainHead, AuditChainReport, AuditCheckpoint, AuditCheckpointReport, AuditCount,
-    AuditDecision, AuditEvent, AuditEventInsert, AuditOperation, AuditOutcome, AuditPage, AuditQuery, AuditSource,
-    AuditStats,
+    Actor, ActorKind, AuditActorCount, AuditChainHead, AuditChainReport, AuditCheckpoint, AuditCheckpointReport,
+    AuditCount, AuditDecision, AuditEvent, AuditEventInsert, AuditOperation, AuditOutcome, AuditPage, AuditQuery,
+    AuditSource, AuditStats,
 };
 use chrono::Utc;
 use rusqlite::types::Value;
@@ -111,6 +111,7 @@ pub(super) fn ensure_audit_schema_sync(conn: &rusqlite::Connection) -> Result<()
         CREATE INDEX IF NOT EXISTS idx_audit_events_seq_time ON audit_events(seq DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_events_time ON audit_events(occurred_at_ms DESC, seq DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_id, occurred_at_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_events_actor_seq ON audit_events(actor_id, seq DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_events_connection ON audit_events(connection_id, occurred_at_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_events_operation ON audit_events(operation, occurred_at_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_events_decision ON audit_events(decision, occurred_at_ms DESC);
@@ -270,6 +271,17 @@ impl Storage {
                 sql.push_str(" AND sql_text LIKE ? ESCAPE '\\'");
                 values.push(Value::Text(format!("%{}%", like_escape(&sql_contains))));
             }
+            if let Some(target_contains) = query.target_contains.filter(|value| !value.trim().is_empty()) {
+                let pattern = format!("%{}%", like_escape(&target_contains));
+                sql.push_str(
+                    " AND (connection_id LIKE ? ESCAPE '\\' OR connection_name LIKE ? ESCAPE '\\' \
+                       OR database LIKE ? ESCAPE '\\' OR schema_name LIKE ? ESCAPE '\\' \
+                       OR table_name LIKE ? ESCAPE '\\')",
+                );
+                for _ in 0..5 {
+                    values.push(Value::Text(pattern.clone()));
+                }
+            }
             if let Some(from_ms) = query.from_ms {
                 sql.push_str(" AND occurred_at_ms >= ?");
                 values.push(Value::Integer(from_ms));
@@ -351,10 +363,19 @@ impl Storage {
 
     /// Aggregates over an optional time window. The audit UI shows these so an
     /// operator can see spikes without exporting the whole log.
-    pub async fn audit_stats(&self, from_ms: Option<i64>, to_ms: Option<i64>) -> Result<AuditStats, String> {
+    pub async fn audit_stats(
+        &self,
+        from_ms: Option<i64>,
+        to_ms: Option<i64>,
+        restrict_actor_id: Option<String>,
+    ) -> Result<AuditStats, String> {
         self.with_audit_conn(move |conn| {
             let mut where_sql = String::from(" WHERE 1=1");
             let mut values: Vec<Value> = Vec::new();
+            if let Some(actor_id) = restrict_actor_id {
+                where_sql.push_str(" AND actor_id = ?");
+                values.push(Value::Text(actor_id));
+            }
             if let Some(from_ms) = from_ms {
                 where_sql.push_str(" AND occurred_at_ms >= ?");
                 values.push(Value::Integer(from_ms));
@@ -391,6 +412,52 @@ impl Storage {
                 by_actor: bucket("actor_id")?,
                 by_risk: bucket("risk_level")?,
             })
+        })
+        .await
+    }
+
+    /// Distinct actors that produced at least one visible event, with the
+    /// display name from their newest event. Restricted callers see only
+    /// themselves because `restrict_actor_id` is applied inside the aggregate.
+    pub async fn audit_actors(
+        &self,
+        from_ms: Option<i64>,
+        to_ms: Option<i64>,
+        restrict_actor_id: Option<String>,
+        limit: usize,
+    ) -> Result<Vec<AuditActorCount>, String> {
+        self.with_audit_conn(move |conn| {
+            let limit = limit.clamp(1, 500);
+            let mut where_sql = String::from(" WHERE 1=1");
+            let mut values: Vec<Value> = Vec::new();
+            if let Some(actor_id) = restrict_actor_id {
+                where_sql.push_str(" AND actor_id = ?");
+                values.push(Value::Text(actor_id));
+            }
+            if let Some(from_ms) = from_ms {
+                where_sql.push_str(" AND occurred_at_ms >= ?");
+                values.push(Value::Integer(from_ms));
+            }
+            if let Some(to_ms) = to_ms {
+                where_sql.push_str(" AND occurred_at_ms <= ?");
+                values.push(Value::Integer(to_ms));
+            }
+            values.push(Value::Integer(i64::try_from(limit).unwrap_or(500)));
+            let sql = format!(
+                "SELECT e.actor_id, e.actor_display_name, t.cnt \
+                 FROM audit_events e JOIN ( \
+                    SELECT actor_id, COUNT(*) AS cnt, MAX(seq) AS latest_seq \
+                    FROM audit_events{where_sql} GROUP BY actor_id \
+                 ) t ON e.seq = t.latest_seq \
+                 ORDER BY t.latest_seq DESC LIMIT ?"
+            );
+            let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(params_from_iter(values.iter()), |row| {
+                    Ok(AuditActorCount { actor_id: row.get(0)?, display_name: row.get(1)?, count: row.get(2)? })
+                })
+                .map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
         })
         .await
     }
@@ -493,6 +560,22 @@ impl Storage {
     /// Oldest retained event, for retention reporting only. Automatic
     /// deletion is not enabled: a segment may only be removed after a copy is
     /// anchored outside the database.
+    /// Highest sequence covered by an external export. Required before pruning.
+    pub async fn audit_last_exported_seq(&self) -> Result<i64, String> {
+        self.with_audit_conn(|conn| {
+            conn.query_row("SELECT COALESCE(MAX(last_exported_seq), 0) FROM audit_export_state", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    /// Lowest sequence still retained after previous maintenance pruning.
+    pub async fn audit_retention_floor_seq(&self) -> Result<Option<i64>, String> {
+        self.with_audit_conn(|conn| Ok(read_floor_sync(conn)?.map(|(seq, _)| seq))).await
+    }
+
     pub async fn audit_oldest_event_ms(&self) -> Result<Option<i64>, String> {
         self.with_audit_conn(|conn| {
             conn.query_row("SELECT MIN(occurred_at_ms) FROM audit_events", [], |row| row.get::<_, Option<i64>>(0))
@@ -1301,6 +1384,36 @@ mod tests {
         let head = storage.audit_chain_head().await.unwrap();
         assert_eq!(head.last_seq, second.seq);
         assert_eq!(head.last_hash, second.event_hash);
+    }
+
+    #[tokio::test]
+    async fn query_filters_by_target_substring_across_connection_database_schema_and_table() {
+        let (storage, _) = storage().await;
+        let mut reading = event("e1", "SELECT 1");
+        reading.connection_name = Some("demo-postgres".to_string());
+        reading.database = Some("app".to_string());
+        reading.schema_name = Some("public".to_string());
+        reading.table_name = Some("reading_list".to_string());
+        storage.insert_audit_event(reading).await.unwrap();
+        let mut orders = event("e2", "SELECT 2");
+        orders.connection_name = Some("demo-mysql".to_string());
+        orders.database = Some("app".to_string());
+        orders.table_name = Some("orders".to_string());
+        storage.insert_audit_event(orders).await.unwrap();
+
+        for target in ["postgres", "reading", "public"] {
+            let page = storage
+                .query_audit_events(AuditQuery { target_contains: Some(target.to_string()), ..Default::default() })
+                .await
+                .unwrap();
+            assert_eq!(page.events.len(), 1, "target {target} should match only the reading row");
+            assert_eq!(page.events[0].event.event_id, "e1");
+        }
+        let page = storage
+            .query_audit_events(AuditQuery { target_contains: Some("mysql".to_string()), ..Default::default() })
+            .await
+            .unwrap();
+        assert_eq!(page.events[0].event.event_id, "e2");
     }
 
     #[tokio::test]

@@ -8,7 +8,7 @@ use axum::response::sse::{Event, Sse};
 use axum::{Extension, Json};
 use dbx_core::audit::Actor;
 use dbx_core::table_import::{
-    self, TableImportParseOptions, TableImportPhase, TableImportPreviewRequest, TableImportProgress,
+    self, TableImportMode, TableImportParseOptions, TableImportPhase, TableImportPreviewRequest, TableImportProgress,
     TableImportRequest, TableImportSourceFormat, TableImportStatus,
 };
 use dbx_core::transfer;
@@ -294,6 +294,38 @@ where
     result
 }
 
+/// Mirrors the SQL funnel's high-risk policy decision for import operations
+/// that change schema (`create_table`) or destroy rows (`truncate` mode).
+async fn enforce_import_policy(state: &WebState, req: &TableImportRequest) -> Result<(), AppError> {
+    if !req.create_table && !matches!(req.mode, TableImportMode::Truncate) {
+        return Ok(());
+    }
+    let config = {
+        let configs = state.app.configs.read().await;
+        configs.get(&req.connection_id).cloned()
+    }
+    .ok_or_else(|| AppError::not_found("connection not found"))?;
+    // MySQL has no separate schema: the database names the namespace.
+    let namespace = if req.schema.trim().is_empty() { req.database.as_str() } else { req.schema.as_str() };
+    let probe = if req.create_table {
+        format!("CREATE TABLE {namespace}.{} (id INT)", req.table)
+    } else {
+        format!("TRUNCATE TABLE {namespace}.{}", req.table)
+    };
+    let decision = dbx_core::governance::decide(&req.connection_id, &config, &req.database, config.db_type, &probe);
+    let rule = decision.rule_id.as_deref().unwrap_or("unknown");
+    match decision.effect {
+        dbx_core::governance::PolicyEffect::Block => {
+            Err(AppError::forbidden(format!("POLICY_DENIED: {} (rule {rule})", decision.reason)))
+        }
+        dbx_core::governance::PolicyEffect::RequireApproval => Err(AppError::forbidden(format!(
+            "POLICY_APPROVAL_REQUIRED: {} (rule {rule}). Run the CREATE/TRUNCATE through an approved statement, then import into the existing table.",
+            decision.reason
+        ))),
+        _ => Ok(()),
+    }
+}
+
 pub async fn execute_import(
     State(state): State<Arc<WebState>>,
     Extension(actor): Extension<Actor>,
@@ -330,6 +362,16 @@ pub async fn execute_import(
             "Read-only mode: connection '{}' has read-only protection enabled. Import blocked.",
             name
         )));
+    }
+
+    // An import can create a table or truncate the target without going through
+    // the SQL funnel. Run the same high-risk policy decision here so those two
+    // data paths cannot bypass DDL/TRUNCATE approval.
+    if let Err(error) = enforce_import_policy(&state, &req).await {
+        if !req.retain_source {
+            cleanup_uploaded_import_source(&req.file_path).await;
+        }
+        return Err(error);
     }
 
     let import_id = req.import_id.clone();

@@ -10,7 +10,9 @@ export interface LocalUser {
   created_at: string;
   last_login_at?: string | null;
   roles: string[];
+  asset_roles?: string[];
   permissions: string[];
+  effective_permissions?: string[];
   bindings?: UserBinding[];
 }
 
@@ -45,6 +47,8 @@ export interface RoleScope {
 
 export interface AssetGrant {
   id: string;
+  principal_type?: "user" | "group";
+  principal_id?: string;
   role_code: string;
   target_kind: "connection_group" | "connection" | "database" | "schema" | "table";
   connection_group_id?: string | null;
@@ -115,7 +119,7 @@ export function createUser(input: CreateUserInput): Promise<LocalUser> {
   });
 }
 
-export function updateUser(userId: string, patch: { status?: string; role?: string; display_name?: string; scope?: RoleScope }): Promise<LocalUser> {
+export function updateUser(userId: string, patch: { status?: string; role?: string; display_name?: string; scope?: RoleScope; clear_global_role?: boolean }): Promise<LocalUser> {
   return request<LocalUser>(`/api/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -205,4 +209,379 @@ export function deleteAssetGrant(userId: string, grantId: string): Promise<{ ok:
   return request<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}/bindings/${encodeURIComponent(grantId)}`, {
     method: "DELETE",
   });
+}
+
+export interface UpdateAssetGrantInput {
+  role_code?: string;
+  /** `null` clears the expiry; omit the field to leave it unchanged. */
+  expires_at?: string | null;
+  reason?: string;
+}
+
+export function updateAssetGrant(userId: string, grantId: string, input: UpdateAssetGrantInput): Promise<AssetGrant> {
+  return request<AssetGrant>(`/api/users/${encodeURIComponent(userId)}/bindings/${encodeURIComponent(grantId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export interface AssetGroup {
+  id: string;
+  name: string;
+  description: string;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  member_count: number;
+  grant_count: number;
+}
+
+export interface AssetGroupMember {
+  user_id: string;
+  email: string;
+  display_name: string;
+  status: string;
+  added_by?: string | null;
+  created_at: string;
+}
+
+export interface AssetGroupDetail {
+  group: AssetGroup;
+  members: AssetGroupMember[];
+  grants: AssetGrant[];
+}
+
+export interface AssetGroupInput {
+  name: string;
+  description?: string;
+}
+
+export function listAssetGroups(): Promise<AssetGroup[]> {
+  return request<AssetGroup[]>("/api/asset-groups");
+}
+
+export function createAssetGroup(input: AssetGroupInput): Promise<AssetGroup> {
+  return request<AssetGroup>("/api/asset-groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAssetGroup(groupId: string, input: AssetGroupInput): Promise<AssetGroup> {
+  return request<AssetGroup>(`/api/asset-groups/${encodeURIComponent(groupId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteAssetGroup(groupId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/asset-groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+}
+
+export function getAssetGroup(groupId: string): Promise<AssetGroupDetail> {
+  return request<AssetGroupDetail>(`/api/asset-groups/${encodeURIComponent(groupId)}`);
+}
+
+export function addAssetGroupMember(groupId: string, userId: string): Promise<{ ok: boolean; added: boolean }> {
+  return request<{ ok: boolean; added: boolean }>(`/api/asset-groups/${encodeURIComponent(groupId)}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+export function removeAssetGroupMember(groupId: string, userId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/asset-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function createGroupAssetGrant(groupId: string, input: CreateAssetGrantInput): Promise<AssetGrant> {
+  return request<AssetGrant>(`/api/asset-groups/${encodeURIComponent(groupId)}/bindings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateGroupAssetGrant(
+  groupId: string,
+  grantId: string,
+  input: UpdateAssetGrantInput,
+): Promise<AssetGrant> {
+  return request<AssetGrant>(
+    `/api/asset-groups/${encodeURIComponent(groupId)}/bindings/${encodeURIComponent(grantId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteGroupAssetGrant(groupId: string, grantId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/asset-groups/${encodeURIComponent(groupId)}/bindings/${encodeURIComponent(grantId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export interface EffectivePermission {  permission: string;
+  allowed: boolean;
+  broad: boolean;
+  grant_ids: string[];
+  source: "global" | "grant" | "none";
+  asset_scopeable: boolean;
+}
+
+export interface EffectiveAccess {
+  user_id: string;
+  connection_id: string;
+  database?: string | null;
+  schema?: string | null;
+  table?: string | null;
+  global_roles: string[];
+  asset_roles: string[];
+  permissions: EffectivePermission[];
+  can_navigate_connection: boolean;
+  can_navigate_database: boolean;
+  can_navigate_schema: boolean;
+}
+
+export function effectiveAccess(
+  userId: string,
+  query: { connection_id: string; database?: string; schema?: string; table?: string },
+): Promise<EffectiveAccess> {
+  const params = new URLSearchParams();
+  params.set("connection_id", query.connection_id);
+  if (query.database?.trim()) params.set("database", query.database.trim());
+  if (query.schema?.trim()) params.set("schema", query.schema.trim());
+  if (query.table?.trim()) params.set("table", query.table.trim());
+  return request<EffectiveAccess>(`/api/users/${encodeURIComponent(userId)}/effective-access?${params.toString()}`);
+}
+
+export interface AssetGrantInventoryItem {
+  id: string;
+  principal_type: "user" | "group";
+  principal_id: string;
+  principal_name: string;
+  member_count: number;
+  user_id: string;
+  user_email: string;
+  user_display_name: string;
+  user_status: string;
+  role_code: string;
+  role_name: string;
+  target_kind: AssetGrant["target_kind"];
+  connection_group_id?: string | null;
+  connection_id?: string | null;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  name_pattern: boolean;
+  expires_at?: string | null;
+  granted_by?: string | null;
+  reason: string;
+  created_at: string;
+  connection_name?: string | null;
+  group_name?: string | null;
+  expired: boolean;
+  stale_reason?: string | null;
+}
+
+export interface AssetGrantInventoryQuery {
+  user_id?: string;
+  connection_id?: string;
+  database?: string;
+  schema?: string;
+  table?: string;
+  role_code?: string;
+  stale?: boolean;
+}
+
+export function listAssetGrantInventory(query: AssetGrantInventoryQuery = {}): Promise<AssetGrantInventoryItem[]> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  const suffix = params.toString();
+  return request<AssetGrantInventoryItem[]>(`/api/asset-grants${suffix ? `?${suffix}` : ""}`);
+}
+
+export type AccessRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export interface AccessRequest {
+  id: string;
+  requester_id: string;
+  requester_name: string;
+  requester_email: string;
+  role_code: string;
+  role_name: string;
+  target_kind: AssetGrant["target_kind"];
+  connection_group_id?: string | null;
+  connection_id?: string | null;
+  connection_name?: string | null;
+  group_name?: string | null;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  name_pattern: boolean;
+  duration_hours: number;
+  expires_at: string;
+  justification: string;
+  status: AccessRequestStatus;
+  decided_by?: string | null;
+  decided_by_name?: string | null;
+  decided_at?: string | null;
+  decision_note: string;
+  grant_id?: string | null;
+  approver_names: string[];
+  created_at: string;
+  expired: boolean;
+}
+
+export interface AccessRequestInput {
+  role_code: string;
+  target_kind: AssetGrant["target_kind"];
+  connection_group_id?: string | null;
+  connection_id?: string | null;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  name_pattern?: boolean;
+  duration_hours: number;
+  justification: string;
+}
+
+export interface AccessRequestRoleOption {
+  code: string;
+  name: string;
+  permissions: string[];
+}
+
+export interface AccessRequestConnectionOption {
+  id: string;
+  name: string;
+  db_type: string;
+}
+
+export interface AccessRequestGroupOption {
+  id: string;
+  name: string;
+}
+
+export interface AccessRequestOptions {
+  roles: AccessRequestRoleOption[];
+  connections: AccessRequestConnectionOption[];
+  connection_groups: AccessRequestGroupOption[];
+  max_duration_hours: number;
+}
+
+export function accessRequestOptions(): Promise<AccessRequestOptions> {
+  return request<AccessRequestOptions>("/api/access-requests/options");
+}
+
+export function listAccessRequests(query: { scope?: "mine" | "all"; status?: AccessRequestStatus; limit?: number } = {}): Promise<AccessRequest[]> {
+  const params = new URLSearchParams();
+  if (query.scope) params.set("scope", query.scope);
+  if (query.status) params.set("status", query.status);
+  if (query.limit) params.set("limit", String(query.limit));
+  const suffix = params.toString();
+  return request<AccessRequest[]>(`/api/access-requests${suffix ? `?${suffix}` : ""}`);
+}
+
+export function createAccessRequest(input: AccessRequestInput): Promise<AccessRequest> {
+  return request<AccessRequest>("/api/access-requests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelAccessRequest(requestId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/access-requests/${encodeURIComponent(requestId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function approveAccessRequest(requestId: string, note = ""): Promise<AccessRequest> {
+  return request<AccessRequest>(`/api/access-requests/${encodeURIComponent(requestId)}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function rejectAccessRequest(requestId: string, note = ""): Promise<AccessRequest> {
+  return request<AccessRequest>(`/api/access-requests/${encodeURIComponent(requestId)}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+}
+
+export type DataPolicyKind = "mask" | "row_filter";
+
+export interface DataPolicy {
+  id: string;
+  name: string;
+  kind: DataPolicyKind;
+  connection_id: string;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name: string;
+  name_pattern: boolean;
+  column_name: string;
+  mask_type: "full" | "partial" | "email";
+  replacement: string;
+  allowed_values: string[];
+  enabled: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataPolicyInput {
+  name: string;
+  kind: DataPolicyKind;
+  connection_id: string;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name: string;
+  name_pattern?: boolean;
+  column_name: string;
+  mask_type?: string;
+  replacement?: string;
+  allowed_values?: string[];
+  enabled?: boolean;
+}
+
+export function listDataPolicies(connectionId?: string): Promise<DataPolicy[]> {
+  const suffix = connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : "";
+  return request<DataPolicy[]>(`/api/data-policies${suffix}`);
+}
+
+export function createDataPolicy(input: DataPolicyInput): Promise<DataPolicy> {
+  return request<DataPolicy>("/api/data-policies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateDataPolicy(policyId: string, input: DataPolicyInput): Promise<DataPolicy> {
+  return request<DataPolicy>(`/api/data-policies/${encodeURIComponent(policyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteDataPolicy(policyId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/data-policies/${encodeURIComponent(policyId)}`, { method: "DELETE" });
 }

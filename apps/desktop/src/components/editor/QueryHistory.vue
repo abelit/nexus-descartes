@@ -3,7 +3,7 @@ import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch } from "vue"
 import type { McpCallHistoryRequest, McpCallHistoryResource } from "@/lib/mcp/mcpCallHistory";
 import { useI18n } from "vue-i18n";
 import { useSqlHighlighter } from "@/composables/useSqlHighlighter";
-import { CalendarClock, Check, Copy, Database, ListFilter, LoaderCircle, Maximize2, Minimize2, Minus, RefreshCw, RotateCcw, Search, Sparkles, Trash2, X } from "@lucide/vue";
+import { CalendarClock, Check, Copy, Database, ListFilter, LoaderCircle, Maximize2, Minimize2, Minus, RefreshCw, RotateCcw, Search, Sparkles, Trash2, User, X } from "@lucide/vue";
 import { RecycleScroller } from "vue-virtual-scroller";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -32,12 +32,19 @@ const { highlight } = useSqlHighlighter();
 const store = useHistoryStore();
 const connectionStore = useConnectionStore();
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   currentConnectionId?: string;
   currentDatabase?: string;
   maximized?: boolean;
   mcpRequest?: McpCallHistoryRequest | null;
-}>();
+  /** Show the operator on rows (roles that can read every user's history). */
+  showActor?: boolean;
+  /** Administrators may delete/clear; other roles get a read-only history. */
+  canManage?: boolean;
+}>(), {
+  showActor: false,
+  canManage: true,
+});
 
 const emit = defineEmits<{
   restore: [sql: string, entry: HistoryEntry];
@@ -82,7 +89,7 @@ let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const filters = computed<HistoryFilter[]>(() => (activeSource.value === "mcp" ? ["all", "failed", "mcp_success"] : ["all", "query", "data_change", "schema_change", "failed"]));
 const mcpQuickTools = computed(() => mcpToolOptions.value);
-const canClearHistory = computed(() => store.total > 0);
+const canClearHistory = computed(() => props.canManage && store.total > 0);
 const hasDateFilter = computed(() => hasHistoryDateRange(dateRange.value));
 const dateRangeDraftValid = computed(() => historyDateRangeIsValid(dateRangeDraft.value));
 const dateRangeSummary = computed(() => {
@@ -125,11 +132,16 @@ async function copyText(text: string) {
 }
 
 function confirmDeleteEntry(id: string) {
+  if (!props.canManage) return;
   deleteTargetId.value = id;
   showDeleteConfirm.value = true;
 }
 
 function executeDelete() {
+  if (!props.canManage) {
+    showDeleteConfirm.value = false;
+    return;
+  }
   if (deleteTargetId.value) {
     store.remove(deleteTargetId.value);
     deleteTargetId.value = null;
@@ -390,6 +402,14 @@ function kindShortLabel(entry: HistoryEntry) {
   return t(`history.kindShort.${activityKind(entry)}`);
 }
 
+function formatHistoryActor(entry: HistoryEntry): string {
+  const name = entry.actor_name?.trim();
+  const id = entry.actor_id?.trim();
+  if (!name) return id ?? "";
+  if (!id || id === name) return name;
+  return `${name} (${id})`;
+}
+
 function detailsRows(entry: HistoryEntry) {
   const rows = [
     [t("history.detail.kind"), kindLabel(entry)],
@@ -403,6 +423,11 @@ function detailsRows(entry: HistoryEntry) {
     [t("history.detail.rollback"), canRollbackHistoryEntry(entry) ? t("history.rollbackAvailable") : t("history.rollbackUnavailable")],
     [t("history.detail.status"), entry.success ? t("history.success") : t("history.failed")],
   ];
+  let attributionIndex = 4;
+  const actor = formatHistoryActor(entry);
+  if (actor) rows.splice(attributionIndex++, 0, [t("history.detail.actor"), actor]);
+  if (entry.client_ip) rows.splice(attributionIndex++, 0, [t("history.detail.clientIp"), entry.client_ip]);
+  if (entry.user_agent) rows.splice(attributionIndex++, 0, [t("history.detail.userAgent"), entry.user_agent]);
   if (entry.source === "mcp" || historyEntrySource(entry) === "MCP") {
     rows.splice(1, 0, [t("history.detail.mcpTool"), entry.mcp_tool_name || entry.operation || "-"]);
     const client = mcpClientLabel(entry);
@@ -567,7 +592,9 @@ function getHistoryMenuItems(entry: HistoryEntry): ContextMenuItem[] {
           { label: t("history.copy"), action: () => copyText(entry.sql) },
           ...(canRollbackHistoryEntry(entry) ? [{ label: t("history.rollback"), action: () => rollback(entry) }] : []),
         ]),
-    { label: t("history.delete"), action: () => confirmDeleteEntry(entry.id), variant: "destructive" as const },
+    ...(props.canManage
+      ? [{ label: t("history.delete"), action: () => confirmDeleteEntry(entry.id), variant: "destructive" as const }]
+      : []),
   ];
 }
 
@@ -854,6 +881,14 @@ onBeforeUnmount(() => {
                     <span class="truncate">
                       {{ entry.connection_name || entry.target || t("history.scope.unknownConnection") }}<template v-if="entry.database"> / {{ entry.database }}</template>
                     </span>
+                  </span>
+                  <span
+                    v-if="props.showActor && (entry.actor_name || entry.actor_id)"
+                    class="inline-flex min-w-0 items-center gap-1 text-muted-foreground"
+                    :title="formatHistoryActor(entry)"
+                  >
+                    <User class="h-3 w-3 shrink-0" />
+                    <span class="max-w-24 truncate">{{ entry.actor_name || entry.actor_id }}</span>
                   </span>
                   <span class="ml-auto shrink-0" :class="entry.success ? 'text-green-500' : 'text-red-500'">
                     {{ entry.success ? formatQueryDuration(entry.execution_time_ms) : t("history.failed") }}

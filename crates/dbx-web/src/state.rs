@@ -230,6 +230,21 @@ impl WebState {
     /// Drops every in-memory session belonging to a user. Called when the user
     /// is disabled or has a role change, so the change takes effect now rather
     /// than at the next login.
+    /// Re-resolves the actor's role and asset-role codes for every live
+    /// in-memory session. Permission changes (grants, access approvals) apply
+    /// on the next request without forcing the user to sign in again.
+    pub async fn refresh_user_authorization(&self, user_id: &str) {
+        let roles = self.app.storage.role_codes_for_user(user_id.to_string()).await.unwrap_or_default();
+        let asset_roles = self.app.storage.asset_role_codes_for_user(user_id.to_string()).await.unwrap_or_default();
+        let mut actors = self.session_actors.write().await;
+        for session in actors.values_mut() {
+            if session.actor.id == user_id || session.user_id == user_id {
+                session.actor.roles = roles.clone();
+                session.actor.asset_roles = asset_roles.clone();
+            }
+        }
+    }
+
     pub async fn drop_user_sessions(&self, user_id: &str) {
         let tokens: Vec<String> = {
             let mut actors = self.session_actors.write().await;

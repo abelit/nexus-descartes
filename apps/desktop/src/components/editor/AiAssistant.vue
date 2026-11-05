@@ -210,7 +210,7 @@ import { extractFirstSqlCodeBlock, extractSingleSqlCodeBlock } from "@/lib/ai/ai
 import type { AiSqlActionReport } from "@/lib/ai/aiSqlActionFeedback";
 import { productionContextForDatabase } from "@/lib/database/productionSafety";
 import ProductionContextBadge from "@/components/common/ProductionContextBadge.vue";
-import { buildAiAgentStepItems, formatAgentToolName, formatToolDurationMs, toolCallStepKey, updateAgentStepApproval, upsertAgentStep, type AiAgentStepItem, type AiAgentStepTone } from "@/lib/ai/aiAgentStepPresentation";
+import { buildAiAgentStepItems, formatAgentToolName, formatToolDurationMs, isGovernanceApprovalRequired, toolCallStepKey, updateAgentStepApproval, upsertAgentStep, type AiAgentStepItem, type AiAgentStepTone } from "@/lib/ai/aiAgentStepPresentation";
 import { createAiShikiCodeHighlighter, type AiCodeHighlighter } from "@/lib/ai/aiCodeHighlighter";
 import { createAiMessageRenderer } from "@/lib/ai/aiMessageRender";
 import { formatAiInlineMarkdown, handleAiMarkdownLinkClick } from "@/lib/ai/aiMarkdown";
@@ -2948,6 +2948,17 @@ function agentEventToStep(event: AgentEvent, index: number, now: number): AiAgen
 
   // tool_call_end: produce a final step; toolArgs will be merged from the start step by upsert if missing.
   const isExecuteQuery = event.tool_name === "execute_query" || event.tool_name === "dbx_execute_query";
+  const resultText = extractToolResultContent(event.result) ?? "";
+  const governanceApprovalRequired = isGovernanceApprovalRequired(event.tool_name, event.is_error === true, resultText);
+  let governanceApprovalId: string | undefined;
+  if (event.tool_name === "request_approval" && !event.is_error) {
+    try {
+      const parsed = JSON.parse(resultText) as { approval_id?: unknown };
+      if (typeof parsed.approval_id === "string") governanceApprovalId = parsed.approval_id;
+    } catch {
+      // The backend normally returns JSON; keep the raw result visible if not.
+    }
+  }
   const labelKey = isExecuteQuery ? (event.is_error ? "ai.agentSteps.executeBlocked" : "ai.agentSteps.executeSafe") : event.is_error ? "ai.agentSteps.toolError" : "ai.agentSteps.toolDone";
   const tone: AiAgentStepTone = event.is_error ? "danger" : "success";
 
@@ -2956,15 +2967,43 @@ function agentEventToStep(event: AgentEvent, index: number, now: number): AiAgen
     labelKey,
     tone,
     toolName: event.tool_name,
-    toolResult: extractToolResultContent(event.result),
+    toolResult: resultText,
     explainData: extractExplainData(event.result),
     isError: event.is_error,
+    governanceApprovalRequired: governanceApprovalRequired || undefined,
+    governanceApprovalId,
     endedAtMs: now,
   };
 }
 
 function toggleReasoning() {
   reasoningExpanded.value = !reasoningExpanded.value;
+}
+
+/**
+ * The agent's execute_query hit the governance policy. Reuse the editor's
+ * prefilled approval dialog by handing the exact tool SQL and the run's bound
+ * target to the host, which owns the dialog.
+ */
+function requestGovernanceApproval(step: AiAgentStepItem) {
+  const sql = typeof step.toolArgs?.sql === "string" ? step.toolArgs.sql : "";
+  if (!sql || !boundConnectionId.value) return;
+  window.dispatchEvent(
+    new CustomEvent("dbx:approval-required", {
+      detail: {
+        tabId: props.tab?.id ?? "",
+        connectionId: boundConnectionId.value,
+        database: boundDatabase.value,
+        schema: boundSchema.value || undefined,
+        sql,
+        detail: step.toolResult ?? "",
+      },
+    }),
+  );
+}
+
+function openGovernanceApproval(approvalId: string) {
+  window.dispatchEvent(new CustomEvent("dbx:open-approval", { detail: { approvalId } }));
 }
 
 function getMessageScrollViewport(): HTMLElement | null {
@@ -4702,6 +4741,7 @@ async function send() {
               args: event.args ?? {},
               expiresAtMs: Date.now() + event.timeout_secs * 1000,
               status: "pending",
+              kind: event.kind,
             }));
           } else {
             updateAgentStepApproval(msg.agentSteps, key, (approval) => (approval && approval.approvalId === event.approval_id ? { ...approval, status: event.outcome } : approval));
@@ -7117,6 +7157,14 @@ async function openExternalUrl(url: string) {
                     <AiToolApprovalCard v-if="step.approval && !pendingApprovalSteps.includes(step)" :approval="step.approval" @resolve="resolveToolApproval(step, $event)" />
                     <div v-if="expandedSteps.has(step.key)" class="border-t border-current/10 px-2 pb-2 pt-1">
                       <div v-if="step.toolArgs?.sql" class="mb-1 rounded bg-background/50 px-2 py-1 font-mono text-[10px] text-foreground/80 whitespace-pre-wrap">{{ step.toolArgs.sql }}</div>
+                      <Button v-if="step.governanceApprovalRequired && !step.governanceApprovalId" size="sm" variant="outline" class="mb-1 h-6 gap-1 text-[10px]" @click="requestGovernanceApproval(step)">
+                        <ShieldCheck class="h-3 w-3" />
+                        {{ t("ai.agentSteps.requestApproval") }}
+                      </Button>
+                      <Button v-if="step.governanceApprovalId" size="sm" variant="outline" class="mb-1 h-6 gap-1 text-[10px]" @click="openGovernanceApproval(step.governanceApprovalId)">
+                        <ShieldCheck class="h-3 w-3" />
+                        {{ t("ai.agentSteps.viewApproval") }}
+                      </Button>
                       <Button v-if="step.toolName === 'explain_query' && step.toolArgs?.sql" size="sm" variant="outline" class="mb-1 h-6 gap-1 text-[10px]" @click="emit('openExplainPlan', step.toolArgs.sql as string, conversationBinding)">
                         <GitBranch class="h-3 w-3" />
                         {{ t("explain.title") }}

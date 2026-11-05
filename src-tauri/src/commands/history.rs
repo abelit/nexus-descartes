@@ -16,7 +16,7 @@ pub async fn load_history(
     offset: usize,
     activity_kind: Option<String>,
 ) -> Result<Vec<HistoryEntry>, String> {
-    state.storage.load_history_entries(limit, offset, activity_kind).await
+    state.storage.load_history_entries(limit, offset, activity_kind, None).await
 }
 
 #[tauri::command]
@@ -31,7 +31,7 @@ pub async fn search_history(
 pub async fn load_history_connection_options(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<HistoryConnectionOption>, String> {
-    state.storage.load_history_connection_options().await
+    state.storage.load_history_connection_options(None).await
 }
 
 #[tauri::command]

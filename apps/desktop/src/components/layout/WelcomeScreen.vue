@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowRight, Code2, Database, DatabaseZap, Download, FilePlus2, History, Plus, Search, Settings2, ShieldCheck, Sparkles, Table2 } from "@lucide/vue";
+import { ArrowRight, BookMarked, Code2, Database, DatabaseZap, Download, FilePlus2, History, Plus, Search, Settings2, ShieldCheck, Sparkles, Table2 } from "@lucide/vue";
 import DatabaseIcon from "@/components/icons/DatabaseIcon.vue";
 import AppLogo from "@/components/icons/AppLogo.vue";
 import LightDropdown from "@/components/ui/LightDropdown.vue";
@@ -213,12 +213,12 @@ function welcomeConnectionSubtitle(connection: ConnectionConfig): string {
       <div class="min-w-0 overflow-hidden rounded-lg border">
         <div class="flex items-center justify-between border-b px-4 py-3">
           <div class="flex min-w-0 items-center gap-2 text-sm font-medium">
-            <History class="h-4 w-4 shrink-0" /> <span class="min-w-0 truncate">{{ t("welcome.sqlHistory") }}</span>
+            <BookMarked class="h-4 w-4 shrink-0" /> <span class="min-w-0 truncate">{{ t("welcome.sqlHistory") }}</span>
           </div>
         </div>
         <div class="divide-y">
           <button v-for="item in savedSqlHistoryItems" :key="item.id" class="flex w-full min-w-0 items-center gap-3 overflow-hidden px-4 py-3 text-left hover:bg-muted/40" @click="emit('open-saved-sql', item.id)">
-            <History class="h-4 w-4 shrink-0 text-muted-foreground" />
+            <BookMarked class="h-4 w-4 shrink-0 text-muted-foreground" />
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium">{{ item.name }}</div>
               <div class="truncate text-xs text-muted-foreground">
@@ -232,6 +232,7 @@ function welcomeConnectionSubtitle(connection: ConnectionConfig): string {
           </button>
           <div v-if="savedSqlHistoryItems.length === 0" class="px-4 py-8 text-sm text-muted-foreground">
             {{ t("welcome.sqlHistoryEmpty") }}
+            <p class="mt-1 text-xs">{{ t("welcome.sqlHistoryHint") }}</p>
           </div>
         </div>
       </div>

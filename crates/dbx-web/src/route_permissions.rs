@@ -65,6 +65,9 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("version", MethodClass::Any, Permission::QueryRead),
     // Administration
     ("users", MethodClass::Any, Permission::AdminUsers),
+    ("asset-grants", MethodClass::Any, Permission::AdminUsers),
+    ("asset-groups", MethodClass::Any, Permission::AdminUsers),
+    ("data-policies", MethodClass::Any, Permission::AdminUsers),
     ("roles", MethodClass::Any, Permission::AdminUsers),
     ("connection-groups", MethodClass::Any, Permission::AdminUsers),
     ("app-settings/", MethodClass::Any, Permission::AdminSettings),
@@ -146,8 +149,13 @@ const RULES: &[(&str, MethodClass, Permission)] = &[
     ("salesforce/", MethodClass::Read, Permission::QueryRead),
     ("salesforce/", MethodClass::Write, Permission::QueryWrite),
     // Editor state and history are per-user conveniences, not data access.
+    // Search/options are reads despite being POST/GET; only an administrator
+    // may delete or clear history.
+    ("history/search", MethodClass::Any, Permission::QueryRead),
+    ("history/options", MethodClass::Any, Permission::QueryRead),
+    ("history/save", MethodClass::Any, Permission::QueryWrite),
     ("history/", MethodClass::Read, Permission::QueryRead),
-    ("history/", MethodClass::Write, Permission::QueryWrite),
+    ("history/", MethodClass::Write, Permission::AdminSettings),
     ("saved-sql/", MethodClass::Any, Permission::QueryWrite),
     ("layout", MethodClass::Any, Permission::QueryRead),
     ("tab-runtime-cache/", MethodClass::Any, Permission::QueryRead),
@@ -200,6 +208,15 @@ impl GovernanceMode {
     }
 }
 
+/// Audit roles may read history as well as query roles; only GET/search/options
+/// are reads, so `history/save` and delete/clear still require their own grants.
+fn is_history_read(suffix: &str, method: &Method) -> bool {
+    let path = suffix.trim_end_matches('/');
+    (*method == Method::GET && (path == "history" || path.starts_with("history/")))
+        || path == "history/search"
+        || path == "history/options"
+}
+
 /// Enforces [`classify`] for a session actor.
 ///
 /// Unclassified routes are allowed in observe mode (the default, which keeps
@@ -219,6 +236,27 @@ pub async fn enforce_route_permissions(
     if suffix.starts_with("audit/") || suffix.starts_with("auth/") {
         return next.run(req).await;
     }
+    // Self-service access requests: any signed-in actor may list/create/cancel
+    // their own requests, including asset-only users with no role permission.
+    // Approve/reject/list-all are gated inside the handlers with `admin:users`.
+    if (suffix == "access-requests" || suffix.starts_with("access-requests/"))
+        && req.extensions().get::<Actor>().is_some()
+    {
+        return next.run(req).await;
+    }
+    // Self-scoped task summaries are readable by any signed-in actor; the
+    // handler filters every row by the requester.
+    if suffix == "my-tasks" && req.extensions().get::<Actor>().is_some() {
+        return next.run(req).await;
+    }
+    // Workspace bootstrap metadata is needed before the app can render, so any
+    // signed-in actor may read it. Audit-only roles have no query permission.
+    if (suffix == "migration/status" || suffix == "app-settings/web-capabilities")
+        && req.method() == Method::GET
+        && req.extensions().get::<Actor>().is_some()
+    {
+        return next.run(req).await;
+    }
 
     let access = classify(req.method(), &suffix);
     let mode = GovernanceMode::from_env();
@@ -230,8 +268,9 @@ pub async fn enforce_route_permissions(
                     && dbx_core::identity::has_permission(&actor.asset_roles, permission))
         })
     };
+    let history_read = is_history_read(&suffix, req.method());
     let allowed = match access {
-        RouteAccess::Classified(permission) => has(permission),
+        RouteAccess::Classified(permission) => has(permission) || (history_read && has(Permission::AuditRead)),
         RouteAccess::Unclassified => mode == GovernanceMode::Observe || has(Permission::AdminSettings),
     };
 
@@ -301,6 +340,21 @@ mod tests {
             classify(&Method::POST, "query/execute-conditional-update"),
             RouteAccess::Classified(Permission::QueryRead)
         );
+    }
+
+    #[test]
+    fn history_reads_search_and_management_are_classified_separately() {
+        assert_eq!(classify(&Method::POST, "history/search"), RouteAccess::Classified(Permission::QueryRead));
+        assert_eq!(classify(&Method::GET, "history/options"), RouteAccess::Classified(Permission::QueryRead));
+        assert_eq!(classify(&Method::GET, "history"), RouteAccess::Classified(Permission::QueryRead));
+        assert_eq!(classify(&Method::POST, "history/save"), RouteAccess::Classified(Permission::QueryWrite));
+        assert_eq!(classify(&Method::DELETE, "history"), RouteAccess::Classified(Permission::AdminSettings));
+        assert_eq!(classify(&Method::DELETE, "history/row-1"), RouteAccess::Classified(Permission::AdminSettings));
+        assert!(is_history_read("history/search", &Method::POST));
+        assert!(is_history_read("history/options", &Method::GET));
+        assert!(!is_history_read("history/save", &Method::POST));
+        assert!(!is_history_read("history", &Method::DELETE));
+        assert!(!is_history_read("history/row-1", &Method::DELETE));
     }
 
     #[test]

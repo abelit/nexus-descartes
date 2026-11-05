@@ -789,6 +789,8 @@ export type AgentEvent =
       /** Exactly the arguments DBX forwards if the user approves. */
       args: Record<string, unknown>;
       timeout_secs: number;
+      /** `governance` marks a DBX approval request instead of a plugin tool. */
+      kind?: string;
     }
   | { type: "tool_approval_resolved"; approval_id: string; tool_call_id: string; outcome: AiToolApprovalOutcome }
   | {
@@ -5811,6 +5813,11 @@ export interface HistoryEntry {
   mcp_request_json?: string | null;
   mcp_response_json?: string | null;
   mcp_session_id?: string | null;
+  /** Server-stamped attribution in web deployments; absent for local desktop history. */
+  actor_id?: string | null;
+  actor_name?: string | null;
+  client_ip?: string | null;
+  user_agent?: string | null;
 }
 
 export interface HistoryConnectionFilter {

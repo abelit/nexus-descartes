@@ -9,6 +9,7 @@ pub mod connection;
 pub mod connection_groups;
 pub mod consul;
 pub mod data_compare;
+pub mod data_policies;
 pub mod database_export;
 pub mod dialect;
 pub mod docs;
@@ -27,6 +28,7 @@ pub mod mongodb_dump;
 pub mod mongodb_import_export;
 #[cfg(feature = "mq-admin")]
 pub mod mq;
+pub mod my_tasks;
 pub mod nacos;
 pub mod native_jobs;
 pub mod pl_debug;

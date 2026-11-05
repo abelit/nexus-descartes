@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Loader2, Check, CheckCircle2, XCircle, AlertCircle, Clock, X, FileDown, Database, DatabaseBackup, FileCode2, ArrowRightLeft, Layers3, GitCompareArrows, ChevronRight, FolderOpen, Copy } from "@lucide/vue";
+import { Loader2, Check, CheckCircle2, XCircle, AlertCircle, Clock, X, FileDown, Database, DatabaseBackup, FileCode2, ArrowRightLeft, Layers3, GitCompareArrows, ChevronRight, FolderOpen, Copy, ListChecks } from "@lucide/vue";
 import { formatDataTransferDuration, useExportTracker, type ExportTask } from "@/composables/useExportTracker";
+import { useMyTasks } from "@/composables/useMyTasks";
+import type { MyTaskAccessRequest, MyTaskApproval } from "@/lib/backend/myTasks";
 import { dataTransferFailureCopyText } from "@/components/export/failureDetailCopyText";
 import SqlFileProgressIndicator from "@/components/sql-file/SqlFileProgressIndicator.vue";
 import FailureDetailsList from "@/components/sql-file/FailureDetailsList.vue";
@@ -15,9 +17,25 @@ import { copyToClipboard } from "@/lib/common/clipboard";
 import * as api from "@/lib/backend/api";
 import DangerConfirmDialog from "@/components/editor/DangerConfirmDialog.vue";
 
+const props = withDefaults(defineProps<{ approvalTasksEnabled?: boolean }>(), { approvalTasksEnabled: false });
 const { t } = useI18n();
 const { toast } = useToast();
 const { tasks, activeCount, hasActive, clearFinished, cancelTask, removeTask, recoverCancelledTask } = useExportTracker();
+const myTasks = useMyTasks(computed(() => props.approvalTasksEnabled));
+const visibleApprovalTasks = computed(() => myTasks.approvals.value.slice(0, 5));
+const visibleAccessTasks = computed(() => myTasks.accessRequests.value.slice(0, 5));
+const visiblePendingApprovals = computed(() => myTasks.pendingApprovals.value.slice(0, 5));
+const visiblePendingAccess = computed(() => myTasks.pendingAccessRequests.value.slice(0, 5));
+const combinedActiveCount = computed(() => activeCount.value + myTasks.activeCount.value + myTasks.pendingCount.value);
+const combinedFailedCount = computed(() => myTasks.failedCount.value + tasks.value.filter((task) => task.status === "Error").length);
+const hasCombinedActive = computed(() => hasActive.value || myTasks.activeCount.value > 0);
+const ACCESS_STATUS_KEYS: Record<string, string> = {
+  pending: "taskCenter.accessStatusPending",
+  approved: "taskCenter.accessStatusApproved",
+  rejected: "taskCenter.accessStatusRejected",
+  cancelled: "taskCenter.accessStatusCancelled",
+  expired: "taskCenter.accessStatusExpired",
+};
 const recoveryOpen = ref(false);
 const pendingRemoval = ref<ExportTask>();
 
@@ -72,8 +90,91 @@ const isActive = (status: string) => status === "PreparingSnapshot" || status ==
 const isFinished = (status: string) => status === "Done" || status === "Error" || status === "Cancelled";
 
 const finishedCount = computed(() => tasks.value.filter((t) => isFinished(t.status)).length);
-const failedCount = computed(() => tasks.value.filter((t) => t.status === "Error").length);
-const triggerTitle = computed(() => (failedCount.value > 0 ? t("exportProgress.failedTooltip", { count: failedCount.value }) : t("exportProgress.tooltip")));
+const triggerTitle = computed(() => (combinedFailedCount.value > 0 ? t("exportProgress.failedTooltip", { count: combinedFailedCount.value }) : t("taskCenter.tooltip")));
+
+const APPROVAL_STATUS_KEYS: Record<string, string> = {
+  pending: "taskCenter.statusPending",
+  approved: "taskCenter.statusApproved",
+  executing: "taskCenter.statusExecuting",
+  executed: "taskCenter.statusExecuted",
+  execution_failed: "taskCenter.statusFailed",
+  rejected: "taskCenter.statusRejected",
+  expired: "taskCenter.statusRejected",
+  cancelled: "taskCenter.statusRejected",
+};
+const approvalStatusLabel = (status: string) => t(APPROVAL_STATUS_KEYS[status] ?? "taskCenter.statusPending");
+const approvalStatusColor = (status: string) => {
+  if (status === "executed") return "text-green-500";
+  if (status === "execution_failed" || status === "rejected") return "text-destructive";
+  if (status === "pending" || status === "approved" || status === "executing") return "text-amber-500";
+  return "text-muted-foreground";
+};
+const approvalStatusIcon = (status: string) => {
+  if (status === "executing") return Loader2;
+  if (status === "executed") return CheckCircle2;
+  if (status === "execution_failed" || status === "rejected") return XCircle;
+  return Clock;
+};
+function formatTaskTime(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function formatTaskDuration(start: number | string | null | undefined, end?: number | string | null): string {
+  const startMs = typeof start === "number" ? start : start ? Date.parse(start) : Number.NaN;
+  if (Number.isNaN(startMs)) return "—";
+  const endMs = end === null || end === undefined ? currentTime.value : typeof end === "number" ? end : Date.parse(end);
+  const totalSeconds = Math.max(0, Math.floor(((Number.isNaN(endMs) ? currentTime.value : endMs) - startMs) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+const isApprovalTerminal = (status: string) =>
+  ["executed", "execution_failed", "rejected", "expired", "cancelled"].includes(status);
+
+const isAccessTerminal = (task: MyTaskAccessRequest) => task.status !== "pending";
+
+function approverSummary(names: string[] | undefined): string {
+  return names && names.length > 0 ? names.join(", ") : t("taskCenter.noApprover");
+}
+
+const approvalTitle = (task: MyTaskApproval) => task.sql.trim().split("\n")[0] || task.database;
+const approvalConnectionLabel = (task: MyTaskApproval) => task.connection_name || task.connection_id;
+const approvalStepText = (task: MyTaskApproval) => t("settings.approvals.stepProgress", { current: task.current_step_no, total: task.step_count });
+const accessStatusLabel = (task: MyTaskAccessRequest) =>
+  t(task.expired && task.status === "approved" ? "taskCenter.accessStatusExpired" : (ACCESS_STATUS_KEYS[task.status] ?? "taskCenter.accessStatusPending"));
+const accessStatusColor = (task: MyTaskAccessRequest) => {
+  if (task.expired && task.status === "approved") return "text-amber-600 dark:text-amber-400";
+  if (task.status === "approved") return "text-green-600 dark:text-green-400";
+  if (task.status === "rejected") return "text-destructive";
+  if (task.status === "cancelled") return "text-muted-foreground";
+  return "text-sky-600 dark:text-sky-400";
+};
+const accessStatusIcon = (task: MyTaskAccessRequest) => {
+  if (task.status === "pending") return Clock;
+  if (task.status === "approved" && !task.expired) return CheckCircle2;
+  if (task.status === "rejected" || task.status === "cancelled" || task.expired) return XCircle;
+  return AlertCircle;
+};
+const accessTargetLabel = (task: MyTaskAccessRequest) => {
+  if (task.target_kind === "connection_group") return task.group_name || task.connection_group_id || t("settings.identity.targetGroup");
+  const connection = task.connection_name || task.connection_id || "—";
+  if (task.target_kind === "connection") return connection;
+  const base = `${connection} · ${task.database_name ?? ""}`;
+  if (task.target_kind === "database") return base;
+  if (task.target_kind === "schema") return `${base} / ${task.schema_name ?? ""}`;
+  const table = task.name_pattern ? `${task.table_name ?? "*"} (*)` : (task.table_name ?? "");
+  return `${base} / ${task.schema_name ?? ""} / ${table}`;
+};
+const accessDurationLabel = (task: MyTaskAccessRequest) => {
+  if (task.duration_hours % 24 === 0) return t("settings.accessRequests.durationDays", { count: task.duration_hours / 24 });
+  return t("settings.accessRequests.durationHours", { count: task.duration_hours });
+};
 
 const progressPercent = (totalRows: number | null, rowsExported: number) => {
   if (!totalRows || totalRows <= 0) return 0;
@@ -382,23 +483,117 @@ function openTask(task: ExportTask): void {
 </script>
 
 <template>
-  <Popover v-if="tasks.length > 0" v-model:open="open">
+  <Popover v-if="tasks.length > 0 || visibleApprovalTasks.length > 0 || visibleAccessTasks.length > 0" v-model:open="open">
     <PopoverTrigger as-child>
-      <Button variant="ghost" size="icon" class="relative h-8 w-8" :title="triggerTitle" :class="{ 'bg-destructive/10 text-destructive hover:bg-destructive/15': failedCount > 0, 'bg-accent text-primary': failedCount === 0 && hasActive }">
-        <FileDown class="h-4 w-4" />
-        <span v-if="failedCount > 0" class="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background" />
-        <span v-else-if="hasActive" class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground">
-          {{ activeCount > 9 ? "9+" : activeCount }}
+      <Button variant="ghost" size="icon" class="relative h-8 w-8" :title="triggerTitle" :class="{ 'bg-destructive/10 text-destructive hover:bg-destructive/15': combinedFailedCount > 0, 'bg-accent text-primary': combinedFailedCount === 0 && hasCombinedActive }">
+        <ListChecks class="h-4 w-4" />
+        <span v-if="combinedFailedCount > 0" class="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background" />
+        <span v-else-if="hasCombinedActive" class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground">
+          {{ combinedActiveCount > 9 ? "9+" : combinedActiveCount }}
         </span>
       </Button>
     </PopoverTrigger>
 
     <PopoverContent align="start" class="w-[min(92vw,30rem)] p-0 gap-0 overflow-hidden" :side-offset="8">
       <div class="border-b bg-muted/40 px-4 py-3">
-        <div class="text-sm font-semibold">{{ t("exportProgress.popoverTitle") }}</div>
+        <div class="text-sm font-semibold">{{ t("taskCenter.title") }}</div>
       </div>
 
       <div class="max-h-96 overflow-y-auto">
+        <div v-if="visiblePendingApprovals.length > 0 || visiblePendingAccess.length > 0" class="border-b">
+          <div class="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t("taskCenter.pendingMyApproval") }}</div>
+          <div v-for="task in visiblePendingApprovals" :key="'p-' + task.id" class="flex items-start gap-3 px-4 py-3 text-xs">
+            <div class="flex-1 min-w-0 flex flex-col gap-1">
+              <div class="flex items-center gap-1.5">
+                <Clock class="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                <span class="truncate font-medium" :title="task.sql">{{ approvalTitle(task) }}</span>
+                <span class="ml-auto shrink-0 font-medium text-sky-600 dark:text-sky-400">{{ approvalStatusLabel(task.status) }}</span>
+              </div>
+              <div class="min-w-0 truncate text-muted-foreground">{{ task.requester_name }} · {{ approvalConnectionLabel(task) }} · {{ approvalStepText(task) }}</div>
+              <div class="min-w-0 truncate text-muted-foreground">
+                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at_ms) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at_ms, task.executed_at_ms ?? (isApprovalTerminal(task.status) ? task.updated_at_ms : undefined)) }} · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}
+              </div>
+            </div>
+            <div class="flex shrink-0 pt-0.5">
+              <button class="flex h-6 w-6 items-center justify-center rounded hover:bg-muted" :title="t('taskCenter.view')" @click="myTasks.openApproval(task.id)">
+                <ChevronRight class="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+              </button>
+            </div>
+          </div>
+          <div v-for="task in visiblePendingAccess" :key="'pa-' + task.id" class="flex items-start gap-3 px-4 py-3 text-xs">
+            <div class="flex-1 min-w-0 flex flex-col gap-1">
+              <div class="flex items-center gap-1.5">
+                <Clock class="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                <span class="truncate font-medium" :title="accessTargetLabel(task)">{{ task.role_name }} · {{ accessTargetLabel(task) }}</span>
+                <span class="ml-auto shrink-0 font-medium text-sky-600 dark:text-sky-400">{{ accessStatusLabel(task) }}</span>
+              </div>
+              <div class="min-w-0 truncate text-muted-foreground">{{ task.requester_name }} · {{ accessDurationLabel(task) }}</div>
+              <div class="min-w-0 truncate text-muted-foreground">
+                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at, task.decided_at) }} · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}
+              </div>
+            </div>
+            <div class="flex shrink-0 pt-0.5">
+              <button class="flex h-6 w-6 items-center justify-center rounded hover:bg-muted" :title="t('taskCenter.view')" @click="myTasks.openAccessApprovals()">
+                <ChevronRight class="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="visibleApprovalTasks.length > 0" class="border-b">
+          <div class="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t("taskCenter.mySqlApprovals") }}</div>
+          <div v-for="task in visibleApprovalTasks" :key="task.id" class="flex items-start gap-3 px-4 py-3 text-xs">
+            <div class="flex-1 min-w-0 flex flex-col gap-1">
+              <div class="flex items-center gap-1.5">
+                <component :is="approvalStatusIcon(task.status)" :class="[approvalStatusColor(task.status), task.status === 'executing' ? 'animate-spin' : '']" class="h-3.5 w-3.5 shrink-0" />
+                <span class="truncate font-medium" :title="task.sql">{{ approvalTitle(task) }}</span>
+                <span class="ml-auto shrink-0 font-medium" :class="approvalStatusColor(task.status)">{{ approvalStatusLabel(task.status) }}</span>
+              </div>
+              <div class="min-w-0 truncate text-muted-foreground">{{ approvalConnectionLabel(task) }} · {{ task.database }} · {{ approvalStepText(task) }}</div>
+              <div class="min-w-0 truncate text-muted-foreground">
+                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at_ms) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at_ms, task.executed_at_ms ?? (isApprovalTerminal(task.status) ? task.updated_at_ms : undefined)) }}<span v-if="task.status === 'pending'"> · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}</span>
+              </div>
+              <div v-if="task.execution_error" class="whitespace-normal break-words text-destructive">{{ task.execution_error }}</div>
+            </div>
+            <div class="flex shrink-0 pt-0.5">
+              <button class="flex h-6 w-6 items-center justify-center rounded hover:bg-muted" :title="t('taskCenter.view')" @click="myTasks.openApproval(task.id)">
+                <ChevronRight class="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="visibleAccessTasks.length > 0" class="border-b">
+          <div class="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t("taskCenter.myAccessRequests") }}</div>
+          <div v-for="task in visibleAccessTasks" :key="task.id" class="flex items-start gap-3 px-4 py-3 text-xs">
+            <div class="flex-1 min-w-0 flex flex-col gap-1">
+              <div class="flex items-center gap-1.5">
+                <component :is="accessStatusIcon(task)" :class="[accessStatusColor(task)]" class="h-3.5 w-3.5 shrink-0" />
+                <span class="truncate font-medium" :title="accessTargetLabel(task)">{{ task.role_name }} · {{ accessTargetLabel(task) }}</span>
+                <span class="ml-auto shrink-0 font-medium" :class="accessStatusColor(task)">{{ accessStatusLabel(task) }}</span>
+              </div>
+              <div class="min-w-0 truncate text-muted-foreground">{{ accessDurationLabel(task) }} · {{ t("settings.accessRequests.validUntil") }}: {{ new Date(task.expires_at).toLocaleString() }}</div>
+              <div class="min-w-0 truncate text-muted-foreground">
+                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at, task.decided_at ?? (isAccessTerminal(task) ? task.updated_at : undefined)) }}
+                <span v-if="task.status === 'pending'"> · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}</span>
+                <span v-else-if="task.decided_by_name"> · {{ t("settings.accessRequests.approver") }}: {{ task.decided_by_name }}</span>
+              </div>
+              <div v-if="task.decided_by_name || task.decision_note" class="truncate text-muted-foreground" :title="task.decision_note">
+                <span v-if="task.decided_by_name">{{ t("settings.accessRequests.approver") }}: {{ task.decided_by_name }}</span>
+                <span v-if="task.decided_by_name && task.decision_note"> · </span>
+                <span v-if="task.decision_note">{{ task.decision_note }}</span>
+              </div>
+            </div>
+            <div class="flex shrink-0 pt-0.5">
+              <button class="flex h-6 w-6 items-center justify-center rounded hover:bg-muted" :title="t('taskCenter.view')" @click="myTasks.openAccessRequest(task.id)">
+                <ChevronRight class="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="tasks.length > 0 && (visibleApprovalTasks.length > 0 || visibleAccessTasks.length > 0)" class="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t("taskCenter.dataTasks") }}</div>
+
         <div v-for="task in visibleTasks" :key="task.exportId" class="flex items-start gap-3 border-b px-4 py-3 text-xs last:border-b-0">
           <div class="flex-1 min-w-0 flex flex-col gap-1.5">
             <div class="flex items-center gap-1.5">

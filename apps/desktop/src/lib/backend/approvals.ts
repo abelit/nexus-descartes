@@ -12,6 +12,8 @@ export interface ApprovalStep {
   decided_by?: string | null;
   decided_at_ms?: number | null;
   comment: string;
+  /** This viewer's own vote on the step, when an `all` step is still pending. */
+  my_decision?: string | null;
 }
 
 export interface ApprovalDecision {
@@ -43,6 +45,8 @@ export interface ApprovalRequest {
   executed_by?: string | null;
   executed_at_ms?: number | null;
   steps: ApprovalStep[];
+  /** Display names for the user ids referenced by this request. */
+  user_names?: Record<string, string>;
   created_at_ms: number;
   expires_at_ms?: number | null;
 }
@@ -63,6 +67,7 @@ export interface ApprovalTemplate {
   scope_id: string;
   steps: Array<{ mode: string; roles: string[]; users: string[] }>;
   sla_secs?: number | null;
+  execution_mode?: "submitter" | "last_approver" | "auto" | null;
   enabled: boolean;
   created_by: string;
   created_at_ms: number;
@@ -75,11 +80,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function listApprovals(params: { mine?: boolean; status?: string; assigned?: boolean } = {}): Promise<ApprovalRequest[]> {
+export function listApprovals(params: {
+  mine?: boolean;
+  status?: string;
+  assigned?: boolean;
+  history?: boolean;
+  q?: string;
+  from_ms?: number;
+  to_ms?: number;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApprovalRequest[]> {
   const search = new URLSearchParams();
   if (params.mine) search.set("mine", "true");
   if (params.status) search.set("status", params.status);
   if (params.assigned) search.set("assigned", "true");
+  if (params.history) search.set("history", "true");
+  if (params.q) search.set("q", params.q);
+  if (params.from_ms !== undefined) search.set("from_ms", String(params.from_ms));
+  if (params.to_ms !== undefined) search.set("to_ms", String(params.to_ms));
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  if (params.offset !== undefined) search.set("offset", String(params.offset));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return request<ApprovalRequest[]>(`/api/approvals${suffix}`);
 }
@@ -118,7 +139,7 @@ export function listApprovalTemplates(): Promise<ApprovalTemplate[]> {
   return request<ApprovalTemplate[]>("/api/approval-templates");
 }
 
-export function createApprovalTemplate(input: { name: string; scope_type: string; scope_id: string; steps: unknown; enabled?: boolean }): Promise<ApprovalTemplate> {
+export function createApprovalTemplate(input: { name: string; scope_type: string; scope_id: string; steps: unknown; enabled?: boolean; sla_secs?: number | null; execution_mode?: "submitter" | "last_approver" | "auto" | null }): Promise<ApprovalTemplate> {
   return request<ApprovalTemplate>("/api/approval-templates", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -126,7 +147,7 @@ export function createApprovalTemplate(input: { name: string; scope_type: string
   });
 }
 
-export function updateApprovalTemplate(id: string, input: { name: string; scope_type: string; scope_id: string; steps: unknown; enabled?: boolean }): Promise<ApprovalTemplate> {
+export function updateApprovalTemplate(id: string, input: { name: string; scope_type: string; scope_id: string; steps: unknown; enabled?: boolean; sla_secs?: number | null; execution_mode?: "submitter" | "last_approver" | "auto" | null }): Promise<ApprovalTemplate> {
   return request<ApprovalTemplate>(`/api/approval-templates/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

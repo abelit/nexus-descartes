@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, KeyRound, LoaderCircle, Pencil, RefreshCw, ShieldOff, Trash2, UserPlus, X } from "@lucide/vue";
+import { Check, KeyRound, LoaderCircle, Pencil, RefreshCw, ShieldCheck, Trash2, UserPlus, X } from "@lucide/vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import AccessInventory from "@/components/security/AccessInventory.vue";
+import AccessGroups from "@/components/security/AccessGroups.vue";
+import UserAccessDialog from "@/components/security/UserAccessDialog.vue";
 import { useToast } from "@/composables/useToast";
 import { formatError } from "@/lib/backend/errorUtils";
 import * as usersApi from "@/lib/backend/users";
-import type { ConnectionGroup, LocalRole, LocalUser, UserSession } from "@/lib/backend/users";
+import type { ConnectionGroup, LocalRole, LocalUser } from "@/lib/backend/users";
 import { useConnectionStore } from "@/stores/connectionStore";
+
+const props = defineProps<{
+  actorPermissions?: string[];
+  actorRoles?: string[];
+  actorId?: string;
+}>();
 
 const { t } = useI18n();
 const { toast } = useToast();
@@ -31,6 +40,8 @@ const PERMISSIONS = [
   "query:ddl",
   "export:data",
   "import:data",
+  "unmask:data",
+  "row_filter:bypass",
   "admin:users",
   "admin:settings",
   "admin:plugins",
@@ -48,42 +59,27 @@ const draftEmail = ref("");
 const draftName = ref("");
 const draftPassword = ref("");
 const draftRole = ref("viewer");
-const draftScopeType = ref<"global" | "connection" | "connection_group" | "database" | "schema" | "table">("global");
-const draftScopeId = ref("");
-const draftScopeConnection = ref("");
-const draftScopeDatabase = ref("");
-const draftScopeSchema = ref("");
-const draftScopeTable = ref("");
 
-const scopeEditUserId = ref("");
-const scopeEditType = ref<"global" | "connection" | "connection_group" | "database" | "schema" | "table">("global");
-const scopeEditId = ref("");
-const scopeEditConnection = ref("");
-const scopeEditDatabase = ref("");
-const scopeEditSchema = ref("");
-const scopeEditTable = ref("");
+const viewMode = ref<"users" | "inventory" | "groups">("users");
+const accessGroupsRef = ref<InstanceType<typeof AccessGroups> | null>(null);
+const accessOpen = ref(false);
+const accessUser = ref<LocalUser | null>(null);
+const inventoryVersion = ref(0);
 
-const assetGrants = ref<usersApi.AssetGrant[]>([]);
-const grantsLoading = ref(false);
-const grantDraft = ref({
-  role_code: "viewer",
-  target_kind: "connection" as usersApi.AssetGrant["target_kind"],
-  connection_group_id: "",
-  connection_id: "",
-  database_name: "",
-  schema_name: "",
-  table_name: "",
-  name_pattern: false,
-  expires_at: "",
-  reason: "",
-});
+function onAccessChanged() {
+  inventoryVersion.value += 1;
+  void refresh();
+}
+
+async function openGroupFromInventory(groupId: string) {
+  viewMode.value = "groups";
+  await nextTick();
+  await accessGroupsRef.value?.openGroupById(groupId);
+}
 
 const groupDraft = ref({ name: "", parentId: "" });
 const editingGroupId = ref("");
 const groupMembersDraft = ref<string[]>([]);
-
-const sessionsUserId = ref("");
-const sessions = ref<UserSession[]>([]);
 
 const passwordUserId = ref("");
 const passwordDraft = ref("");
@@ -93,9 +89,83 @@ const nameDraft = ref("");
 
 const roleDraft = ref({ code: "", name: "", description: "", permissions: [] as string[] });
 const editingRoleCode = ref("");
+const roleFormOpen = ref(false);
 
 const canLoad = computed(() => error.value === "" || users.value.length > 0);
 const customRoles = computed(() => roles.value.filter((role) => !role.builtin));
+const actorPermissions = computed(() => props.actorPermissions ?? []);
+// Global role assignment needs globally held permissions. Asset-scoped
+// permissions from the actor's own grants must not make a global role look
+// assignable when the server would reject it.
+const actorGlobalPermissions = computed(() => {
+  const codes = new Set(props.actorRoles ?? []);
+  if (codes.size === 0) return actorPermissions.value;
+  const permissions = new Set<string>();
+  for (const role of roles.value) {
+    if (codes.has(role.code)) for (const permission of role.permissions) permissions.add(permission);
+  }
+  return [...permissions];
+});
+// A role can only be assigned when the actor already holds every permission it
+// grants. The server enforces the same rule; filtering here keeps a failed
+// request from being the first time the administrator learns about it.
+const assignableRoles = computed(() => {
+  if (actorGlobalPermissions.value.length === 0) return roles.value;
+  return roles.value.filter((role) => role.permissions.every((permission) => actorGlobalPermissions.value.includes(permission)));
+});
+function roleOptionsFor(user: LocalUser): LocalRole[] {
+  const current = user.roles[0];
+  const options = [...assignableRoles.value];
+  if (current && !options.some((role) => role.code === current)) {
+    const role = roles.value.find((candidate) => candidate.code === current);
+    if (role) options.unshift(role);
+  }
+  return options;
+}
+
+function openUserAccess(user: LocalUser) {
+  accessUser.value = user;
+  accessOpen.value = true;
+}
+
+function canResetPassword(user: LocalUser): boolean {
+  if (user.id === props.actorId) return true;
+  if (actorGlobalPermissions.value.length === 0) return true;
+  const effective = user.effective_permissions ?? user.permissions ?? [];
+  return effective.every((permission) => actorGlobalPermissions.value.includes(permission));
+}
+
+function targetHasAdminPermission(user: LocalUser): boolean {
+  return (user.permissions ?? []).some((permission) => permission.startsWith("admin:"));
+}
+
+function canManageTarget(user: LocalUser): boolean {
+  if (!targetHasAdminPermission(user)) return true;
+  if (user.id === props.actorId) return true;
+  if (actorGlobalPermissions.value.length === 0) return true;
+  return (user.permissions ?? []).every((permission) => actorGlobalPermissions.value.includes(permission));
+}
+
+function openUserAccessById(userId: string) {
+  const user = users.value.find((candidate) => candidate.id === userId);
+  if (user) openUserAccess(user);
+}
+
+watch(
+  () => users.value,
+  (list) => {
+    if (!accessUser.value) return;
+    accessUser.value = list.find((user) => user.id === accessUser.value?.id) ?? null;
+  },
+);
+
+watch(
+  assignableRoles,
+  (list) => {
+    if (!list.some((role) => role.code === draftRole.value)) draftRole.value = list[0]?.code ?? "viewer";
+  },
+  { immediate: true },
+);
 
 async function refresh() {
   loading.value = true;
@@ -124,16 +194,11 @@ async function createUser() {
       display_name: draftName.value.trim(),
       password: draftPassword.value,
       role: draftRole.value,
-      scope: buildScope(draftScopeType.value, draftScopeId.value, draftScopeConnection.value, draftScopeDatabase.value),
     });
     draftEmail.value = "";
     draftName.value = "";
     draftPassword.value = "";
-    draftRole.value = "viewer";
-    draftScopeType.value = "global";
-    draftScopeId.value = "";
-    draftScopeConnection.value = "";
-    draftScopeDatabase.value = "";
+    draftRole.value = assignableRoles.value[0]?.code ?? "viewer";
     await refresh();
   } catch (createError) {
     toast(formatError(createError));
@@ -174,49 +239,6 @@ async function setStatus(user: LocalUser, status: "active" | "disabled") {
     toast(formatError(updateError));
   } finally {
     busyUserId.value = "";
-  }
-}
-
-async function revokeSessions(user: LocalUser) {
-  busyUserId.value = user.id;
-  try {
-    await usersApi.revokeUserSessions(user.id);
-    if (sessionsUserId.value === user.id) sessions.value = [];
-    toast(t("settings.identity.sessionsRevoked"));
-  } catch (revokeError) {
-    toast(formatError(revokeError));
-  } finally {
-    busyUserId.value = "";
-  }
-}
-
-async function revokeAllSessionsForSelected() {
-  const user = users.value.find((item) => item.id === sessionsUserId.value);
-  if (user) await revokeSessions(user);
-  sessions.value = [];
-}
-
-async function toggleSessions(user: LocalUser) {
-  if (sessionsUserId.value === user.id) {
-    sessionsUserId.value = "";
-    sessions.value = [];
-    return;
-  }
-  sessionsUserId.value = user.id;
-  try {
-    sessions.value = await usersApi.listUserSessions(user.id);
-  } catch (sessionError) {
-    toast(formatError(sessionError));
-    sessions.value = [];
-  }
-}
-
-async function revokeSession(session: UserSession) {
-  try {
-    await usersApi.revokeUserSession(sessionsUserId.value, session.id);
-    sessions.value = sessions.value.filter((item) => item.id !== session.id);
-  } catch (sessionError) {
-    toast(formatError(sessionError));
   }
 }
 
@@ -263,8 +285,15 @@ async function saveDisplayName(user: LocalUser) {
 }
 
 function startRoleEdit(role?: LocalRole) {
+  roleFormOpen.value = true;
   editingRoleCode.value = role?.code ?? "";
   roleDraft.value = role ? { code: role.code, name: role.name, description: role.description, permissions: [...role.permissions] } : { code: "", name: "", description: "", permissions: [] };
+}
+
+function closeRoleEdit() {
+  roleFormOpen.value = false;
+  editingRoleCode.value = "";
+  roleDraft.value = { code: "", name: "", description: "", permissions: [] };
 }
 
 function togglePermission(permission: string) {
@@ -292,7 +321,7 @@ async function saveRole() {
         permissions: roleDraft.value.permissions,
       });
     }
-    startRoleEdit();
+    closeRoleEdit();
     await refresh();
   } catch (roleError) {
     toast(formatError(roleError));
@@ -302,173 +331,16 @@ async function saveRole() {
 async function deleteRole(role: LocalRole) {
   try {
     await usersApi.deleteRole(role.code);
-    if (editingRoleCode.value === role.code) startRoleEdit();
+    if (editingRoleCode.value === role.code) closeRoleEdit();
     await refresh();
   } catch (roleError) {
     toast(formatError(roleError));
   }
 }
 
-function buildScope(type: "global" | "connection" | "connection_group" | "database" | "schema" | "table", id: string, connection: string, database: string, schema = "", table = ""): usersApi.RoleScope | undefined {
-  if (type === "global") return undefined;
-  if (type === "database") return { scope_type: "database", scope_id: `${connection}::${database}` };
-  if (type === "schema") return { scope_type: "schema", scope_id: `${connection}::${database}::${schema}` };
-  if (type === "table") return { scope_type: "table", scope_id: `${connection}::${database}::${schema}::${table}` };
-  return { scope_type: type, scope_id: id };
-}
-
-function openScopeEditor(user: LocalUser) {
-  if (scopeEditUserId.value === user.id) {
-    scopeEditUserId.value = "";
-    assetGrants.value = [];
-    return;
-  }
-  scopeEditUserId.value = user.id;
-  void loadAssetGrants(user.id);
-  const binding = user.bindings?.[0];
-  scopeEditType.value = (binding?.scope_type as typeof scopeEditType.value) ?? "global";
-  scopeEditId.value = binding?.scope_id ?? "";
-  scopeEditConnection.value = "";
-  scopeEditDatabase.value = "";
-  if (binding?.scope_type === "database" && binding.scope_id) {
-    const [connection, database] = binding.scope_id.split("::");
-    scopeEditConnection.value = connection;
-    scopeEditDatabase.value = database ?? "";
-  }
-  if ((binding?.scope_type === "schema" || binding?.scope_type === "table") && binding.scope_id) {
-    const [connection, database, schema, table] = binding.scope_id.split("::");
-    scopeEditConnection.value = connection;
-    scopeEditDatabase.value = database ?? "";
-    scopeEditSchema.value = schema ?? "";
-    scopeEditTable.value = table ?? "";
-  }
-}
-
-async function loadAssetGrants(userId: string) {
-  grantsLoading.value = true;
-  try {
-    assetGrants.value = await usersApi.listAssetGrants(userId);
-  } catch (grantError) {
-    toast(formatError(grantError));
-  } finally {
-    grantsLoading.value = false;
-  }
-}
-
-function grantTargetLabel(grant: usersApi.AssetGrant): string {
-  if (grant.target_kind === "connection_group") return groupName(grant.connection_group_id);
-  if (grant.target_kind === "connection") return connectionName(grant.connection_id);
-  const base = `${connectionName(grant.connection_id)} · ${grant.database_name ?? ""}`;
-  if (grant.target_kind === "database") return base;
-  if (grant.target_kind === "schema") return `${base} / ${grant.schema_name ?? ""}`;
-  return `${base} / ${grant.schema_name ?? ""} / ${grant.table_name ?? ""}`;
-}
-
-function grantInput(): usersApi.CreateAssetGrantInput {
-  const draft = grantDraft.value;
-  const input: usersApi.CreateAssetGrantInput = {
-    role_code: draft.role_code,
-    target_kind: draft.target_kind,
-    name_pattern: draft.target_kind === "table" ? draft.name_pattern : false,
-    reason: draft.reason.trim(),
-  };
-  if (draft.target_kind === "connection_group") {
-    input.connection_group_id = draft.connection_group_id;
-  } else {
-    input.connection_id = draft.connection_id;
-  }
-  if (draft.target_kind !== "connection_group" && draft.target_kind !== "connection") {
-    input.database_name = draft.database_name.trim();
-  }
-  if (draft.target_kind === "schema" || draft.target_kind === "table") {
-    input.schema_name = draft.schema_name.trim();
-  }
-  if (draft.target_kind === "table") {
-    input.table_name = draft.table_name.trim();
-  }
-  if (draft.expires_at) {
-    const parsed = new Date(draft.expires_at);
-    if (!Number.isNaN(parsed.getTime())) input.expires_at = parsed.toISOString();
-  }
-  return input;
-}
-
-async function addGrantForSelected() {
-  const user = users.value.find((item) => item.id === scopeEditUserId.value);
-  if (!user) return;
-  busyUserId.value = user.id;
-  try {
-    await usersApi.createAssetGrant(user.id, grantInput());
-    grantDraft.value = {
-      ...grantDraft.value,
-      connection_group_id: "",
-      connection_id: "",
-      database_name: "",
-      schema_name: "",
-      table_name: "",
-      expires_at: "",
-      reason: "",
-    };
-    await Promise.all([loadAssetGrants(user.id), refresh()]);
-    toast(t("settings.identity.grantCreated"));
-  } catch (grantError) {
-    toast(formatError(grantError));
-  } finally {
-    busyUserId.value = "";
-  }
-}
-
-async function removeGrantForSelected(grant: usersApi.AssetGrant) {
-  const user = users.value.find((item) => item.id === scopeEditUserId.value);
-  if (!user) return;
-  busyUserId.value = user.id;
-  try {
-    await usersApi.deleteAssetGrant(user.id, grant.id);
-    await Promise.all([loadAssetGrants(user.id), refresh()]);
-    toast(t("settings.identity.grantRemoved"));
-  } catch (grantError) {
-    toast(formatError(grantError));
-  } finally {
-    busyUserId.value = "";
-  }
-}
-
-async function saveScopeForSelected() {
-  const user = users.value.find((item) => item.id === scopeEditUserId.value);
-  if (!user) return;
-  busyUserId.value = user.id;
-  try {
-    await usersApi.updateUser(user.id, {
-      scope: buildScope(scopeEditType.value, scopeEditId.value, scopeEditConnection.value, scopeEditDatabase.value, scopeEditSchema.value, scopeEditTable.value),
-    });
-    scopeEditUserId.value = "";
-    await refresh();
-  } catch (scopeError) {
-    toast(formatError(scopeError));
-  } finally {
-    busyUserId.value = "";
-  }
-}
-
-function connectionName(connectionId?: string | null): string {
-  if (!connectionId) return "—";
-  return connectionStore.connections.find((connection) => connection.id === connectionId)?.name ?? connectionId;
-}
-
 function groupName(groupId?: string | null): string {
   if (!groupId) return "—";
   return groups.value.find((group) => group.id === groupId)?.name ?? groupId;
-}
-
-function scopeLabel(user: LocalUser): string {
-  const binding = user.bindings?.[0];
-  if (!binding || binding.scope_type === "global") return t("settings.identity.scopeGlobal");
-  if (binding.scope_type === "connection") return connectionName(binding.scope_id);
-  if (binding.scope_type === "connection_group") return groupName(binding.scope_id);
-  if (binding.scope_type === "database") return t("settings.identity.scopeDatabase");
-  if (binding.scope_type === "schema") return t("settings.identity.scopeSchema");
-  if (binding.scope_type === "table") return t("settings.identity.scopeTable");
-  return binding.scope_id ?? "";
 }
 
 async function createGroup() {
@@ -514,10 +386,6 @@ function roleLabel(code: string): string {
   return roles.value.find((role) => role.code === code)?.name ?? code;
 }
 
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString();
-}
-
 onMounted(() => {
   void refresh();
 });
@@ -530,16 +398,44 @@ onMounted(() => {
         <h3 class="text-base font-medium">{{ t("settings.identity.title") }}</h3>
         <p class="text-sm text-muted-foreground">{{ t("settings.identity.description") }}</p>
       </div>
-      <Button variant="outline" size="sm" class="gap-1.5" :disabled="loading" @click="refresh">
+      <Button v-if="viewMode === 'users'" variant="outline" size="sm" class="gap-1.5" :disabled="loading" @click="refresh">
         <RefreshCw :class="['h-3.5 w-3.5', loading ? 'animate-spin' : '']" />
         {{ t("settings.audit.refresh") }}
       </Button>
+    </div>
+
+    <div class="flex items-center gap-1 border-b border-border/60">
+      <button
+        type="button"
+        class="border-b-2 px-3 py-2 text-sm transition-colors"
+        :class="viewMode === 'users' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+        @click="viewMode = 'users'"
+      >
+        {{ t("settings.identity.usersView") }}
+      </button>
+      <button
+        type="button"
+        class="border-b-2 px-3 py-2 text-sm transition-colors"
+        :class="viewMode === 'inventory' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+        @click="viewMode = 'inventory'"
+      >
+        {{ t("settings.identity.inventoryView") }}
+      </button>
+      <button
+        type="button"
+        class="border-b-2 px-3 py-2 text-sm transition-colors"
+        :class="viewMode === 'groups' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+        @click="viewMode = 'groups'"
+      >
+        {{ t("settings.identity.groupsTitle") }}
+      </button>
     </div>
 
     <p v-if="error" class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
       {{ error }}
     </p>
 
+    <template v-if="viewMode === 'users'">
     <div v-if="canLoad" class="space-y-2 rounded-lg border border-border/60 p-3">
       <div class="flex items-center gap-2 text-sm font-medium">
         <UserPlus class="h-4 w-4" />
@@ -550,40 +446,12 @@ onMounted(() => {
         <Input v-model="draftName" class="h-8 w-40" :placeholder="t('settings.identity.displayName')" />
         <Input v-model="draftPassword" type="password" class="h-8 w-44" :placeholder="t('settings.identity.password')" />
         <select v-model="draftRole" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
-          <option v-for="role in roles" :key="role.code" :value="role.code">{{ role.name }}</option>
+          <option v-for="role in assignableRoles" :key="role.code" :value="role.code">{{ role.name }}</option>
         </select>
-        <select v-model="draftScopeType" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="global">{{ t("settings.identity.scopeGlobal") }}</option>
-          <option value="connection">{{ t("settings.identity.scopeConnection") }}</option>
-          <option value="connection_group">{{ t("settings.identity.scopeGroup") }}</option>
-          <option value="database">{{ t("settings.identity.scopeDatabase") }}</option>
-          <option value="schema">{{ t("settings.identity.scopeSchema") }}</option>
-          <option value="table">{{ t("settings.identity.scopeTable") }}</option>
-        </select>
-        <select v-if="draftScopeType === 'connection'" v-model="draftScopeId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-          <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
-            {{ connection.name }}
-          </option>
-        </select>
-        <select v-if="draftScopeType === 'connection_group'" v-model="draftScopeId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-          <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
-        </select>
-        <template v-if="draftScopeType === 'database' || draftScopeType === 'schema' || draftScopeType === 'table'">
-          <select v-model="draftScopeConnection" class="h-8 max-w-40 rounded-md border border-input bg-background px-2 text-sm">
-            <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-            <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
-              {{ connection.name }}
-            </option>
-          </select>
-          <Input v-model="draftScopeDatabase" class="h-8 w-32" :placeholder="t('settings.identity.scopeDatabaseName')" />
-          <Input v-if="draftScopeType === 'schema' || draftScopeType === 'table'" v-model="draftScopeSchema" class="h-8 w-28" :placeholder="t('settings.identity.scopeSchemaName')" />
-          <Input v-if="draftScopeType === 'table'" v-model="draftScopeTable" class="h-8 w-28" :placeholder="t('settings.identity.scopeTableName')" />
-        </template>
         <Button size="sm" :disabled="loading" @click="createUser">{{ t("settings.identity.create") }}</Button>
       </div>
       <p class="text-xs text-muted-foreground">{{ t("settings.identity.passwordHint") }}</p>
+      <p class="text-xs text-muted-foreground">{{ t("settings.identity.createThenGrantHint") }}</p>
     </div>
 
     <div v-if="canLoad" class="overflow-hidden rounded-lg border border-border/60">
@@ -612,20 +480,23 @@ onMounted(() => {
               </template>
             </td>
             <td class="px-3 py-2">
-              <select
-                v-if="!user.is_builtin"
-                class="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
-                :value="user.roles[0] ?? user.bindings?.[0]?.role_code ?? ''"
-                :disabled="busyUserId === user.id || user.roles.length === 0"
-                :title="user.roles.length === 0 ? t('settings.identity.accessTitle') : ''"
-                @change="onRoleChange(user, $event)"
-              >
-                <option v-for="role in roles" :key="role.code" :value="role.code">{{ role.name }}</option>
-              </select>
+              <template v-if="!user.is_builtin">
+                <Badge v-if="user.roles.length === 0" variant="outline">{{ t("settings.identity.assetOnly") }}</Badge>
+                <select
+                  v-else
+                  class="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
+                  :value="user.roles[0] ?? ''"
+                  :disabled="busyUserId === user.id || !canManageTarget(user)"
+                  :title="canManageTarget(user) ? '' : t('settings.identity.roleAboveCeiling')"
+                  @change="onRoleChange(user, $event)"
+                >
+                  <option v-for="role in roleOptionsFor(user)" :key="role.code" :value="role.code">{{ role.name }}</option>
+                </select>
+                <div v-if="user.asset_roles?.length" class="mt-1 truncate text-[11px] text-muted-foreground">
+                  {{ t("settings.identity.assetRoleCount", { count: user.asset_roles.length }) }}
+                </div>
+              </template>
               <Badge v-else variant="outline">{{ roleLabel(user.roles[0] ?? "admin") }}</Badge>
-              <div class="mt-1 truncate text-[11px] text-muted-foreground" :title="scopeLabel(user)">
-                {{ scopeLabel(user) }}
-              </div>
             </td>
             <td class="px-3 py-2">
               <Badge variant="outline" :class="user.status === 'active' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'">
@@ -640,16 +511,14 @@ onMounted(() => {
                 <Button size="sm" variant="outline" class="h-7 px-1.5" :title="t('settings.identity.editName')" @click="saveDisplayName(user)">
                   <Pencil class="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" variant="outline" class="h-7 px-1.5" :title="t('settings.identity.resetPassword')" @click="resetPassword(user)">
+                <Button size="sm" variant="outline" class="h-7 px-1.5" :disabled="!canResetPassword(user)" :title="canResetPassword(user) ? t('settings.identity.resetPassword') : t('settings.identity.resetPasswordCeiling')" @click="resetPassword(user)">
                   <KeyRound class="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" variant="outline" class="h-7 px-1.5 text-xs" :title="t('settings.identity.editScope')" @click="openScopeEditor(user)">
-                  {{ t("settings.identity.editScopeShort") }}
+                <Button size="sm" variant="outline" class="h-7 px-1.5 text-xs" :title="t('settings.identity.editUserAccess')" @click="openUserAccess(user)">
+                  <ShieldCheck class="mr-1 h-3.5 w-3.5" />
+                  {{ t("settings.identity.access") }}
                 </Button>
-                <Button size="sm" variant="outline" class="h-7 px-1.5" :title="t('settings.identity.sessions')" @click="toggleSessions(user)">
-                  <ShieldOff class="h-3.5 w-3.5" />
-                </Button>
-                <Button v-if="!user.is_builtin" size="sm" variant="outline" class="h-7 px-1.5 text-xs" :disabled="busyUserId === user.id" @click="setStatus(user, user.status === 'active' ? 'disabled' : 'active')">
+                <Button v-if="!user.is_builtin" size="sm" variant="outline" class="h-7 px-1.5 text-xs" :disabled="busyUserId === user.id || !canManageTarget(user)" @click="setStatus(user, user.status === 'active' ? 'disabled' : 'active')">
                   {{ user.status === "active" ? t("settings.identity.disable") : t("settings.identity.enable") }}
                 </Button>
               </div>
@@ -671,111 +540,6 @@ onMounted(() => {
       <Button size="sm" variant="outline" @click="passwordUserId = ''">
         <X class="h-3.5 w-3.5" />
       </Button>
-    </div>
-
-    <div v-if="scopeEditUserId" class="flex flex-wrap items-center gap-2 rounded-md border border-border/60 p-2">
-      <span class="text-xs text-muted-foreground">{{ t("settings.identity.editScope") }}</span>
-      <select v-model="scopeEditType" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
-        <option value="global">{{ t("settings.identity.scopeGlobal") }}</option>
-        <option value="connection">{{ t("settings.identity.scopeConnection") }}</option>
-        <option value="connection_group">{{ t("settings.identity.scopeGroup") }}</option>
-        <option value="database">{{ t("settings.identity.scopeDatabase") }}</option>
-        <option value="schema">{{ t("settings.identity.scopeSchema") }}</option>
-        <option value="table">{{ t("settings.identity.scopeTable") }}</option>
-      </select>
-      <select v-if="scopeEditType === 'connection'" v-model="scopeEditId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
-        <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-        <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
-          {{ connection.name }}
-        </option>
-      </select>
-      <select v-if="scopeEditType === 'connection_group'" v-model="scopeEditId" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
-        <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-        <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
-      </select>
-      <template v-if="scopeEditType === 'database' || scopeEditType === 'schema' || scopeEditType === 'table'">
-        <select v-model="scopeEditConnection" class="h-8 max-w-40 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-          <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
-            {{ connection.name }}
-          </option>
-        </select>
-        <Input v-model="scopeEditDatabase" class="h-8 w-32" :placeholder="t('settings.identity.scopeDatabaseName')" />
-        <Input v-if="scopeEditType === 'schema' || scopeEditType === 'table'" v-model="scopeEditSchema" class="h-8 w-28" :placeholder="t('settings.identity.scopeSchemaName')" />
-        <Input v-if="scopeEditType === 'table'" v-model="scopeEditTable" class="h-8 w-28" :placeholder="t('settings.identity.scopeTableName')" />
-      </template>
-      <Button size="sm" @click="saveScopeForSelected">{{ t("settings.identity.saveRole") }}</Button>
-      <Button size="sm" variant="outline" @click="scopeEditUserId = ''"><X class="h-3.5 w-3.5" /></Button>
-    </div>
-
-    <div v-if="scopeEditUserId" class="space-y-3 rounded-md border border-border/60 p-3">
-      <div class="flex items-center justify-between gap-2">
-        <div class="text-sm font-medium">{{ t("settings.identity.accessTitle") }}</div>
-        <LoaderCircle v-if="grantsLoading" class="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-      </div>
-      <p v-if="!grantsLoading && assetGrants.length === 0" class="text-xs text-muted-foreground">
-        {{ t("settings.identity.noGrants") }}
-      </p>
-      <div v-for="grant in assetGrants" :key="grant.id" class="flex flex-wrap items-center gap-2 rounded border border-border/40 px-2 py-1.5 text-xs">
-        <Badge variant="outline">{{ roleLabel(grant.role_code) }}</Badge>
-        <span class="min-w-0 flex-1 truncate">{{ grantTargetLabel(grant) }}</span>
-        <span v-if="grant.name_pattern" class="text-muted-foreground">* / ?</span>
-        <span v-if="grant.expires_at" class="text-muted-foreground">{{ new Date(grant.expires_at).toLocaleString() }}</span>
-        <span v-if="grant.reason" class="max-w-40 truncate text-muted-foreground" :title="grant.reason">{{ grant.reason }}</span>
-        <Button size="sm" variant="outline" class="h-6 px-1.5" :disabled="busyUserId === scopeEditUserId" @click="removeGrantForSelected(grant)">
-          <Trash2 class="h-3 w-3" />
-        </Button>
-      </div>
-      <div class="flex flex-wrap items-center gap-2 border-t border-border/40 pt-3">
-        <select v-model="grantDraft.role_code" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
-          <option v-for="role in roles" :key="role.code" :value="role.code">{{ role.name }}</option>
-        </select>
-        <select v-model="grantDraft.target_kind" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="connection">{{ t("settings.identity.targetConnection") }}</option>
-          <option value="connection_group">{{ t("settings.identity.targetGroup") }}</option>
-          <option value="database">{{ t("settings.identity.targetDatabase") }}</option>
-          <option value="schema">{{ t("settings.identity.targetSchema") }}</option>
-          <option value="table">{{ t("settings.identity.targetTable") }}</option>
-        </select>
-        <select v-if="grantDraft.target_kind === 'connection_group'" v-model="grantDraft.connection_group_id" class="h-8 max-w-44 rounded-md border border-input bg-background px-2 text-sm">
-          <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-          <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option>
-        </select>
-        <template v-else>
-          <select v-model="grantDraft.connection_id" class="h-8 max-w-40 rounded-md border border-input bg-background px-2 text-sm">
-            <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-            <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">{{ connection.name }}</option>
-          </select>
-        </template>
-        <Input v-if="grantDraft.target_kind === 'database' || grantDraft.target_kind === 'schema' || grantDraft.target_kind === 'table'" v-model="grantDraft.database_name" class="h-8 w-32" :placeholder="t('settings.identity.scopeDatabaseName')" />
-        <Input v-if="grantDraft.target_kind === 'schema' || grantDraft.target_kind === 'table'" v-model="grantDraft.schema_name" class="h-8 w-28" :placeholder="t('settings.identity.scopeSchemaName')" />
-        <Input v-if="grantDraft.target_kind === 'table'" v-model="grantDraft.table_name" class="h-8 w-28" :placeholder="t('settings.identity.scopeTableName')" />
-        <label v-if="grantDraft.target_kind === 'table'" class="flex items-center gap-1 text-xs text-muted-foreground">
-          <input v-model="grantDraft.name_pattern" type="checkbox" />
-          {{ t("settings.identity.usePattern") }}
-        </label>
-        <Input v-model="grantDraft.expires_at" type="datetime-local" class="h-8 w-44" :title="t('settings.identity.grantExpiresAt')" />
-        <Input v-model="grantDraft.reason" class="h-8 w-40" :placeholder="t('settings.identity.grantReason')" />
-        <Button size="sm" :disabled="busyUserId === scopeEditUserId" @click="addGrantForSelected">
-          {{ t("settings.identity.addGrant") }}
-        </Button>
-      </div>
-    </div>
-
-    <div v-if="sessionsUserId" class="space-y-2 rounded-md border border-border/60 p-3">
-      <div class="flex items-center justify-between">
-        <div class="text-sm font-medium">{{ t("settings.identity.sessions") }}</div>
-        <Button size="sm" variant="outline" class="h-6 text-xs" @click="revokeAllSessionsForSelected">
-          {{ t("settings.identity.revokeAll") }}
-        </Button>
-      </div>
-      <p v-if="sessions.length === 0" class="text-xs text-muted-foreground">{{ t("settings.identity.noSessions") }}</p>
-      <div v-for="session in sessions" :key="session.id" class="flex items-center justify-between gap-2 text-xs">
-        <span class="truncate text-muted-foreground"> {{ session.client_ip || "—" }} · {{ session.user_agent || "—" }} · {{ formatTime(session.last_seen_at_ms) }} </span>
-        <Button size="sm" variant="outline" class="h-6 px-1.5" @click="revokeSession(session)">
-          <Trash2 class="h-3 w-3" />
-        </Button>
-      </div>
     </div>
 
     <div class="space-y-2 rounded-lg border border-border/60 p-3">
@@ -839,7 +603,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="roleDraft.name || roleDraft.code || editingRoleCode" class="space-y-2 rounded-md border border-border/40 p-2">
+      <div v-if="roleFormOpen" class="space-y-2 rounded-md border border-border/40 p-2">
         <div class="flex flex-wrap gap-2">
           <Input v-model="roleDraft.code" class="h-8 w-40" :disabled="!!editingRoleCode" :placeholder="t('settings.identity.roleCode')" />
           <Input v-model="roleDraft.name" class="h-8 w-44" :placeholder="t('settings.identity.columnRole')" />
@@ -852,7 +616,7 @@ onMounted(() => {
           </span>
         </div>
         <div class="flex justify-end gap-1.5">
-          <Button size="sm" variant="outline" @click="startRoleEdit()">{{ t("settings.identity.cancel") }}</Button>
+          <Button size="sm" variant="outline" @click="closeRoleEdit">{{ t("settings.identity.cancel") }}</Button>
           <Button size="sm" @click="saveRole">{{ t("settings.identity.saveRole") }}</Button>
         </div>
       </div>
@@ -860,14 +624,54 @@ onMounted(() => {
 
     <div v-if="roles.length > 0" class="space-y-1 rounded-lg border border-border/60 p-3">
       <div class="text-sm font-medium">{{ t("settings.identity.rolesTitle") }}</div>
-      <div v-for="role in roles.filter((item) => item.builtin)" :key="role.code" class="text-xs text-muted-foreground">
-        <span class="font-medium text-foreground">{{ role.name }}</span>
-        ({{ role.code }}) — {{ role.description }}
+      <div v-for="role in roles.filter((item) => item.builtin)" :key="role.code" class="flex items-start justify-between gap-2 text-xs text-muted-foreground">
+        <div class="min-w-0">
+          <span class="font-medium text-foreground">{{ role.name }}</span>
+          ({{ role.code }}) — {{ role.description }}
+        </div>
+        <Button v-if="role.code !== 'admin'" size="sm" variant="outline" class="h-6 shrink-0 px-1.5" @click="startRoleEdit(role)">
+          <Pencil class="h-3 w-3" />
+        </Button>
       </div>
     </div>
 
     <div v-if="loading && !canLoad" class="flex justify-center py-4">
       <LoaderCircle class="h-4 w-4 animate-spin text-muted-foreground" />
     </div>
+    </template>
+
+    <AccessInventory
+      v-else-if="viewMode === 'inventory'"
+      :key="inventoryVersion"
+      :connections="connectionStore.connections"
+      :groups="groups"
+      :roles="roles"
+      @open-user-access="openUserAccessById"
+      @open-group="openGroupFromInventory"
+    />
+
+    <AccessGroups
+      v-else-if="viewMode === 'groups'"
+      ref="accessGroupsRef"
+      :users="users"
+      :roles="roles"
+      :connection-groups="groups"
+      :connections="connectionStore.connections"
+      @changed="onAccessChanged"
+    />
+
+
+
+    <UserAccessDialog
+      v-model:open="accessOpen"
+      :user="accessUser"
+      :roles="roles"
+      :groups="groups"
+      :connections="connectionStore.connections"
+      :actor-permissions="actorPermissions"
+      :actor-roles="actorRoles"
+      :actor-id="props.actorId"
+      @changed="onAccessChanged"
+    />
   </div>
 </template>

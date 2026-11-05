@@ -33,6 +33,10 @@ pub struct StoredRule {
     pub r#match: RuleMatch,
     pub action: PolicyEffect,
     pub message: String,
+    /// Approval template to use when this rule requires approval. Absent keeps
+    /// the connection/global template resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_template_id: Option<String>,
 }
 
 fn default_enabled() -> bool {
@@ -48,6 +52,7 @@ impl StoredRule {
             effect: self.action,
             rule_match: self.r#match,
             message: self.message,
+            approval_template_id: self.approval_template_id,
             scope,
             builtin: false,
         }

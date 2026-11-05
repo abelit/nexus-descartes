@@ -1638,6 +1638,10 @@ impl DbxMcpServer {
             mcp_request_json: None,
             mcp_response_json: None,
             mcp_session_id: None,
+            actor_id: None,
+            actor_name: None,
+            client_ip: None,
+            user_agent: None,
         };
         if CALL_HISTORY
             .try_with(|current| {
@@ -5853,6 +5857,10 @@ impl ServerHandler for DbxMcpServer {
             mcp_request_json: Some(bounded_history_request(&args)),
             mcp_response_json: None,
             mcp_session_id: args.get("session_id").and_then(|v| v.as_str()).map(str::to_owned),
+            actor_id: None,
+            actor_name: None,
+            client_ip: None,
+            user_agent: None,
         };
         let audit_request_id = entry.id.clone();
         let mut guard = CallHistoryGuard { backend: self.backend.clone(), fallback: Some(entry.clone()), started };

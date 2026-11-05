@@ -7144,6 +7144,40 @@ function selectedAiTableTargets(): Array<TreeNode & { connectionId: string; data
   return resolveSidebarDdlTargets(activeNode.value, connectionStore.treeNodes, acceptedSelectionIds ?? connectionStore.selectedTreeNodeIds).filter((target) => target.type === "table");
 }
 
+function requestAccessSubmenu(node: TreeNode): ContextMenuItem | null {
+  if (!node.connectionId) return null;
+  const isTable = node.type === "table" || node.type === "view" || node.type === "materialized_view";
+  const target = {
+    connection_id: node.connectionId,
+    database_name: node.database ?? null,
+    schema_name: node.schema ?? null,
+    table_name: isTable ? node.label : null,
+  };
+  const request = (role: string, justification: string) => {
+    window.dispatchEvent(new CustomEvent("dbx:request-data-access", { detail: { ...target, role, justification } }));
+  };
+  const suffix = isTable ? `${node.database ?? ""}.${node.label}` : node.label;
+  return {
+    sidebarActionId: "contextMenu.requestAccess",
+    label: t("contextMenu.requestAccess"),
+    icon: ShieldCheck,
+    children: [
+      {
+        label: t("contextMenu.requestViewerAccess"),
+        action: () => request("viewer", `Request read access for ${suffix}`),
+      },
+      {
+        label: t("contextMenu.requestUnmask"),
+        action: () => request("unmasker", `Request unmask for ${suffix}`),
+      },
+      {
+        label: t("contextMenu.requestRowAccess"),
+        action: () => request("row_accessor", `Request row-filter bypass for ${suffix}`),
+      },
+    ],
+  };
+}
+
 function addToAiMenuItem(node: TreeNode): ContextMenuItem {
   const tables = node.type === "table" ? selectedAiTableTargets() : [];
   const count = tables.length;
@@ -7296,6 +7330,10 @@ function buildConnectionSidebarMenu(context: SidebarMenuFactoryContext): boolean
     }
     items.push({ label: "", separator: true });
     items.push({ sidebarActionId: "contextMenu.copyName", label: t("contextMenu.copyName"), action: copyName, icon: Copy, shortcut: shortcutCopyName.value });
+    {
+      const requestMenu = requestAccessSubmenu(node);
+      if (requestMenu) items.push(requestMenu);
+    }
     const connectionUrlCopyMenu = connectionUrlCopyMenuItem();
     if (connectionUrlCopyMenu) items.push(connectionUrlCopyMenu);
     items.push({ label: "", separator: true });
@@ -8067,6 +8105,10 @@ function buildObjectSidebarMenu(context: SidebarMenuFactoryContext): boolean {
       icon: CopyPlus,
       shortcut: shortcutOpenDataInNewTab.value,
     });
+    {
+      const requestMenu = requestAccessSubmenu(node);
+      if (requestMenu) items.push(requestMenu);
+    }
     if (node.type === "table") {
       items.push({
         sidebarActionId: "contextMenu.viewDdl",

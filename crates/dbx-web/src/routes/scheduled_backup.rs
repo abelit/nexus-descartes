@@ -23,6 +23,13 @@ pub async fn command(
     Ok(Json(service(&state)?.command(command).await?))
 }
 
+/// Read-only snapshot used by the UI's status poll. Exposed as GET so the
+/// request-level audit middleware (which only records mutating requests) does
+/// not turn a background poll into thousands of bogus admin events.
+pub async fn snapshot(State(state): State<Arc<WebState>>) -> Result<Json<serde_json::Value>, AppError> {
+    Ok(Json(service(&state)?.command(BackupCommand::Snapshot).await?))
+}
+
 pub async fn download(
     State(state): State<Arc<WebState>>,
     Path((id, index)): Path<(String, usize)>,

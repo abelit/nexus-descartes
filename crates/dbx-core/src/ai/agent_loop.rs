@@ -16,6 +16,7 @@ use crate::plugin_tools::{self, PluginToolSet, PreparedPluginToolCall};
 use crate::skill_tools;
 use crate::token_usage::TokenUsage;
 use crate::tool_approval::{self, ToolApprovalWait};
+use serde_json::Value;
 
 /// Default number of agent loop turns to prevent infinite loops.
 /// Users can raise the limit in Settings → AI; it is clamped to
@@ -114,6 +115,9 @@ pub struct AgentLoopContext {
     /// skill-free run for tools that have nothing to resolve, and would put them
     /// in front of a model with no listing to look at (ADR Decision 10).
     pub allow_skills: bool,
+    /// Web-owned hook that turns a blocked SQL statement into a pending DBX
+    /// governance approval. When absent, `request_approval` is not offered.
+    pub approval_creator: Option<agent_tools::GovernanceApprovalCreator>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,9 +198,10 @@ fn run_tools(
     sql_permissions: &agent_tools::AgentSqlPermissions,
     is_agent_mode: bool,
     allow_skills: bool,
+    approval_enabled: bool,
 ) -> Vec<ToolDefinition> {
     let mut tools = if is_agent_mode {
-        agent_tools::all_tools(db_type, sql_permissions.clone())
+        agent_tools::all_tools_with_approvals(db_type, sql_permissions.clone(), approval_enabled)
     } else {
         agent_tools::read_only_tools(db_type)
     };
@@ -332,7 +337,13 @@ async fn run_agent_loop_inner(
         .await;
     }
     let mut sql_permissions = agent_ctx.sql_permissions.clone();
-    let mut tools = run_tools(agent_ctx.db_type, &sql_permissions, is_agent_mode, agent_ctx.allow_skills);
+    let mut tools = run_tools(
+        agent_ctx.db_type,
+        &sql_permissions,
+        is_agent_mode,
+        agent_ctx.allow_skills,
+        agent_ctx.approval_creator.is_some(),
+    );
     // Plugin tools join agent runs only; ask mode keeps its database-only
     // read tools.
     let plugin_tool_set = if is_agent_mode {
@@ -692,6 +703,9 @@ async fn run_agent_loop_inner(
                     plugin_tools::execute_plugin_tool(&state2, agent_ctx.host_runtime.as_ref(), &tc, &prepared).await
                 }
                 Some(Err(not_executed)) => not_executed,
+                None if tc.name == "request_approval" => {
+                    execute_request_approval_tool(&tc, agent_ctx, &on_event, cancelled).await
+                }
                 None => {
                     let execution_permissions = sequential_tool_permissions(&tc, db_type, &mut sql_permissions);
                     agent_tools::execute_tool_scoped(
@@ -1477,6 +1491,7 @@ where
         connection_name: prepared.connection_name.clone(),
         args: prepared.arguments.clone(),
         timeout_secs: tool_approval::TOOL_APPROVAL_TIMEOUT.as_secs(),
+        kind: None,
     });
     let wait = approval.wait(tool_approval::TOOL_APPROVAL_TIMEOUT, cancelled).await;
     on_event(AgentEvent::ToolApprovalResolved {
@@ -1490,6 +1505,108 @@ where
         },
     });
     wait
+}
+
+/// Executes the `request_approval` tool: ask the user to confirm, then create a
+/// pending DBX approval for the run's bound connection/database. The tool never
+/// approves or executes the SQL itself.
+async fn execute_request_approval_tool<F>(
+    tool_call: &ToolCall,
+    agent_ctx: &AgentLoopContext,
+    on_event: &F,
+    cancelled: &Notify,
+) -> ToolResult
+where
+    F: Fn(AgentEvent) + Sync,
+{
+    let error = |message: String| ToolResult {
+        tool_call_id: tool_call.id.clone(),
+        tool_name: tool_call.name.clone(),
+        content: message,
+        is_error: true,
+        explain_data: None,
+    };
+    let Some(creator) = agent_ctx.approval_creator.as_ref() else {
+        return error("Approvals are not available in this environment.".to_string());
+    };
+    let Some(session_id) = agent_ctx.session_id.as_deref() else {
+        return error("Approvals require an interactive session.".to_string());
+    };
+    let sql = tool_call.arguments.get("sql").and_then(Value::as_str).map(str::trim).unwrap_or("");
+    if sql.is_empty() {
+        return error("Missing required parameter: sql".to_string());
+    }
+    if !agent_tools::sql_matches_confirmed_write(sql, &agent_ctx.sql_permissions.confirmed_write_sql) {
+        return error("The approval SQL does not match the user-confirmed SQL.".to_string());
+    }
+    let justification =
+        tool_call.arguments.get("justification").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let connection_name = {
+        let configs = agent_ctx.state.configs.read().await;
+        configs
+            .get(&agent_ctx.connection_id)
+            .map(|config| config.name.clone())
+            .unwrap_or_else(|| agent_ctx.connection_id.clone())
+    };
+
+    let approval = tool_approval::register_tool_approval(session_id);
+    let approval_id = approval.id().to_string();
+    on_event(AgentEvent::ToolApprovalRequired {
+        approval_id: approval_id.clone(),
+        tool_call_id: tool_call.id.clone(),
+        tool_name: tool_call.name.clone(),
+        plugin_id: "dbx-governance".to_string(),
+        plugin_name: "DBX Governance".to_string(),
+        plugin_tool: "request_approval".to_string(),
+        connection_id: agent_ctx.connection_id.clone(),
+        connection_name,
+        args: tool_call.arguments.clone(),
+        timeout_secs: tool_approval::TOOL_APPROVAL_TIMEOUT.as_secs(),
+        kind: Some("governance".to_string()),
+    });
+    let wait = approval.wait(tool_approval::TOOL_APPROVAL_TIMEOUT, cancelled).await;
+    on_event(AgentEvent::ToolApprovalResolved {
+        approval_id,
+        tool_call_id: tool_call.id.clone(),
+        outcome: match wait {
+            ToolApprovalWait::Approved => ToolApprovalOutcome::Approved,
+            ToolApprovalWait::Denied => ToolApprovalOutcome::Denied,
+            ToolApprovalWait::TimedOut => ToolApprovalOutcome::TimedOut,
+            ToolApprovalWait::Cancelled => ToolApprovalOutcome::Cancelled,
+        },
+    });
+    match wait {
+        ToolApprovalWait::Approved => {
+            let input = agent_tools::GovernanceApprovalInput {
+                connection_id: agent_ctx.connection_id.clone(),
+                database: agent_ctx.database.clone(),
+                schema: agent_ctx.schema.clone(),
+                sql: sql.to_string(),
+                justification,
+            };
+            match creator(input).await {
+                Ok(output) => ToolResult {
+                    tool_call_id: tool_call.id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    content: serde_json::json!({
+                        "approval_id": output.approval_id,
+                        "status": output.status,
+                        "step_count": output.step_count,
+                        "execution_mode": output.execution_mode,
+                        "deduplicated": output.deduplicated,
+                        "message": "Approval request is pending. Do not retry execute_query; it must be approved and executed through the DBX approval center.",
+                    })
+                    .to_string(),
+                    is_error: false,
+                    explain_data: None,
+                },
+                Err(message) => error(message),
+            }
+        }
+        ToolApprovalWait::Denied => error("The user declined to create the approval request.".to_string()),
+        ToolApprovalWait::TimedOut => error("The approval request confirmation timed out.".to_string()),
+        ToolApprovalWait::Cancelled => error("The run was cancelled.".to_string()),
+    }
 }
 
 fn sequential_tool_permissions(
@@ -1773,6 +1890,7 @@ mod tests {
             session_id: session_id.map(str::to_string),
             host_runtime: None,
             allow_skills: false,
+            approval_creator: None,
         };
         (temp_dir, ctx)
     }
@@ -1838,6 +1956,94 @@ mod tests {
         assert!(gate_plugin_tool_calls(&set, &calls, &ctx, &|_event| {}, &cancelled).await.is_none());
     }
 
+    #[tokio::test]
+    async fn governance_request_approval_asks_the_user_then_creates_a_pending_request() {
+        let (_dir, mut ctx) = gate_context(Some("session-governance")).await;
+        let creator: agent_tools::GovernanceApprovalCreator = Arc::new(|input| {
+            Box::pin(async move {
+                assert_eq!(input.connection_id, "db");
+                assert_eq!(input.sql, "delete from orders where id = 1");
+                Ok(agent_tools::GovernanceApprovalOutput {
+                    approval_id: "approval-1".to_string(),
+                    status: "pending".to_string(),
+                    step_count: 2,
+                    execution_mode: "last_approver".to_string(),
+                    deduplicated: false,
+                })
+            })
+        });
+        ctx.approval_creator = Some(creator);
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = events.clone();
+        // The "user" approves the confirmation card as soon as it appears.
+        let on_event = move |event: AgentEvent| {
+            if let AgentEvent::ToolApprovalRequired { approval_id, .. } = &event {
+                assert!(tool_approval::resolve_tool_approval("session-governance", approval_id, true));
+            }
+            recorded.lock().unwrap().push(event);
+        };
+        let call = ToolCall {
+            id: "call-approval".to_string(),
+            name: "request_approval".to_string(),
+            arguments: json!({
+                "sql": "delete from orders where id = 1",
+                "justification": "clean up a test row",
+            }),
+            provider_payload: None,
+        };
+        let result = execute_request_approval_tool(&call, &ctx, &on_event, &Notify::new()).await;
+
+        assert!(!result.is_error, "{}", result.content);
+        let payload: Value = serde_json::from_str(&result.content).unwrap();
+        assert_eq!(payload["approval_id"], "approval-1");
+        assert_eq!(payload["status"], "pending");
+        assert_eq!(payload["step_count"], 2);
+
+        let events = events.lock().unwrap();
+        assert!(matches!(
+            &events[0],
+            AgentEvent::ToolApprovalRequired { kind: Some(kind), plugin_tool, .. }
+                if kind == "governance" && plugin_tool == "request_approval"
+        ));
+        assert!(matches!(&events[1], AgentEvent::ToolApprovalResolved { outcome: ToolApprovalOutcome::Approved, .. }));
+    }
+
+    #[tokio::test]
+    async fn governance_request_approval_is_refused_when_the_user_declines() {
+        let (_dir, mut ctx) = gate_context(Some("session-governance-deny")).await;
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let creator_called = called.clone();
+        ctx.approval_creator = Some(Arc::new(move |_input| {
+            creator_called.store(true, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Ok(agent_tools::GovernanceApprovalOutput {
+                    approval_id: "unexpected".to_string(),
+                    status: "pending".to_string(),
+                    step_count: 1,
+                    execution_mode: "submitter".to_string(),
+                    deduplicated: false,
+                })
+            })
+        }));
+        let deny = |event: AgentEvent| {
+            if let AgentEvent::ToolApprovalRequired { approval_id, .. } = &event {
+                tool_approval::resolve_tool_approval("session-governance-deny", approval_id, false);
+            }
+        };
+        let call = ToolCall {
+            id: "call-approval".to_string(),
+            name: "request_approval".to_string(),
+            arguments: json!({ "sql": "drop table orders" }),
+            provider_payload: None,
+        };
+        let result = execute_request_approval_tool(&call, &ctx, &deny, &Notify::new()).await;
+
+        assert!(result.is_error);
+        assert!(result.content.contains("declined"));
+        assert!(!called.load(std::sync::atomic::Ordering::SeqCst), "a declined card must not create a request");
+    }
+
     /// Full tool identity, not just names: two tables differing in a description
     /// or a schema are not "the same tools".
     fn describe(tools: &[ToolDefinition]) -> Vec<String> {
@@ -1859,7 +2065,7 @@ mod tests {
     fn skill_tools_ship_only_with_a_skill_listing() {
         let permissions = agent_tools::AgentSqlPermissions::default();
         for is_agent_mode in [false, true] {
-            let plain = run_tools(DatabaseType::Postgres, &permissions, is_agent_mode, false);
+            let plain = run_tools(DatabaseType::Postgres, &permissions, is_agent_mode, false, false);
             let unchanged = if is_agent_mode {
                 agent_tools::all_tools(DatabaseType::Postgres, permissions.clone())
             } else {
@@ -1867,7 +2073,7 @@ mod tests {
             };
             assert_eq!(describe(&plain), describe(&unchanged), "a skill-free request must keep its old tool table");
 
-            let with_skills = run_tools(DatabaseType::Postgres, &permissions, is_agent_mode, true);
+            let with_skills = run_tools(DatabaseType::Postgres, &permissions, is_agent_mode, true, false);
             let listed = describe(&with_skills);
             assert_eq!(
                 listed.len(),

@@ -18,7 +18,7 @@ const error = ref("");
 const tracked = new Set<string>();
 let refreshing: Promise<void> | undefined;
 let subscribers = 0;
-let timer: ReturnType<typeof setInterval> | undefined;
+let timer: ReturnType<typeof setTimeout> | undefined;
 
 export function useScheduledDatabaseBackups(_options: { scheduler?: boolean } = {}) {
   const tracker = useExportTracker();
@@ -189,18 +189,28 @@ export function useScheduledDatabaseBackups(_options: { scheduler?: boolean } = 
     return { runs: finished.filter((run): run is DatabaseBackupRun => !!run), enqueueErrors };
   }
 
+  // Poll fast only while a run is active so progress stays current. Idle
+  // sessions poll slowly instead of once every two seconds; the server owns
+  // scheduling, so the UI does not need a tight loop.
+  function schedulePoll() {
+    if (!subscribers) return;
+    const delay = activeRuns.value.length > 0 ? 1000 : 15000;
+    timer = setTimeout(async () => {
+      timer = undefined;
+      await refresh().catch(() => {});
+      schedulePoll();
+    }, delay);
+  }
+
   onMounted(() => {
     subscribers += 1;
-    if (!timer)
-      timer = setInterval(() => {
-        void refresh().catch(() => {});
-      }, 2000);
+    if (!timer) schedulePoll();
     void refresh().catch(() => {});
   });
   onUnmounted(() => {
     subscribers -= 1;
     if (!subscribers && timer) {
-      clearInterval(timer);
+      clearTimeout(timer);
       timer = undefined;
     }
   });

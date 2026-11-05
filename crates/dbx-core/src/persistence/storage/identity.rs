@@ -14,6 +14,17 @@ pub struct CustomRoleRow {
     pub permissions: Vec<String>,
 }
 
+/// Stored override for a code-defined built-in role. The `admin` role is never
+/// overridden so a deployment cannot lock itself out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuiltinRoleOverride {
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    pub permissions: Vec<String>,
+    pub updated_at: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoleBindingRow {
     pub role_code: String,
@@ -52,6 +63,13 @@ pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result
             role_code TEXT NOT NULL,
             permission TEXT NOT NULL,
             PRIMARY KEY (role_code, permission)
+        );
+        CREATE TABLE IF NOT EXISTS builtin_role_overrides (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            permissions_json TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS role_bindings (
             id TEXT PRIMARY KEY,
@@ -97,12 +115,17 @@ pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result
     )
     .map_err(|error| format!("IDENTITY_SCHEMA: {error}"))?;
 
+    // Built-in permissions are code-defined, not user data. Rebuild them on
+    // every open so a deployment that upgrades DBX picks up newly granted
+    // permissions (for example an auditor's new approval read).
     for role in BuiltinRole::ALL {
         conn.execute(
             "INSERT OR IGNORE INTO roles (code, name, description, builtin) VALUES (?1, ?2, ?3, 1)",
             params![role.code(), role.name(), role.description()],
         )
         .map_err(|error| format!("IDENTITY_ROLE_SEED: {error}"))?;
+        conn.execute("DELETE FROM role_permissions WHERE role_code = ?1", [role.code()])
+            .map_err(|error| format!("IDENTITY_PERMISSION_SEED: {error}"))?;
         for (role_code, permission) in role.permission_rows() {
             conn.execute(
                 "INSERT OR IGNORE INTO role_permissions (role_code, permission) VALUES (?1, ?2)",
@@ -112,6 +135,8 @@ pub(super) fn ensure_identity_schema_sync(conn: &rusqlite::Connection) -> Result
         }
     }
     super::asset_grants::ensure_asset_grant_schema_sync(conn)?;
+    super::access_requests::ensure_access_request_schema_sync(conn)?;
+    super::data_policies::ensure_data_policy_schema_sync(conn)?;
     Ok(())
 }
 
@@ -288,6 +313,22 @@ impl Storage {
                  (id, principal_type, principal_id, role_code, scope_type, scope_id, granted_by, reason, created_at) \
                  VALUES (?1, 'user', ?2, ?3, 'global', NULL, ?4, '', ?5)",
                 params![uuid::Uuid::new_v4().to_string(), user_id, role_code, granted_by, now],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Removes a global role binding without touching asset grants that happen
+    /// to use the same role code. Global role edits must not revoke scoped data
+    /// access; `unbind_role` remains the full role-removal operation.
+    pub async fn unbind_global_role(&self, user_id: String, role_code: String) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            conn.execute(
+                "DELETE FROM role_bindings WHERE principal_type = 'user' AND principal_id = ?1 \
+                 AND role_code = ?2 AND scope_type = 'global'",
+                params![user_id, role_code],
             )
             .map_err(|error| error.to_string())?;
             Ok(())
@@ -753,6 +794,62 @@ impl Storage {
     }
 
     /// Custom roles with their permissions (built-in roles are code-defined).
+    pub async fn list_builtin_role_overrides(&self) -> Result<Vec<BuiltinRoleOverride>, String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT code, name, description, permissions_json, updated_at FROM builtin_role_overrides ORDER BY code")
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(BuiltinRoleOverride {
+                        code: row.get(0)?,
+                        name: row.get(1)?,
+                        description: row.get(2)?,
+                        permissions: serde_json::from_str(&row.get::<_, String>(3)?).unwrap_or_default(),
+                        updated_at: row.get(4)?,
+                    })
+                })
+                .map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    pub async fn upsert_builtin_role_override(
+        &self,
+        code: String,
+        name: String,
+        description: String,
+        permissions: Vec<String>,
+    ) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            if code == "admin" {
+                return Err("ROLE_ADMIN_IMMUTABLE".to_string());
+            }
+            let permissions = serde_json::to_string(&permissions).map_err(|error| error.to_string())?;
+            conn.execute(
+                "INSERT INTO builtin_role_overrides (code, name, description, permissions_json, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
+                 ON CONFLICT(code) DO UPDATE SET name = excluded.name, description = excluded.description, \
+                    permissions_json = excluded.permissions_json, updated_at = excluded.updated_at",
+                params![code, name, description, permissions, now_rfc3339()],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn delete_builtin_role_override(&self, code: String) -> Result<bool, String> {
+        self.with_conn(move |conn| {
+            let changed = conn
+                .execute("DELETE FROM builtin_role_overrides WHERE code = ?1", [code])
+                .map_err(|error| error.to_string())?;
+            Ok(changed == 1)
+        })
+        .await
+    }
+
     pub async fn list_custom_roles(&self) -> Result<Vec<CustomRoleRow>, String> {
         self.with_conn(|conn| {
             let mut stmt = conn
@@ -1063,6 +1160,117 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn removing_a_global_role_keeps_matching_asset_grants() {
+        use crate::governance::assets::{AssetGrant, AssetTargetKind};
+
+        let (storage, _) = storage().await;
+        let user = storage
+            .create_user(
+                "grant@example.com".to_string(),
+                "Grant".to_string(),
+                hash_password("secret123").unwrap(),
+                "viewer".to_string(),
+                "admin".to_string(),
+            )
+            .await
+            .unwrap();
+        let now = now_rfc3339();
+        storage
+            .create_asset_grant(AssetGrant {
+                id: uuid::Uuid::new_v4().to_string(),
+                principal_type: "user".to_string(),
+                principal_id: user.id.clone(),
+                role_code: "viewer".to_string(),
+                target_kind: AssetTargetKind::Connection,
+                connection_group_id: None,
+                connection_id: Some("conn-1".to_string()),
+                database_name: None,
+                schema_name: None,
+                table_name: None,
+                name_pattern: false,
+                expires_at: None,
+                granted_by: Some("admin".to_string()),
+                reason: String::new(),
+                created_at: now.clone(),
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+        storage.unbind_global_role(user.id.clone(), "viewer".to_string()).await.unwrap();
+        assert!(storage.role_codes_for_user(user.id.clone()).await.unwrap().is_empty());
+        assert_eq!(storage.asset_grants_for_user(user.id.clone()).await.unwrap().len(), 1);
+        // The full role removal still clears both kinds of binding.
+        storage.unbind_role(user.id.clone(), "viewer".to_string()).await.unwrap();
+        assert!(storage.asset_grants_for_user(user.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn access_group_membership_resolves_group_grants() {
+        use crate::governance::assets::{AssetGrant, AssetGroup, AssetTargetKind};
+
+        let (storage, _) = storage().await;
+        let user = storage
+            .create_user(
+                "group-member@example.com".to_string(),
+                "Group member".to_string(),
+                hash_password("secret123").unwrap(),
+                "viewer".to_string(),
+                "admin".to_string(),
+            )
+            .await
+            .unwrap();
+        let now = now_rfc3339();
+        let group = AssetGroup {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "analytics".to_string(),
+            description: "Analytics team".to_string(),
+            created_by: Some("admin".to_string()),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        };
+        storage.create_asset_group(group.clone()).await.unwrap();
+        storage.add_asset_group_member(group.id.clone(), user.id.clone(), Some("admin".to_string())).await.unwrap();
+        storage
+            .create_asset_grant(AssetGrant {
+                id: uuid::Uuid::new_v4().to_string(),
+                principal_type: "group".to_string(),
+                principal_id: group.id.clone(),
+                role_code: "viewer".to_string(),
+                target_kind: AssetTargetKind::Connection,
+                connection_group_id: None,
+                connection_id: Some("conn-group".to_string()),
+                database_name: None,
+                schema_name: None,
+                table_name: None,
+                name_pattern: false,
+                expires_at: None,
+                granted_by: Some("admin".to_string()),
+                reason: String::new(),
+                created_at: now.clone(),
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+
+        // Direct grants stay empty; the effective view and the authorization
+        // snapshot both include what the group grants.
+        assert!(storage.asset_grants_for_user(user.id.clone()).await.unwrap().is_empty());
+        assert_eq!(storage.effective_asset_grants_for_user(user.id.clone()).await.unwrap().len(), 1);
+        let snapshot = storage.asset_snapshot_data(user.id.clone()).await.unwrap();
+        assert_eq!(snapshot.grants.len(), 1);
+        assert_eq!(snapshot.grants[0].principal_type, "group");
+        assert_eq!(storage.asset_role_codes_for_user(user.id.clone()).await.unwrap(), vec!["viewer".to_string()]);
+        let summaries = storage.list_asset_group_summaries().await.unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].member_count, 1);
+        assert_eq!(summaries[0].grant_count, 1);
+
+        storage.delete_asset_group(group.id).await.unwrap();
+        assert!(storage.asset_snapshot_data(user.id.clone()).await.unwrap().grants.is_empty());
+        assert!(storage.asset_role_codes_for_user(user.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn the_builtin_admin_is_created_once_and_keeps_its_role() {
         let (storage, _) = storage().await;
         let hash = hash_password("secret").unwrap();
@@ -1091,6 +1299,35 @@ mod tests {
         for role in BuiltinRole::ALL {
             assert!(!role.permissions().is_empty(), "{}", role.code());
         }
+    }
+
+    #[tokio::test]
+    async fn builtin_role_overrides_round_trip_and_protect_admin() {
+        let (storage, _) = storage().await;
+        assert!(storage
+            .upsert_builtin_role_override(
+                "viewer".to_string(),
+                "Read-only plus unmask".to_string(),
+                "test override".to_string(),
+                vec!["query:read".to_string(), "unmask:data".to_string()],
+            )
+            .await
+            .is_ok());
+        let overrides = storage.list_builtin_role_overrides().await.unwrap();
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(overrides[0].name, "Read-only plus unmask");
+        assert!(overrides[0].permissions.contains(&"unmask:data".to_string()));
+        assert!(storage
+            .upsert_builtin_role_override(
+                "admin".to_string(),
+                "Admin".to_string(),
+                String::new(),
+                vec!["query:read".to_string()],
+            )
+            .await
+            .is_err());
+        assert!(storage.delete_builtin_role_override("viewer".to_string()).await.unwrap());
+        assert!(storage.list_builtin_role_overrides().await.unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -73,6 +73,7 @@ const props = defineProps<{
   showGovernance?: boolean;
   governanceActive?: boolean;
   pendingApprovalCount?: number;
+  approvalTasksEnabled?: boolean;
   checkingUpdates: boolean;
   updateVersion?: string;
   hasUpdateAvailable: boolean;
@@ -87,6 +88,8 @@ const props = defineProps<{
   hasSqlFileConnections: boolean;
   immediateSyncing: boolean;
   showLogout?: boolean;
+  currentUserName?: string;
+  currentUserRoles?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -101,6 +104,9 @@ const emit = defineEmits<{
   "open-github": [];
   "open-settings": [];
   "open-governance": [];
+  "open-access-request": [];
+  "open-unmask-request": [];
+  "open-row-access-request": [];
   "open-driver-store": [];
   "open-plugin-center": [];
   "check-updates": [];
@@ -115,7 +121,32 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const { toast } = useToast();
+const currentUserInitials = computed(() => {
+  const name = (props.currentUserName ?? "").trim();
+  if (!name) return "";
+  const parts = name.split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)).toUpperCase();
+});
+const currentUserTitle = computed(() => {
+  const name = (props.currentUserName ?? "").trim();
+  if (!name) return "";
+  const roles = props.currentUserRoles ?? [];
+  return roles.length ? `${name} · ${roles.join(", ")}` : name;
+});
+const userMenuItems = computed<LightDropdownItem[]>(() => [
+  { label: t("settings.accessRequests.menu"), value: "request-access", icon: ShieldCheck },
+  { label: t("settings.accessRequests.unmaskMenu"), value: "request-unmask", icon: ShieldCheck },
+  { label: t("settings.accessRequests.rowAccessMenu"), value: "request-row-access", icon: ShieldCheck },
+  { label: t("settings.title"), value: "settings", icon: Settings },
+  { label: t("auth.logout"), value: "logout", icon: LogOut, separatorBefore: true },
+]);
+function runUserMenuAction(value: string) {
+  if (value === "settings") emit("open-settings");
+  else if (value === "request-access") emit("open-access-request");
+  else if (value === "request-unmask") emit("open-unmask-request");
+  else if (value === "request-row-access") emit("open-row-access-request");
+  else if (value === "logout") emit("logout");
+}const { toast } = useToast();
 
 const settingsStore = useSettingsStore();
 const toolbarItems = computed(() => settingsStore.editorSettings.toolbarItems);
@@ -268,7 +299,7 @@ const collapsibleRightItemDefs = computed(() => {
   }
   items.push({
     key: "exportProgress",
-    label: t("exportProgress.tooltip"),
+    label: t("taskCenter.tooltip"),
     icon: FileDown,
     action: () => {},
     disabled: false,
@@ -748,7 +779,7 @@ const toolbarStyle = computed(() => {
       </Tooltip>
 
       <div v-show="isRightItemVisible('exportProgress')" class="contents">
-        <ExportProgressPopover />
+        <ExportProgressPopover :approval-tasks-enabled="approvalTasksEnabled ?? false" />
       </div>
 
       <Tooltip v-if="toolbarItems.sqlLibrary">
@@ -897,7 +928,28 @@ const toolbarStyle = computed(() => {
       <TooltipContent>{{ settingsTooltip }}</TooltipContent>
     </Tooltip>
 
-    <Tooltip v-if="showLogout">
+    <LightDropdown
+      v-if="currentUserName"
+      model-value=""
+      :items="userMenuItems"
+      :label="currentUserRoles?.length ? currentUserRoles.join(' · ') : undefined"
+      :aria-label="t('auth.currentUser', { name: currentUserName })"
+      :trigger-title="currentUserTitle"
+      :trigger-label="currentUserName"
+      :match-trigger-width="false"
+      :align="'end'"
+      content-class="min-w-44"
+      trigger-class="flex h-8 max-w-40 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-1.5 text-xs font-medium hover:bg-muted/60"
+      @update:model-value="runUserMenuAction"
+    >
+      <template #trigger-icon>
+        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+          {{ currentUserInitials }}
+        </span>
+      </template>
+    </LightDropdown>
+
+    <Tooltip v-if="showLogout && !currentUserName">
       <TooltipTrigger as-child>
         <Button variant="ghost" size="icon" class="toolbar-action-button h-8 w-8 shrink-0" :aria-label="t('auth.logout')" @click="emit('logout')">
           <LogOut class="toolbar-action-icon h-4 w-4" />

@@ -13,6 +13,7 @@ use std::time::Instant;
 
 pub mod approval;
 pub mod assets;
+pub mod data_policies;
 pub mod notification;
 pub mod policy;
 pub mod rules;

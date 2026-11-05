@@ -559,6 +559,36 @@ POST /api/policies/rollback
 GET /api/policies/effective
 ```
 
+A rule has this shape:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Required. Reusing a built-in ID overrides that built-in. |
+| `enabled` | Defaults to `true`; `false` disables an overridden built-in or a custom rule. |
+| `priority` | Higher values are evaluated first; the final effect is still the strictest match. |
+| `action` | `allow`, `warn`, `require_approval`, or `block`. The strictest matched action wins. |
+| `message` | Required. Shown when the rule matches. |
+| `match.statement_types` | `select`, `dml`, `ddl`, `truncate`, `privilege`, `transaction`. Empty = any. |
+| `match.production_only` | Only production connections. |
+| `match.unbounded_only` | Only statements classified as dangerous/unbounded. |
+| `match.requires_where` | `true` = only statements with a bounding condition; `false` = only statements without one; `null`/absent = any. |
+| `match.databases` | Database-name globs; a trailing `*` is a prefix match. Empty = any. |
+
+```json
+{
+  "rules": [
+    {
+      "id": "custom.prod-ddl-approval",
+      "enabled": true,
+      "priority": 100,
+      "match": { "statement_types": ["ddl"], "production_only": true },
+      "action": "require_approval",
+      "message": "DDL on production requires approval"
+    }
+  ]
+}
+```
+
 - Versions are immutable per scope; rollback publishes a copy of an old
   version as a new one.
 - A stored rule with the same `id` as a built-in replaces it (use
@@ -570,10 +600,22 @@ GET /api/policies/effective
   publish.
 - Reads require `policy:read`; publish/rollback require `policy:publish`.
 
+The rule engine currently classifies by statement type, production status,
+boundedness, and database glob. It does not yet support table-name patterns,
+SQL regex, or per-actor conditions.
+
 `GET /api/governance/simulate` and `GET /api/policies/effective` include the
-`policy_bundle_hash` used for the decision. The security settings page has a
-policy editor: choose a scope, edit the JSON document, publish, review versions,
-and roll back. A database scope of `<connection_id>::<database>` pins both.
+`policy_bundle_hash` used for the decision. The governance **Policies** view has
+both a form editor and a JSON editor:
+
+- **Form** — add/edit/delete rules in a dialog, start from templates (production
+  DDL approval, unbounded DML block, privilege approval, TRUNCATE warning), and
+  override any built-in rule. The draft is local until published.
+- **JSON** — edit the complete document, format it, or apply it to the form;
+  the example schema is shown inline.
+- Version history can load an old document into the editor or roll it back.
+
+A database scope of `<connection_id>::<database>` pins both.
 
 ## Approvals
 
@@ -667,7 +709,17 @@ SQL, connection configuration, or published policy invalidates it.
 
 ### Retention and segment deletion
 
-`DBX_AUDIT_RETENTION_DAYS` only warns. Deleting a retained prefix is explicit:
+Retention is configurable without a restart. `GET` reports the policy and the
+checkpoint/export state; `PUT` stores the number of days (0 keeps events
+forever). The persisted value overrides `DBX_AUDIT_RETENTION_DAYS`:
+
+```http
+GET /api/audit/retention
+PUT /api/audit/retention
+{ "days": 90 }
+```
+
+Retention still only warns. Deleting a retained prefix is explicit:
 
 ```http
 POST /api/audit/retention/prune
@@ -679,7 +731,9 @@ above the cutoff, and an external export covering it; otherwise it fails with
 `AUDIT_PRUNE_CHECKPOINT_REQUIRED` / `AUDIT_PRUNE_EXPORT_REQUIRED`. The last
 deleted hash becomes the chain floor: `/api/audit/verify` starts there, and the
 pruning itself is recorded as a maintenance audit event. The live tail can
-never be deleted.
+never be deleted. The audit UI shows the policy, oldest event, head,
+checkpoint, exported sequence, retained floor, and the highest safe prune
+sequence; the prune button is disabled unless `DBX_AUDIT_ALLOW_PRUNE=1`.
 
 ## Users and Roles
 
@@ -847,7 +901,7 @@ the HTTP sink; the exporter does not sign vendor APIs itself.
 | `DBX_AUDIT_MASK_CREDENTIALS` | `1` | Masks password/token literals even in `full` mode |
 | `DBX_AUDIT_BOOTSTRAP_TOKEN` | unset | Token required by the audit API when set; otherwise loopback only |
 | `DBX_AUDIT_CHECKPOINT_KEY` | unset | HMAC key for checkpoint signatures |
-| `DBX_AUDIT_RETENTION_DAYS` | `180` | Warn when the oldest event is older than this; `0` disables the warning. Deletion is always manual |
+| `DBX_AUDIT_RETENTION_DAYS` | `180` | Startup default for the retention warning; the value stored through `PUT /api/audit/retention` wins. `0` disables the warning. Deletion is always manual |
 | `DBX_AUDIT_DB_PATH` | `<data_dir>/audit.db` | Dedicated audit database file |
 | `DBX_AUDIT_EXPORT_URL` | unset | Push signed JSONL batches to this endpoint every 10s |
 | `DBX_AUDIT_EXPORT_POSTGRES_URL` | unset | Write batches to PostgreSQL instead of the HTTP sink (TLS required) |

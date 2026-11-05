@@ -73,6 +73,8 @@ pub enum Permission {
     QueryDdl,
     ExportData,
     ImportData,
+    UnmaskData,
+    RowFilterBypass,
     AdminUsers,
     AdminSettings,
     AdminPlugins,
@@ -96,6 +98,8 @@ impl Permission {
         Self::QueryDdl,
         Self::ExportData,
         Self::ImportData,
+        Self::UnmaskData,
+        Self::RowFilterBypass,
         Self::AdminUsers,
         Self::AdminSettings,
         Self::AdminPlugins,
@@ -119,6 +123,8 @@ impl Permission {
             Self::QueryDdl => "query:ddl",
             Self::ExportData => "export:data",
             Self::ImportData => "import:data",
+            Self::UnmaskData => "unmask:data",
+            Self::RowFilterBypass => "row_filter:bypass",
             Self::AdminUsers => "admin:users",
             Self::AdminSettings => "admin:settings",
             Self::AdminPlugins => "admin:plugins",
@@ -145,6 +151,8 @@ impl Permission {
                 | Self::QueryDdl
                 | Self::ExportData
                 | Self::ImportData
+                | Self::UnmaskData
+                | Self::RowFilterBypass
                 | Self::ApprovalRead
                 | Self::ApprovalAct
         )
@@ -161,11 +169,21 @@ pub enum BuiltinRole {
     Auditor,
     Operator,
     Viewer,
+    Unmasker,
+    RowAccessor,
 }
 
 impl BuiltinRole {
-    pub const ALL: &'static [BuiltinRole] =
-        &[Self::Admin, Self::SecurityAdmin, Self::Dba, Self::Auditor, Self::Operator, Self::Viewer];
+    pub const ALL: &'static [BuiltinRole] = &[
+        Self::Admin,
+        Self::SecurityAdmin,
+        Self::Dba,
+        Self::Auditor,
+        Self::Operator,
+        Self::Viewer,
+        Self::Unmasker,
+        Self::RowAccessor,
+    ];
 
     pub fn code(&self) -> &'static str {
         match self {
@@ -175,6 +193,8 @@ impl BuiltinRole {
             Self::Auditor => "auditor",
             Self::Operator => "operator",
             Self::Viewer => "viewer",
+            Self::Unmasker => "unmasker",
+            Self::RowAccessor => "row_accessor",
         }
     }
 
@@ -190,6 +210,8 @@ impl BuiltinRole {
             Self::Auditor => "Auditor",
             Self::Operator => "Operator",
             Self::Viewer => "Viewer",
+            Self::Unmasker => "Unmask data viewer",
+            Self::RowAccessor => "Row filter bypass",
         }
     }
 
@@ -198,9 +220,11 @@ impl BuiltinRole {
             Self::Admin => "Full control including users, policies, and settings",
             Self::SecurityAdmin => "Policies, approvals, and audit read; cannot execute SQL",
             Self::Dba => "Execute and approve within assigned scopes, including DDL",
-            Self::Auditor => "Read, export, and verify the audit log; cannot execute SQL",
+            Self::Auditor => "Read, export, and verify the audit log and approval history; cannot execute SQL",
             Self::Operator => "Read/write SQL within assigned scopes; DDL needs approval",
             Self::Viewer => "Read-only queries",
+            Self::Unmasker => "View unmasked data within assigned scopes; no query permissions",
+            Self::RowAccessor => "See rows hidden by read row filters within assigned scopes; no query permissions",
         }
     }
 
@@ -230,9 +254,13 @@ impl BuiltinRole {
                 Permission::ApprovalAct,
                 Permission::AuditRead,
             ],
-            Self::Auditor => {
-                &[Permission::AuditRead, Permission::AuditExport, Permission::AuditVerify, Permission::PolicyRead]
-            }
+            Self::Auditor => &[
+                Permission::AuditRead,
+                Permission::AuditExport,
+                Permission::AuditVerify,
+                Permission::ApprovalRead,
+                Permission::PolicyRead,
+            ],
             Self::Operator => &[
                 Permission::ConnectionRead,
                 Permission::QueryRead,
@@ -242,6 +270,8 @@ impl BuiltinRole {
                 Permission::ApprovalRead,
             ],
             Self::Viewer => &[Permission::ConnectionRead, Permission::QueryRead],
+            Self::Unmasker => &[Permission::UnmaskData],
+            Self::RowAccessor => &[Permission::RowFilterBypass],
         }
     }
 
@@ -266,12 +296,25 @@ static ROLES: LazyLock<RwLock<HashMap<String, Vec<String>>>> = LazyLock::new(|| 
     RwLock::new(roles)
 });
 
-/// Replaces the custom roles with the given set (built-ins stay). Unknown
-/// permission codes are dropped rather than trusted.
-pub fn install_custom_roles(roles: Vec<(String, Vec<String>)>) {
+/// Replaces the whole registry: built-ins use stored overrides when present,
+/// then custom roles are added. Unknown permission codes are dropped rather
+/// than trusted.
+pub fn install_role_registry(custom: Vec<(String, Vec<String>)>, builtin_overrides: Vec<(String, Vec<String>)>) {
     let mut registry = ROLES.write().unwrap_or_else(|poisoned| poisoned.into_inner());
-    registry.retain(|code, _| BuiltinRole::parse(code).is_some());
-    for (code, permissions) in roles {
+    registry.clear();
+    for role in BuiltinRole::ALL {
+        let permissions = builtin_overrides
+            .iter()
+            .find(|(code, _)| code == role.code())
+            .map(|(_, permissions)| permissions.clone())
+            .unwrap_or_else(|| role.permissions().iter().map(|permission| permission.as_str().to_string()).collect());
+        let mut permissions: Vec<String> =
+            permissions.into_iter().filter(|permission| Permission::parse(permission).is_some()).collect();
+        permissions.sort();
+        permissions.dedup();
+        registry.insert(role.code().to_string(), permissions);
+    }
+    for (code, permissions) in custom {
         if code.trim().is_empty() || BuiltinRole::parse(&code).is_some() {
             continue;
         }
@@ -281,6 +324,11 @@ pub fn install_custom_roles(roles: Vec<(String, Vec<String>)>) {
         permissions.dedup();
         registry.insert(code, permissions);
     }
+}
+
+/// Compatibility wrapper used by tests and callers without overrides.
+pub fn install_custom_roles(roles: Vec<(String, Vec<String>)>) {
+    install_role_registry(roles, Vec::new());
 }
 
 /// Every known role code with its resolved permissions (built-ins first).
@@ -322,6 +370,12 @@ pub fn has_permission(role_codes: &[String], permission: Permission) -> bool {
     role_codes
         .iter()
         .any(|code| registry.get(code).is_some_and(|granted| granted.iter().any(|value| value == permission.as_str())))
+}
+
+/// Roles that may read the whole audit trail. Everyone else who can reach the
+/// audit API is restricted to events they produced themselves.
+pub fn can_view_all_audit(role_codes: &[String]) -> bool {
+    role_codes.iter().any(|code| matches!(code.as_str(), "admin" | "security_admin" | "auditor"))
 }
 
 pub fn hash_password(password: &str) -> Result<String, String> {
@@ -409,9 +463,21 @@ mod tests {
     }
 
     #[test]
+    fn only_audit_roles_see_the_whole_trail() {
+        for role in ["admin", "security_admin", "auditor"] {
+            assert!(can_view_all_audit(&[role.to_string()]), "{role} should see all audit rows");
+        }
+        for role in ["dba", "operator", "viewer", "custom_audit_reader"] {
+            assert!(!can_view_all_audit(&[role.to_string()]), "{role} must be scoped to its own rows");
+        }
+    }
+
+    #[test]
     fn auditor_cannot_execute_but_can_export() {
         let roles = vec!["auditor".to_string()];
         assert!(has_permission(&roles, Permission::AuditExport));
+        assert!(has_permission(&roles, Permission::ApprovalRead));
+        assert!(!has_permission(&roles, Permission::ApprovalAct));
         assert!(!has_permission(&roles, Permission::QueryRead));
         assert!(!has_permission(&roles, Permission::QueryWrite));
     }
@@ -458,8 +524,11 @@ mod tests {
         assert!(session_expired(0, 9_500, 10_000, policy), "absolute limit");
     }
 
+    static ROLE_REGISTRY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn custom_roles_grant_their_installed_permissions() {
+        let _guard = ROLE_REGISTRY_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let code = format!("test.custom.{}", uuid::Uuid::new_v4());
         install_custom_roles(vec![(
             code.clone(),
@@ -476,6 +545,7 @@ mod tests {
 
     #[test]
     fn custom_roles_cannot_reuse_a_builtin_code() {
+        let _guard = ROLE_REGISTRY_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         install_custom_roles(vec![("admin".to_string(), vec!["query:read".to_string()])]);
         // Built-in admin still holds everything.
         assert!(has_permission(&["admin".to_string()], Permission::AdminUsers));

@@ -35,6 +35,16 @@ pub struct HistoryEntry {
     pub mcp_response_json: Option<String>,
     #[serde(default)]
     pub mcp_session_id: Option<String>,
+    /// Who executed the entry. Stamped by the web control plane on save so the
+    /// client cannot misattribute an entry; absent for local desktop history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_ip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
 }
 
 /// Matches current entries by connection ID and legacy entries by connection name.
@@ -83,6 +93,10 @@ pub struct HistorySearchRequest {
     pub source: Option<String>,
     #[serde(default)]
     pub mcp_tool_name: Option<String>,
+    /// Exact actor filter. The web route forces this for callers that may only
+    /// read their own history; global readers may use it as a filter.
+    #[serde(default)]
+    pub actor_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

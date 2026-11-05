@@ -154,6 +154,9 @@ pub struct ApprovalTemplate {
     pub scope_id: String,
     pub steps: Vec<ApprovalStepSpec>,
     pub sla_secs: Option<i64>,
+    /// Who executes after the final approval. `None` falls back to the server
+    /// default (`DBX_APPROVAL_EXECUTION_MODE`).
+    pub execution_mode: Option<ApprovalExecutionMode>,
     pub enabled: bool,
     pub created_by: String,
     pub created_at_ms: i64,
@@ -333,7 +336,45 @@ pub struct ApprovalBinding<'a> {
 /// issued approvals. Used by both the approval API and the execution funnel so
 /// the two sides can never disagree.
 pub fn connection_config_hash(config: &crate::models::connection::ConnectionConfig) -> String {
-    serde_json::to_string(config)
+    // Credentials and client navigation state are runtime data, not connection
+    // identity: `connect` replaces the in-memory config with the client's copy
+    // (including the password), and the client also refreshes `database_info`
+    // and its selected database/schema. Hashing those made already-approved
+    // requests fail with APPROVAL_BINDING_MISMATCH after an approver connected.
+    let mut stable = crate::persistence::storage::sanitized_connection_config(config);
+    // Sanitization drops a few values that still define where/how statements
+    // run; keep them so changing them does invalidate an approval.
+    stable.init_script = config.init_script.clone();
+    stable.connection_string = config.connection_string.clone();
+    stable.url_params = config.url_params.clone();
+    // Navigation and display preferences.
+    stable.database_info = None;
+    stable.database = None;
+    stable.default_schema = None;
+    stable.note.clear();
+    stable.color = None;
+    stable.docs_notes_path = None;
+    stable.visible_databases = None;
+    stable.visible_database_patterns = None;
+    stable.visible_schemas = None;
+    stable.show_system_schemas = false;
+    stable.sidebar_auto_load_all_tables = false;
+    stable.show_database_links = None;
+    stable.show_native_jobs = None;
+    stable.show_user_admin = None;
+    serde_json::to_string(&stable)
+        .map(|json| sha256_hex(json.as_bytes()))
+        .unwrap_or_else(|_| sha256_hex(config.id.as_bytes()))
+}
+
+/// The pre-fix hash (whole config with only `database_info` cleared). Requests
+/// created before the stable-identity fix stored this value; execution accepts
+/// it as a legacy binding so those tickets can still finish. New requests use
+/// [`connection_config_hash`] only.
+pub fn legacy_connection_config_hash(config: &crate::models::connection::ConnectionConfig) -> String {
+    let mut stable = config.clone();
+    stable.database_info = None;
+    serde_json::to_string(&stable)
         .map(|json| sha256_hex(json.as_bytes()))
         .unwrap_or_else(|_| sha256_hex(config.id.as_bytes()))
 }
@@ -556,6 +597,42 @@ mod tests {
         let first = request_hash(&binding(&rules, "d1"));
         let second = request_hash(&binding(&reversed, "d1"));
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn connection_config_hash_ignores_runtime_database_info() {
+        let config: crate::models::connection::ConnectionConfig = serde_json::from_value(serde_json::json!({
+            "id": "conn-1",
+            "name": "demo",
+            "db_type": "postgres",
+            "host": "db",
+            "port": 5432,
+            "username": "demo",
+            "password": "secret",
+            "database": "app"
+        }))
+        .unwrap();
+        let mut discovered = config.clone();
+        discovered.database_info = Some(crate::models::connection::DatabaseConnectionInfo {
+            product_name: Some("PostgreSQL".to_string()),
+            current_database: Some("app".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(connection_config_hash(&config), connection_config_hash(&discovered));
+        let mut runtime = config.clone();
+        runtime.password = "rotated-secret".to_string();
+        runtime.database = Some("other".to_string());
+        runtime.default_schema = Some("public".to_string());
+        runtime.note = "edited note".to_string();
+        runtime.color = Some("#fff".to_string());
+        runtime.visible_databases = Some(vec!["app".to_string()]);
+        assert_eq!(connection_config_hash(&config), connection_config_hash(&runtime));
+        let mut edited = config.clone();
+        edited.host = "db-2".to_string();
+        assert_ne!(connection_config_hash(&config), connection_config_hash(&edited));
+        let mut renamed_user = config.clone();
+        renamed_user.username = "other-user".to_string();
+        assert_ne!(connection_config_hash(&config), connection_config_hash(&renamed_user));
     }
 
     #[test]

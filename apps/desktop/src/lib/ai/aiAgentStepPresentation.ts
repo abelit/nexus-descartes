@@ -4,6 +4,18 @@ import type { AiToolApprovalOutcome } from "@/types/pluginAiTools";
 export type AiAgentStepTone = "success" | "active" | "warning" | "danger" | "muted";
 
 /**
+ * Whether a finished `execute_query` call was stopped by the DBX governance
+ * policy and can therefore be turned into an approval request. Tool errors
+ * arrive as `Error: POLICY_APPROVAL_REQUIRED: …`, so the prefix is optional
+ * but the marker must be at the start of the message.
+ */
+export function isGovernanceApprovalRequired(toolName: string | undefined, isError: boolean, resultText: string): boolean {
+  if (!isError || (toolName !== "execute_query" && toolName !== "dbx_execute_query")) return false;
+  return /^(?:Error:\s*)?(POLICY_APPROVAL_REQUIRED|APPROVAL_REQUIRED):/i.test(resultText.trim());
+}
+
+
+/**
  * Approval state of a plugin tool call that may change state. `pending` shows
  * the approve/deny buttons; `submitting` is the in-flight answer; `expired`
  * means the backend no longer waited when the answer arrived.
@@ -22,6 +34,8 @@ export interface AiAgentStepApproval {
   /** Wall-clock deadline after which the backend treats the call as denied. */
   expiresAtMs: number;
   status: AiAgentStepApprovalStatus;
+  /** `governance` marks a DBX approval request instead of a plugin tool. */
+  kind?: string;
 }
 
 export interface AiAgentStepItem {
@@ -38,6 +52,10 @@ export interface AiAgentStepItem {
   toolResult?: string;
   /** Whether this is an error result */
   isError?: boolean;
+  /** execute_query was blocked with POLICY_APPROVAL_REQUIRED. */
+  governanceApprovalRequired?: boolean;
+  /** Approval id returned by a successful request_approval tool call. */
+  governanceApprovalId?: string;
   /** Structured explain plan data (for explain_query tool results) */
   explainData?: unknown;
   /** Wall-clock timestamp when the tool call started (stamped by tool_call_start) */

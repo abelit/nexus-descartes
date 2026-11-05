@@ -3164,6 +3164,23 @@ pub(crate) async fn execute_sql_statement_with_options_typed_with_outcome(
     match result {
         Ok(mut result) => {
             result.execution_time_ms = result.execution_time_ms.max(request_start.elapsed().as_millis());
+            // Column masks and read row filters are applied before any caller
+            // can serialize the rows. Fail-closed errors abort the request.
+            if let Err(error) = crate::governance::data_policies::apply_result_policies(
+                state,
+                connection_id,
+                database,
+                schema,
+                sql,
+                db_type,
+                audit_context.as_ref().map(|context| &context.actor),
+                &mut result,
+            )
+            .await
+            {
+                record_denial(&error);
+                return Err(error.into());
+            }
             if let Some(event) = crate::audit::execution::build_sql_event(
                 audit_context.as_ref(),
                 crate::audit::execution::SqlAuditOutcome {
@@ -4469,8 +4486,13 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
         let mysql_catalog_dialect = connection_mysql_catalog_dialect(state, connection_id).await;
         let audit = batch_audit_plan(state, connection_id, database, schema, &statements, db_type).await;
         let audit_context = options.audit.clone();
+        let policy_actor = options
+            .audit
+            .as_ref()
+            .map(|context| context.actor.clone())
+            .or_else(|| crate::audit::current_audit_context().map(|context| context.actor));
         let started = std::time::Instant::now();
-        let outcome = execute_multi_mysql(
+        let mut outcome = execute_multi_mysql(
             state,
             &pool_key,
             db_type,
@@ -4485,6 +4507,34 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
             progress.as_ref(),
         )
         .await;
+        if let Ok(results) = outcome.as_mut() {
+            for (position, result) in results.iter_mut().enumerate() {
+                if result.execution_error {
+                    continue;
+                }
+                let statement_index = result.statement_index.unwrap_or(position);
+                let Some(statement) = statements.get(statement_index) else {
+                    continue;
+                };
+                let masked = crate::governance::data_policies::apply_result_policies(
+                    state,
+                    connection_id,
+                    database,
+                    schema,
+                    statement,
+                    db_type,
+                    policy_actor.as_ref(),
+                    &mut result.result,
+                )
+                .await;
+                match masked {
+                    Ok(masked_columns) => {
+                        result.large_value_cells.retain(|cell| !masked_columns.contains(&cell.column_index));
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
         record_batch_audit(
             state,
             audit_context.as_ref(),
@@ -4499,6 +4549,11 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
     // cursor remains open on the same physical connection. Multi-result execution
     // therefore reads a bounded first page without retaining those cursors.
     let statement_options = options_for_sequential_statements(&options, statements.len(), db_type);
+    let policy_actor = options
+        .audit
+        .as_ref()
+        .map(|context| context.actor.clone())
+        .or_else(|| crate::audit::current_audit_context().map(|context| context.actor));
     let mut results = Vec::with_capacity(statements.len());
     for (statement_index, stmt) in statements.iter().enumerate() {
         if is_canceled(&cancel_token) {
@@ -4535,7 +4590,25 @@ async fn execute_multi_core_with_options_for_client_and_progress_typed_inner(
             .map(|result| vec![result])
         };
         match execution {
-            Ok(batch_results) => {
+            Ok(mut batch_results) => {
+                if complete_sqlserver_agent_batch {
+                    for result in &mut batch_results {
+                        let masked = crate::governance::data_policies::apply_result_policies(
+                            state,
+                            connection_id,
+                            database,
+                            schema,
+                            stmt,
+                            db_type,
+                            policy_actor.as_ref(),
+                            result,
+                        )
+                        .await;
+                        if let Err(error) = masked {
+                            return Err(error.into());
+                        }
+                    }
+                }
                 for result in batch_results {
                     report_execute_multi_progress(
                         progress.as_ref(),

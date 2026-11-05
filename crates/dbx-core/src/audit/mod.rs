@@ -401,6 +401,9 @@ pub struct AuditQuery {
     pub outcome: Option<AuditOutcome>,
     /// Case-insensitive substring match on the retained statement text.
     pub sql_contains: Option<String>,
+    /// Case-insensitive substring match over the target identity: connection,
+    /// database, schema, or table.
+    pub target_contains: Option<String>,
     pub from_ms: Option<i64>,
     pub to_ms: Option<i64>,
     pub cursor_seq: Option<i64>,
@@ -443,6 +446,16 @@ pub struct AuditStats {
     pub by_operation: Vec<AuditCount>,
     pub by_actor: Vec<AuditCount>,
     pub by_risk: Vec<AuditCount>,
+}
+
+/// One selectable actor in the audit filter. `count` is the number of visible
+/// events produced by that actor.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AuditActorCount {
+    pub actor_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub count: i64,
 }
 
 /// Result of verifying from the newest checkpoint instead of genesis.

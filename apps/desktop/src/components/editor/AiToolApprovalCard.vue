@@ -27,7 +27,7 @@ watch(
 
 // A command is a preview, never a replacement for the exact tool arguments.
 const commandText = computed(() => {
-  const command = props.approval.args?.command;
+  const command = props.approval.args?.command ?? props.approval.args?.sql;
   return typeof command === "string" && command.trim() ? command : null;
 });
 const argumentsText = computed(() => JSON.stringify(props.approval.args ?? {}, null, 2));
@@ -42,7 +42,7 @@ const expiresAt = computed(() => new Date(props.approval.expiresAtMs).toLocaleTi
   <div class="space-y-1.5 border-t border-current/10 px-2 pb-2 pt-1.5 text-[10px]" data-ai-tool-approval>
     <div class="flex items-start gap-1.5 text-foreground">
       <ShieldAlert class="mt-px h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
-      <span class="min-w-0 wrap-anywhere">{{ t("ai.toolApproval.prompt", { plugin: approval.pluginName, tool: approval.pluginTool, connection: approval.connectionName }) }}</span>
+      <span class="min-w-0 wrap-anywhere">{{ approval.kind === "governance" ? t("ai.toolApproval.governancePrompt", { connection: approval.connectionName }) : t("ai.toolApproval.prompt", { plugin: approval.pluginName, tool: approval.pluginTool, connection: approval.connectionName }) }}</span>
     </div>
     <template v-if="commandText !== null">
       <pre data-ai-tool-approval-command class="max-h-40 overflow-auto rounded bg-background/60 px-2 py-1 font-mono text-[10px] text-foreground/80 whitespace-pre-wrap wrap-anywhere">{{ commandText }}</pre>

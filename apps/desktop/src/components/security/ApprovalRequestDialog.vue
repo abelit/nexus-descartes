@@ -32,7 +32,6 @@ const { toast } = useToast();
 const connectionStore = useConnectionStore();
 
 const justification = ref("");
-const executionMode = ref<"submitter" | "last_approver" | "auto">("last_approver");
 const busy = ref(false);
 
 const connectionName = computed(() => {
@@ -52,7 +51,6 @@ watch(
   (open) => {
     if (open) {
       justification.value = "";
-      executionMode.value = "last_approver";
     }
   },
 );
@@ -68,7 +66,6 @@ async function submit() {
       ...(request.schema ? { schema_name: request.schema } : {}),
       sql: request.sql,
       justification: justification.value.trim(),
-      execution_mode: executionMode.value,
     });
     toast(t("settings.approvals.requestCreated"));
     emit("created", created.id);
@@ -102,14 +99,9 @@ async function submit() {
           <span class="text-muted-foreground">{{ t("settings.approvals.justification") }}</span>
           <textarea v-model="justification" rows="3" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" :placeholder="t('settings.approvals.justificationHint')" />
         </label>
-        <label class="block space-y-1 text-sm">
-          <span class="text-muted-foreground">{{ t("settings.approvals.executionMode") }}</span>
-          <select v-model="executionMode" class="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
-            <option value="last_approver">{{ t("settings.approvals.executionModeLastApprover") }}</option>
-            <option value="submitter">{{ t("settings.approvals.executionModeSubmitter") }}</option>
-            <option value="auto">{{ t("settings.approvals.executionModeAuto") }}</option>
-          </select>
-        </label>
+        <p class="rounded-md border border-border/60 bg-muted/30 p-2 text-xs text-muted-foreground">
+          {{ t("settings.approvals.executionModeFromTemplate") }}
+        </p>
       </div>
       <DialogFooter>
         <Button variant="outline" :disabled="busy" @click="emit('update:open', false)">

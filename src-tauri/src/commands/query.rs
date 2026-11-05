@@ -327,6 +327,7 @@ pub async fn execute_multi(
                             display_name: "Desktop user".to_string(),
                             kind: dbx_core::audit::ActorKind::Human,
                             roles: Vec::new(),
+                            asset_roles: Vec::new(),
                             tenant_id: None,
                             session_id: None,
                             auth_method: "desktop".to_string(),

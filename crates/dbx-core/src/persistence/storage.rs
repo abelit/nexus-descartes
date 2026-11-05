@@ -4,9 +4,12 @@ pub use dbx_drivers::runtime_config::{
 };
 
 mod approval;
+pub use approval::ApprovalRequestQuery;
+mod access_requests;
 mod asset_grants;
 #[cfg(feature = "enterprise-audit")]
 mod audit_log;
+mod data_policies;
 mod identity;
 mod policy;
 mod type_execution_receipts;
@@ -102,6 +105,7 @@ const WEB_MCP_SETTINGS_KEY: &str = "web_mcp_settings";
 const MAX_RETRIES_KEY: &str = "max_retries";
 const HISTORY_RETENTION_LIMIT_KEY: &str = "history_retention_limit";
 const MCP_HISTORY_RETENTION_LIMIT_KEY: &str = "mcp_history_retention_limit";
+const AUDIT_RETENTION_DAYS_KEY: &str = "audit_retention_days";
 const SQL_FILE_UPLOAD_MAX_MB_KEY: &str = "sql_file_upload_max_mb";
 /// Plugin ids whose MCP tools the built-in AI agent may call. The opt-in
 /// list is the single source: a plugin contributes AI tools only after the
@@ -1245,6 +1249,10 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         ,mcp_request_json TEXT
         ,mcp_response_json TEXT
         ,mcp_session_id TEXT
+        ,actor_id TEXT
+        ,actor_name TEXT
+        ,client_ip TEXT
+        ,user_agent TEXT
     )",
     "CREATE TABLE IF NOT EXISTS task_runs (
         run_id TEXT PRIMARY KEY NOT NULL,
@@ -3388,6 +3396,10 @@ fn ensure_history_columns_sync(conn: &Connection) -> Result<(), String> {
         ("mcp_request_json", "TEXT"),
         ("mcp_response_json", "TEXT"),
         ("mcp_session_id", "TEXT"),
+        ("actor_id", "TEXT"),
+        ("actor_name", "TEXT"),
+        ("client_ip", "TEXT"),
+        ("user_agent", "TEXT"),
     ];
 
     let mut stmt = conn.prepare("SELECT name FROM pragma_table_info('history')").map_err(|e| e.to_string())?;
@@ -3413,7 +3425,8 @@ fn ensure_history_columns_sync(conn: &Connection) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_history_source_time ON history(source, executed_at DESC, id DESC);
-         CREATE INDEX IF NOT EXISTS idx_history_mcp_tool_time ON history(mcp_tool_name, executed_at DESC);",
+         CREATE INDEX IF NOT EXISTS idx_history_mcp_tool_time ON history(mcp_tool_name, executed_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_history_actor_time ON history(actor_id, executed_at DESC, id DESC);",
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -3826,6 +3839,10 @@ fn history_search_predicate(request: &HistorySearchRequest) -> (String, Vec<Valu
         clauses.push("mcp_tool_name = ?".to_string());
         values.push(Value::Text(tool.clone()));
     }
+    if let Some(actor_id) = request.actor_id.as_ref().filter(|value| !value.is_empty()) {
+        clauses.push("actor_id = ?".to_string());
+        values.push(Value::Text(actor_id.clone()));
+    }
 
     if let Some(kind) = request.activity_kind.as_ref().filter(|kind| !kind.is_empty()) {
         clauses.push("activity_kind = ?".to_string());
@@ -3892,6 +3909,10 @@ fn map_history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
         mcp_request_json: row.get(17).ok(),
         mcp_response_json: row.get(18).ok(),
         mcp_session_id: row.get(19).ok(),
+        actor_id: row.get(20).ok(),
+        actor_name: row.get(21).ok(),
+        client_ip: row.get(22).ok(),
+        user_agent: row.get(23).ok(),
     })
 }
 
@@ -4014,8 +4035,9 @@ impl Storage {
             tx.execute(
                 "INSERT OR REPLACE INTO history \
                  (id, connection_name, database, sql_text, executed_at, execution_time_ms, success, error, \
-                  activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id, \
+                  actor_id, actor_name, client_ip, user_agent) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
                     entry.id,
                     entry.connection_name,
@@ -4032,7 +4054,8 @@ impl Storage {
                     entry.affected_rows,
                     entry.rollback_sql,
                     entry.details_json,
-                    source, entry.mcp_tool_name, entry.mcp_request_json, entry.mcp_response_json, entry.mcp_session_id
+                    source, entry.mcp_tool_name, entry.mcp_request_json, entry.mcp_response_json, entry.mcp_session_id,
+                    entry.actor_id, entry.actor_name, entry.client_ip, entry.user_agent
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -4055,6 +4078,7 @@ impl Storage {
         limit: usize,
         offset: usize,
         activity_kind: Option<String>,
+        actor_id: Option<String>,
     ) -> Result<Vec<HistoryEntry>, String> {
         self.with_conn(move |conn| {
             let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<HistoryEntry> {
@@ -4082,34 +4106,34 @@ impl Storage {
                     mcp_request_json: row.get(17).ok(),
                     mcp_response_json: row.get(18).ok(),
                     mcp_session_id: row.get(19).ok(),
+                    actor_id: row.get(20).ok(),
+                    actor_name: row.get(21).ok(),
+                    client_ip: row.get(22).ok(),
+                    user_agent: row.get(23).ok(),
                 })
             };
 
-            if let Some(kind) = activity_kind {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT id, connection_name, database, sql_text, executed_at, execution_time_ms, success, \
-                         error, activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id \
-                         FROM history WHERE activity_kind = ?1 ORDER BY executed_at DESC LIMIT ?2 OFFSET ?3",
-                    )
-                    .map_err(|e| e.to_string())?;
-                let rows = stmt
-                    .query_map(params![kind, limit as i64, offset as i64], map_row)
-                    .map_err(|e| e.to_string())?;
-                rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
-            } else {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT id, connection_name, database, sql_text, executed_at, execution_time_ms, success, \
-                         error, activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id \
-                         FROM history ORDER BY executed_at DESC LIMIT ?1 OFFSET ?2",
-                    )
-                    .map_err(|e| e.to_string())?;
-                let rows = stmt
-                    .query_map(params![limit as i64, offset as i64], map_row)
-                    .map_err(|e| e.to_string())?;
-                rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+            let mut clauses = Vec::new();
+            let mut values = Vec::new();
+            if let Some(kind) = activity_kind.filter(|value| !value.is_empty()) {
+                clauses.push("activity_kind = ?");
+                values.push(Value::Text(kind));
             }
+            if let Some(actor_id) = actor_id.filter(|value| !value.is_empty()) {
+                clauses.push("actor_id = ?");
+                values.push(Value::Text(actor_id));
+            }
+            let where_sql = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
+            values.push(Value::Integer(limit as i64));
+            values.push(Value::Integer(offset as i64));
+            let sql = format!(
+                "SELECT id, connection_name, database, sql_text, executed_at, execution_time_ms, success, \
+                 error, activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id, actor_id, actor_name, client_ip, user_agent \
+                 FROM history{where_sql} ORDER BY executed_at DESC LIMIT ? OFFSET ?"
+            );
+            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params_from_iter(values.iter()), map_row).map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
         })
         .await
     }
@@ -4142,7 +4166,7 @@ impl Storage {
             let limit = if request.limit == 0 { 100 } else { request.limit.clamp(1, 200) };
             let sql = format!(
                 "SELECT id, connection_name, database, sql_text, executed_at, execution_time_ms, success, \
-                 error, activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id \
+                 error, activity_kind, connection_id, operation, target, affected_rows, rollback_sql, details_json, source, mcp_tool_name, mcp_request_json, mcp_response_json, mcp_session_id, actor_id, actor_name, client_ip, user_agent \
                  FROM history{page_predicate} ORDER BY executed_at DESC, id DESC LIMIT ?"
             );
             page_values.push(Value::Integer((limit + 1) as i64));
@@ -4166,16 +4190,25 @@ impl Storage {
         .await
     }
 
-    pub async fn load_history_connection_options(&self) -> Result<Vec<HistoryConnectionOption>, String> {
-        self.with_conn(|conn| {
+    pub async fn load_history_connection_options(
+        &self,
+        actor_id: Option<String>,
+    ) -> Result<Vec<HistoryConnectionOption>, String> {
+        self.with_conn(move |conn| {
+            let (where_sql, values): (&str, Vec<Value>) = match actor_id.filter(|value| !value.is_empty()) {
+                Some(actor_id) => (" WHERE actor_id = ?", vec![Value::Text(actor_id)]),
+                None => ("", Vec::new()),
+            };
             let mut stmt = conn
-                .prepare(
+                .prepare(&format!(
                     "SELECT connection_id, connection_name, database \
-                     FROM history ORDER BY executed_at DESC, id DESC",
-                )
+                     FROM history{where_sql} ORDER BY executed_at DESC, id DESC"
+                ))
                 .map_err(|error| error.to_string())?;
             let rows = stmt
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+                .query_map(params_from_iter(values.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                })
                 .map_err(|error| error.to_string())?;
 
             let mut options = Vec::<HistoryConnectionOption>::new();
@@ -4232,6 +4265,18 @@ impl Storage {
             )
             .map(|count| count as u64)
             .map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    /// Returns the recorded actor for one history id (`None` for legacy rows
+    /// without attribution). Used to stop a user from overwriting another
+    /// user's entry through a guessed id.
+    pub async fn history_entry_actor_id(&self, id: String) -> Result<Option<Option<String>>, String> {
+        self.with_conn(move |conn| {
+            conn.query_row("SELECT actor_id FROM history WHERE id = ?1", [id], |row| row.get::<_, Option<String>>(0))
+                .optional()
+                .map_err(|error| error.to_string())
         })
         .await
     }
@@ -5405,6 +5450,28 @@ fn merge_ai_config_secrets(config: &mut AiConfig, blob: &str) -> Result<(), Stri
 // App Settings
 
 impl Storage {
+    /// Configured audit retention in days. `None` means the deployment default
+    /// applies; `0` explicitly means "keep forever" (no retention warning).
+    pub async fn audit_retention_days(&self) -> Result<Option<i64>, String> {
+        self.with_conn(|conn| {
+            let settings = app_settings_map_from_conn(conn)?;
+            Ok(settings
+                .get(AUDIT_RETENTION_DAYS_KEY)
+                .and_then(serde_json::Value::as_i64)
+                .filter(|days| (0..=36500).contains(days)))
+        })
+        .await
+    }
+
+    pub async fn save_audit_retention_days(&self, days: i64) -> Result<(), String> {
+        self.with_conn(move |conn| {
+            let mut settings = app_settings_map_from_conn(conn)?;
+            settings.insert(AUDIT_RETENTION_DAYS_KEY.to_string(), serde_json::json!(days));
+            write_app_settings_map(conn, &settings)
+        })
+        .await
+    }
+
     async fn load_app_settings_json(&self) -> Result<serde_json::Map<String, serde_json::Value>, String> {
         let json: Option<String> = self
             .with_conn(|conn| {
@@ -5446,6 +5513,7 @@ impl Storage {
                 PLUGIN_DATA_GRANTS_KEY,
                 PLUGIN_MCP_GRANTS_KEY,
                 MCP_HISTORY_RETENTION_LIMIT_KEY,
+                AUDIT_RETENTION_DAYS_KEY,
             ];
             for key in dedicated_keys {
                 settings.remove(key);
@@ -11530,6 +11598,10 @@ mod tests {
             mcp_request_json: None,
             mcp_response_json: None,
             mcp_session_id: None,
+            actor_id: None,
+            actor_name: None,
+            client_ip: None,
+            user_agent: None,
         }
     }
 
@@ -12239,7 +12311,7 @@ mod tests {
             assert_eq!(result.total, expected, "retention limit {limit}");
             assert_eq!(result.entries[0].id, "newest");
             if limit == 200 {
-                let remaining = storage.load_history_entries(500, 0, None).await.unwrap();
+                let remaining = storage.load_history_entries(500, 0, None, None).await.unwrap();
                 assert!(remaining.iter().all(|entry| entry.id == "newest" || entry.id.as_str() >= "00802"));
             }
         }
@@ -12331,6 +12403,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn history_persists_server_stamped_attribution() {
+        let path = temp_db_path("history-attribution");
+        let storage = crate::persistence::test_storage::open(&path).await.unwrap();
+        let mut entry = history_entry("attr", "conn", "Main", "app", "select 1", "2026-07-18T01:00:00Z", true);
+        entry.actor_id = Some("user-1".to_string());
+        entry.actor_name = Some("dba1".to_string());
+        entry.client_ip = Some("10.0.0.8".to_string());
+        entry.user_agent = Some("Mozilla/5.0".to_string());
+        storage.save_history_entry(&entry).await.unwrap();
+
+        let loaded = storage.load_history_entries(10, 0, None, None).await.unwrap();
+        assert_eq!(loaded[0].actor_id.as_deref(), Some("user-1"));
+        assert_eq!(loaded[0].actor_name.as_deref(), Some("dba1"));
+        assert_eq!(loaded[0].client_ip.as_deref(), Some("10.0.0.8"));
+        assert_eq!(loaded[0].user_agent.as_deref(), Some("Mozilla/5.0"));
+
+        let searched = storage.search_history_entries(HistorySearchRequest::default()).await.unwrap();
+        assert_eq!(searched.entries[0].actor_id.as_deref(), Some("user-1"));
+        assert_eq!(searched.entries[0].client_ip.as_deref(), Some("10.0.0.8"));
+    }
+
+    #[tokio::test]
     async fn history_search_filters_connection_database_and_legacy_entries() {
         let path = temp_db_path("history-search-scope");
         let storage = crate::persistence::test_storage::open(&path).await.unwrap();
@@ -12375,7 +12469,7 @@ mod tests {
             .unwrap();
         assert_eq!(legacy.entries[0].id, "3");
 
-        let options = storage.load_history_connection_options().await.unwrap();
+        let options = storage.load_history_connection_options(None).await.unwrap();
         assert_eq!(options.len(), 3);
         assert!(options.iter().any(|option| option.connection_id == "conn-a" && option.databases == ["sales"]));
         assert!(options.iter().any(|option| option.connection_id.is_empty() && option.connection_name == "Legacy"));

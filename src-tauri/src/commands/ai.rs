@@ -445,6 +445,8 @@ pub async fn ai_agent_stream(
         session_id: Some(session_id.clone()),
         host_runtime: Some(tokio::runtime::Handle::current()),
         allow_skills: allow_skills.unwrap_or(false),
+        // Desktop has no web governance approval API.
+        approval_creator: None,
     };
     let is_agent_mode = mode.as_deref() == Some("agent");
 

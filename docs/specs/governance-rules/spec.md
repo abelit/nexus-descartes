@@ -16,6 +16,11 @@ hilbert JWT adapter. Tracking plan: `.claude/plans/dms-dbx-mutable-bear.md`.
   (`classify_sql_risk_for_database`, `is_dangerous_sql_for_database`) and the
   connection's production marker (`is_production`,
   `production_databases`); it does not reimplement SQL parsing.
+- Rules may also target tables: `match.tables` is a list of table names or
+  `*`/`?` globs, optionally schema-qualified (`public.audit_*`). A table-scoped
+  rule matches only when at least one table referenced by the statement matches;
+  SQL that cannot be parsed does not match it. Table references are parsed once
+  per evaluation and table matching is case-insensitive.
 - `POST /api/governance/simulate` returns the decision and every matching rule
   without executing anything; requires `query:read`.
 - With `DBX_GOVERNANCE_MODE=enforce`, a `block` decision fails with

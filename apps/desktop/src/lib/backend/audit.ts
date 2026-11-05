@@ -135,6 +135,19 @@ export interface AuditCheckpointReport {
   report: AuditChainReport;
 }
 
+export interface AuditRetention {
+  days: number;
+  default_days: number;
+  oldest_event_ms?: number | null;
+  oldest_age_days?: number | null;
+  head_seq: number;
+  latest_checkpoint_seq?: number | null;
+  exported_seq: number;
+  floor_seq?: number | null;
+  prunable_up_to_seq?: number | null;
+  allow_prune: boolean;
+}
+
 export interface AuditQueryParams {
   actor_id?: string;
   connection_id?: string;
@@ -143,10 +156,18 @@ export interface AuditQueryParams {
   decision?: string;
   outcome?: string;
   sql_contains?: string;
+  /** Matches connection, database, schema, or table. */
+  target_contains?: string;
   from_ms?: number;
   to_ms?: number;
   cursor_seq?: number;
   limit?: number;
+}
+
+export interface AuditActorOption {
+  actor_id: string;
+  display_name?: string | null;
+  count: number;
 }
 
 function auditQueryString(params: AuditQueryParams): string {
@@ -184,6 +205,18 @@ export async function getAuditStats(params: Pick<AuditQueryParams, "from_ms" | "
   return response.json() as Promise<AuditStats>;
 }
 
+/** Actors visible to the current audit scope, for the searchable filter. */
+export async function listAuditActors(
+  params: { from_ms?: number; to_ms?: number; limit?: number } = {},
+): Promise<AuditActorOption[]> {
+  const query = auditQueryString(params);
+  const response = await fetch(apiUrl(`/api/audit/actors${query ? `?${query}` : ""}`), {
+    headers: auditHeaders(),
+  });
+  if (!response.ok) throw await backendResponseError(response);
+  return response.json() as Promise<AuditActorOption[]>;
+}
+
 export async function getAuditChainHead(): Promise<AuditChainHead> {
   const response = await fetch(apiUrl("/api/audit/chain-head"), { headers: auditHeaders() });
   if (!response.ok) throw await backendResponseError(response);
@@ -215,6 +248,32 @@ export async function createAuditCheckpoint(): Promise<AuditCheckpoint> {
   });
   if (!response.ok) throw await backendResponseError(response);
   return response.json() as Promise<AuditCheckpoint>;
+}
+
+export async function getAuditRetention(): Promise<AuditRetention> {
+  const response = await fetch(apiUrl("/api/audit/retention"), { headers: auditHeaders() });
+  if (!response.ok) throw await backendResponseError(response);
+  return response.json() as Promise<AuditRetention>;
+}
+
+export async function updateAuditRetention(days: number): Promise<AuditRetention> {
+  const response = await fetch(apiUrl("/api/audit/retention"), {
+    method: "PUT",
+    headers: { ...auditHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ days }),
+  });
+  if (!response.ok) throw await backendResponseError(response);
+  return response.json() as Promise<AuditRetention>;
+}
+
+export async function pruneAuditEvents(upToSeq: number, reason: string): Promise<{ deleted: number; up_to_seq: number }> {
+  const response = await fetch(apiUrl("/api/audit/retention/prune"), {
+    method: "POST",
+    headers: { ...auditHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ up_to_seq: upToSeq, reason }),
+  });
+  if (!response.ok) throw await backendResponseError(response);
+  return response.json() as Promise<{ deleted: number; up_to_seq: number }>;
 }
 
 export async function downloadAuditExport(format: "jsonl" | "csv", params: AuditQueryParams = {}): Promise<Blob> {

@@ -36,6 +36,10 @@ pub enum AgentEvent {
         /// Exactly the arguments DBX will forward if the user approves.
         args: serde_json::Value,
         timeout_secs: u64,
+        /// Optional UI hint. `governance` marks a DBX governance approval
+        /// request rather than a plugin-tool confirmation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
     },
     /// The approval requested by `ToolApprovalRequired` has been settled.
     ToolApprovalResolved { approval_id: String, tool_call_id: String, outcome: ToolApprovalOutcome },

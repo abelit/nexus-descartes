@@ -218,6 +218,7 @@ import { hasTreeNodeDatabaseContext } from "@/lib/sidebar/treeNodeContext";
 import { objectBrowserTablesToAiTreeNodes } from "@/lib/ai/objectBrowserToAiTargets";
 import { aiTargetFromTab, type AiConversationBinding } from "@/lib/ai/aiConversationBinding";
 import { queryErrorSelection, type AiExternalContextRequest } from "@/lib/ai/aiExternalContext";
+import { DATA_GRID_AI_ACTION_EVENT, type DataGridAiActionDetail } from "@/lib/ai/aiDataGridContext";
 import { isSchemaAware, isSingleDatabase, supportsConnectionQueryActions, usesTreeSchemaMode } from "@/lib/database/databaseFeatureSupport";
 import { codeMirrorSqlDialect, connectionObjectTreeNodeSchema, connectionUsesDatabaseObjectTreeMode, effectiveDatabaseTypeForConnection } from "@/lib/database/jdbcDialect";
 import { canFormatSqlForDatabaseType, formatSqlForEditing, sqlFormatDialectForDbType } from "@/lib/sql/sqlFormatter";
@@ -264,6 +265,7 @@ const QueryEditorDdlViewDialog = defineAsyncComponent(() => import("@/components
 const QueryEditorObjectSourceDialog = defineAsyncComponent(() => import("@/components/objects/ObjectSourceDialog.vue"));
 const OracleTypeManagementDialog = defineAsyncComponent(() => import("@/components/objects/OracleTypeManagementDialog.vue"));
 const ApprovalRequestDialog = defineAsyncComponent(() => import("@/components/security/ApprovalRequestDialog.vue"));
+const AccessRequestDialog = defineAsyncComponent(() => import("@/components/security/AccessRequestDialog.vue"));
 const GovernanceCenter = defineAsyncComponent(() => import("@/components/security/GovernanceCenter.vue"));
 
 type AiAssistantHandle = {
@@ -453,6 +455,10 @@ const effectivePermissions = computed(() => new Set(authActor.value?.permissions
 const hasGovernancePermission = (permission: string) => !isDesktop && effectivePermissions.value.has(permission);
 const canApprovals = computed(() => hasGovernancePermission("approval:read") || hasGovernancePermission("approval:act"));
 const canAudit = computed(() => hasGovernancePermission("audit:read"));
+/** Audit roles see every user's execution history; everyone else sees their own. */
+const canViewAllHistory = computed(() => isDesktop || ["admin", "security_admin", "auditor"].some((role) => (authActor.value?.roles ?? []).includes(role)));
+/** Only administrators may delete or clear history. */
+const canManageHistory = computed(() => isDesktop || (authActor.value?.roles ?? []).includes("admin"));
 const canManageUsers = computed(() => hasGovernancePermission("admin:users"));
 const canReadPolicies = computed(() => hasGovernancePermission("policy:read"));
 const showGovernanceEntry = computed(() => canApprovals.value || canAudit.value || canManageUsers.value || canReadPolicies.value);
@@ -1154,6 +1160,17 @@ interface ApprovalRequiredExecution {
   detail: string;
 }
 const approvalRequiredExecution = ref<ApprovalRequiredExecution | null>(null);
+const showAccessRequestDialog = ref(false);
+const accessRequestInitialRole = ref("");
+const accessRequestPrefill = ref<{
+  role?: string;
+  connection_id?: string | null;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  justification?: string;
+} | null>(null);
+const governanceApprovalCategory = ref<"sql" | "access">("sql");
 
 function promptActiveDatabaseSelection(tabId?: string) {
   const tab = tabId ? queryStore.tabs.find((candidate) => candidate.id === tabId) : activeTab.value;
@@ -1527,8 +1544,9 @@ function handleApprovalsChanged() {
   void refreshPendingApprovalCount();
 }
 
-function openGovernancePage(tab?: GovernanceTab, approvalId?: string) {
+function openGovernancePage(tab?: GovernanceTab, approvalId?: string, category: "sql" | "access" = "sql") {
   if (!showGovernanceEntry.value) return;
+  governanceApprovalCategory.value = category;
   const selected = tab && governanceTabAllowed(tab) ? tab : defaultGovernanceTab();
   governanceInitialTab.value = selected;
   governanceFocusApprovalId.value = approvalId;
@@ -1542,6 +1560,33 @@ function openApprovalFromNotification(event: Event) {
   const detail = (event as CustomEvent<{ approvalId?: string }>).detail;
   if (!detail?.approvalId) return;
   openGovernancePage("approvals", detail.approvalId);
+}
+
+function openAccessApprovalsFromNotification() {
+  openGovernancePage("approvals", undefined, "access");
+}
+
+function openDataAccessRequestFromGrid(event: Event) {
+  const detail = (event as CustomEvent<NonNullable<typeof accessRequestPrefill.value>>).detail;
+  if (!detail?.connection_id) return;
+  accessRequestPrefill.value = detail;
+  accessRequestInitialRole.value = detail.role ?? "";
+  showAccessRequestDialog.value = true;
+}
+
+function openAccessRequestFromNotification(event: Event) {
+  const detail = (event as CustomEvent<{ requestId?: string }>).detail;
+  if (!detail?.requestId) return;
+  accessRequestInitialRole.value = "";
+  accessRequestPrefill.value = null;
+  showAccessRequestDialog.value = true;
+}
+
+/** The AI assistant's execute_query hit POLICY_APPROVAL_REQUIRED. */
+function openApprovalRequestFromAi(event: Event) {
+  const detail = (event as CustomEvent<ApprovalRequiredExecution>).detail;
+  if (!detail?.connectionId || !detail.sql) return;
+  approvalRequiredExecution.value = detail;
 }
 
 function consumeGovernanceDeepLink() {
@@ -2392,6 +2437,22 @@ async function addToAi(nodesInput: TreeNode | TreeNode[]) {
 
 function openAiPanel() {
   openRightSidebarPanel("ai");
+}
+
+/** A Data Grid context-menu action: open the assistant on that grid's target and send the action. */
+function openDataGridAiAction(event: Event) {
+  const detail = (event as CustomEvent<DataGridAiActionDetail>).detail;
+  if (!detail?.connectionId) return;
+  openRightSidebarPanel("ai");
+  invokeWhenAiReady((handle) => {
+    handle.openExternalContext({
+      target: { connectionId: detail.connectionId, database: detail.database, schema: detail.schema },
+      selections: [{ source: "grid", label: detail.label, content: detail.context }],
+      tableMentions: detail.table ? [{ database: detail.database, schema: detail.schema, table: detail.table }] : [],
+      action: "general",
+      instruction: detail.instruction,
+    });
+  });
 }
 
 /** A background AI run reached a terminal/confirmation state while the panel
@@ -5467,8 +5528,13 @@ onMounted(async () => {
   window.addEventListener(OBJECT_BROWSER_SEARCH_FOCUS_EVENT, focusRequestedObjectBrowserSearch);
   window.addEventListener("dbx-mcp-status-changed", handleMcpStatusChanged);
   window.addEventListener("dbx:ai-run-notify", handleAiRunNotify);
+  window.addEventListener(DATA_GRID_AI_ACTION_EVENT, openDataGridAiAction);
   window.addEventListener("dbx:approvals-changed", handleApprovalsChanged);
   window.addEventListener("dbx:open-approval", openApprovalFromNotification);
+  window.addEventListener("dbx:open-access-request", openAccessRequestFromNotification);
+  window.addEventListener("dbx:request-data-access", openDataAccessRequestFromGrid);
+  window.addEventListener("dbx:open-access-approvals", openAccessApprovalsFromNotification);
+  window.addEventListener("dbx:approval-required", openApprovalRequestFromAi);
   if (isDesktop) {
     document.addEventListener("contextmenu", handleContextMenu);
   }
@@ -5581,8 +5647,13 @@ onUnmounted(() => {
   window.removeEventListener(OBJECT_BROWSER_SEARCH_FOCUS_EVENT, focusRequestedObjectBrowserSearch);
   window.removeEventListener("dbx-mcp-status-changed", handleMcpStatusChanged);
   window.removeEventListener("dbx:ai-run-notify", handleAiRunNotify);
+  window.removeEventListener(DATA_GRID_AI_ACTION_EVENT, openDataGridAiAction);
   window.removeEventListener("dbx:approvals-changed", handleApprovalsChanged);
   window.removeEventListener("dbx:open-approval", openApprovalFromNotification);
+  window.removeEventListener("dbx:open-access-request", openAccessRequestFromNotification);
+  window.removeEventListener("dbx:request-data-access", openDataAccessRequestFromGrid);
+  window.removeEventListener("dbx:open-access-approvals", openAccessApprovalsFromNotification);
+  window.removeEventListener("dbx:approval-required", openApprovalRequestFromAi);
   window.removeEventListener("beforeunload", handleWebBeforeUnload);
   document.removeEventListener("contextmenu", handleContextMenu);
   window.clearTimeout(sqlLibraryFlyAnimationTimer);
@@ -5621,6 +5692,9 @@ onUnmounted(() => {
           :show-governance="showGovernanceEntry"
           :governance-active="showGovernancePage"
           :pending-approval-count="pendingApprovalCount"
+          :approval-tasks-enabled="!isDesktop"
+          :current-user-name="authActor?.display_name"
+          :current-user-roles="authActor?.roles"
           :checking-updates="checkingAllUpdates"
           :has-update-available="toolbarHasUpdateAvailable"
           :is-downloading-update="isDownloadingUpdate"
@@ -5646,6 +5720,21 @@ onUnmounted(() => {
           @open-github="openGitHub"
           @open-settings="openSettings(showMcpSettingsUpdateBadge ? 'mcp' : 'appearance')"
           @open-governance="openGovernancePage()"
+          @open-access-request="
+            accessRequestInitialRole = '';
+            accessRequestPrefill = null;
+            showAccessRequestDialog = true;
+          "
+          @open-unmask-request="
+            accessRequestInitialRole = 'unmasker';
+            accessRequestPrefill = null;
+            showAccessRequestDialog = true;
+          "
+          @open-row-access-request="
+            accessRequestInitialRole = 'row_accessor';
+            accessRequestPrefill = null;
+            showAccessRequestDialog = true;
+          "
           @open-driver-store="openDriverStorePage"
           @open-plugin-center="openPluginCenterPage()"
           @check-updates="handleToolbarUpdateClick"
@@ -5742,12 +5831,19 @@ onUnmounted(() => {
                   v-if="governanceTabOpen"
                   v-show="governanceActive"
                   :initial-tab="governanceInitialTab"
+                  :approval-category="governanceApprovalCategory"
                   :can-approvals="canApprovals"
                   :can-audit="canAudit"
                   :can-manage-users="canManageUsers"
                   :can-read-policies="canReadPolicies"
                   :focus-approval-id="governanceFocusApprovalId"
                   :pending-approval-count="pendingApprovalCount"
+          :approval-tasks-enabled="!isDesktop"
+          :current-user-name="authActor?.display_name"
+          :current-user-roles="authActor?.roles"
+                  :actor-permissions="[...effectivePermissions]"
+                  :actor-roles="authActor?.roles"
+                  :actor-id="authActor?.id"
                   class="flex-1 min-h-0"
                 />
                 <EditorSettingsPage
@@ -6042,6 +6138,8 @@ onUnmounted(() => {
                   @toggle-maximize="isHistoryPanelMaximized = !isHistoryPanelMaximized"
                   :current-connection-id="activeTab?.connectionId"
                   :current-database="activeTab?.database"
+                  :show-actor="canViewAllHistory"
+                  :can-manage="canManageHistory"
                   @restore="restoreHistorySql"
                   @analyze-ai="analyzeHistoryWithAi"
                   @close="closeRightSidebarPanel('history')"
@@ -6324,6 +6422,12 @@ onUnmounted(() => {
             approvalRequiredExecution = null;
           }
         "
+      />
+      <AccessRequestDialog
+        v-if="!isDetachedWindowContext"
+        v-model:open="showAccessRequestDialog"
+        :initial-role="accessRequestInitialRole"
+        :prefill="accessRequestPrefill"
       />
       <QueryEditorObjectSourceDialog
         v-if="queryEditorObjectSourceTarget"

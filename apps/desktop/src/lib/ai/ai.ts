@@ -9,6 +9,7 @@ import { currentLocale, type Locale } from "@/i18n";
 import { aiTableMentionKey, aiTableMentionQualifier, type AiTableMention } from "@/lib/ai/aiTableMentions";
 import { applySchemaNotes, loadSchemaNotes, SchemaNoteBudget, type SchemaNotes } from "@/lib/ai/aiSchemaNotes";
 import { isCliProvider } from "@/lib/ai/aiConfigCandidates";
+import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { aiSkillForAction } from "@/lib/ai/aiSkills";
 import { isSchemaAware } from "@/lib/database/databaseCapabilities";
 import { effectiveDatabaseTypeForConnection } from "@/lib/database/jdbcDialect";
@@ -130,7 +131,7 @@ export interface AiInlineImageContext {
  * model-facing data block name the origin without inventing a second channel —
  * adding a member here must not require touching the request pipeline.
  */
-export type AiSelectionSource = "editor" | "terminal" | "query-error";
+export type AiSelectionSource = "editor" | "terminal" | "query-error" | "grid";
 
 /**
  * A user selection attached as *context*, never as an instruction (#10058 R8).
@@ -768,6 +769,19 @@ function buildModePromptLines(mode: AiAssistantMode, isZh: boolean, databaseType
       isZh
         ? "当用户要求写入操作（INSERT/UPDATE/DELETE/CREATE/ALTER/DROP/TRUNCATE 等）时，先在一个 ```sql 代码块中给出精确的写 SQL，再在回复末尾用问句明确询问用户是否确认执行（例如'需要我执行这条 CREATE TABLE 语句吗？'）。待用户明确确认后再调用 execute_query，并原样使用该代码块中的 SQL，不得改写、重新格式化或补充语句。禁止不经确认直接执行写入。"
         : "When the user requests a write operation (INSERT/UPDATE/DELETE/CREATE/ALTER/DROP/TRUNCATE, etc.), first put the exact proposed write SQL in one ```sql code block, then ask for explicit confirmation at the end of your reply with a question that names the specific operation (e.g., 'Should I execute this CREATE TABLE?'). Only call execute_query for writes after the user explicitly confirms, and use the exact SQL from that code block without rewriting, reformatting, or adding statements. Never execute writes without confirmation.",
+      ...(isTauriRuntime()
+        ? []
+        : [
+            isZh
+              ? "如果 execute_query 返回 POLICY_APPROVAL_REQUIRED，调用 request_approval 并传入被拦截的精确 SQL 和简短理由。该工具只创建待审批单，不会执行 SQL；不要重试 execute_query，也不要声称 SQL 已执行。"
+              : "If execute_query returns POLICY_APPROVAL_REQUIRED, call request_approval with the exact blocked SQL and a short justification. That tool only creates a pending approval request; it does not execute SQL. Do not retry execute_query and do not claim the SQL ran.",
+            isZh
+              ? "如果 request_approval 返回 POLICY_DENIED，该规则是终止性阻断，审批无法覆盖；不要原样重试，也不要把同一批 SQL 简单拆成两批继续提交。向用户说明命中的规则，并给出有界替代方案（例如新建并填充表时用 CREATE TABLE ... AS SELECT），让用户选择后再执行。"
+              : "If request_approval returns POLICY_DENIED, the rule is terminal and an approval cannot override it. Do not retry the same SQL and do not simply split the batch and resubmit it. Explain the matched rule and propose a bounded alternative (for example, use CREATE TABLE ... AS SELECT to create and populate a table), then let the user choose before executing.",
+            isZh
+              ? "如果查询结果的 Server messages 中出现 DATA_POLICY_MASK 或 DATA_POLICY_ROW_FILTER，说明列值被脱敏或结果行被行过滤策略限制。不要猜测或推断被隐藏的值/行，也不要声称可以绕过；向用户解释限制，并提示可从数据网格顶部提示条或用户菜单发起解敏/行过滤豁免申请，审批通过后才可查看。"
+              : "If a query result's Server messages include DATA_POLICY_MASK or DATA_POLICY_ROW_FILTER, some column values are masked or rows are restricted by a row filter. Do not guess or infer hidden values/rows and do not claim you can bypass the policy. Explain the restriction and tell the user they can request unmask or row-filter bypass from the grid banner or the user menu; access applies only after approval.",
+          ]),
       isZh ? "如果安全执行条件不满足，先说明原因，再给只读预览或澄清问题。" : "If safe execution requirements are not met, explain why first, then provide a read-only preview or a clarifying question.",
     ];
   }

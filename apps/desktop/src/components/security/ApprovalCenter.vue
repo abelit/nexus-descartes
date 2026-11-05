@@ -1,24 +1,33 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Copy, KeyRound, LoaderCircle, Play, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
+import { Check, Copy, KeyRound, LoaderCircle, Pencil, Play, Plus, RefreshCw, Trash2, X } from "@lucide/vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import ApprovalTemplateDialog from "@/components/security/ApprovalTemplateDialog.vue";
 import { useToast } from "@/composables/useToast";
 import { copyToClipboard } from "@/lib/common/clipboard";
 import { formatError } from "@/lib/backend/errorUtils";
 import * as approvalsApi from "@/lib/backend/approvals";
 import type { ApprovalStep, ApprovalRequest, ApprovalTemplate } from "@/lib/backend/approvals";
-import { useConnectionStore } from "@/stores/connectionStore";
 
-const props = defineProps<{ focusRequestId?: string; initialScope?: "mine" | "pending" }>();
+const props = withDefaults(
+  defineProps<{ focusRequestId?: string; initialScope?: "mine" | "pending"; canManageTemplates?: boolean }>(),
+  { canManageTemplates: true },
+);
 
 const { t } = useI18n();
 const { toast } = useToast();
-const connectionStore = useConnectionStore();
 
-const scope = ref<"mine" | "pending">(props.focusRequestId ? "pending" : (props.initialScope ?? "mine"));
+type ApprovalScope = "mine" | "pending" | "history";
+const scope = ref<ApprovalScope>(props.focusRequestId ? "pending" : (props.initialScope ?? "mine"));
+const HISTORY_PAGE_SIZE = 50;
+const historyStatus = ref("");
+const historyQuery = ref("");
+const historyRange = ref<"all" | "24" | "168" | "720">("all");
+const historyHasMore = ref(false);
+const historyLoading = ref(false);
 const focusedRequestId = ref(props.focusRequestId ?? "");
 const requests = ref<ApprovalRequest[]>([]);
 const templates = ref<ApprovalTemplate[]>([]);
@@ -28,11 +37,8 @@ const error = ref("");
 const busyId = ref("");
 const issuedToken = ref("");
 const showTemplates = ref(false);
-const templateName = ref("");
-const templateScopeType = ref<"global" | "connection">("global");
-const templateScopeConnection = ref("");
-const templateSteps = ref('{\n  "steps": [\n    { "mode": "any", "roles": ["dba"], "users": [] }\n  ]\n}');
-const templateBusy = ref(false);
+const templateDialogOpen = ref(false);
+const editingTemplate = ref<ApprovalTemplate | null>(null);
 
 const empty = computed(() => !loading.value && requests.value.length === 0);
 
@@ -48,11 +54,30 @@ watch(
   },
 );
 
+function historyParams(offset: number) {
+  const hours = historyRange.value === "all" ? undefined : Number(historyRange.value);
+  return {
+    history: true,
+    status: historyStatus.value || undefined,
+    q: historyQuery.value.trim() || undefined,
+    from_ms: hours ? Date.now() - hours * 60 * 60 * 1000 : undefined,
+    limit: HISTORY_PAGE_SIZE,
+    offset,
+  };
+}
+
 async function refresh() {
   loading.value = true;
   error.value = "";
   try {
-    requests.value = await approvalsApi.listApprovals(scope.value === "mine" ? { mine: true } : { status: "pending", assigned: true });
+    requests.value = await approvalsApi.listApprovals(
+      scope.value === "history"
+        ? historyParams(0)
+        : scope.value === "mine"
+          ? { mine: true }
+          : { status: "pending", assigned: true },
+    );
+    historyHasMore.value = scope.value === "history" && requests.value.length === HISTORY_PAGE_SIZE;
     if (focusedRequestId.value && !requests.value.some((request) => request.id === focusedRequestId.value)) {
       try {
         const detail = await approvalsApi.getApproval(focusedRequestId.value);
@@ -69,23 +94,55 @@ async function refresh() {
   } catch (loadError) {
     error.value = formatError(loadError);
     requests.value = [];
+    historyHasMore.value = false;
   } finally {
     loading.value = false;
   }
 }
 
-function stepLabel(step: ApprovalStep): string {
+async function loadMoreHistory() {
+  if (scope.value !== "history" || !historyHasMore.value || historyLoading.value) return;
+  historyLoading.value = true;
+  try {
+    const page = await approvalsApi.listApprovals(historyParams(requests.value.length));
+    requests.value = [...requests.value, ...page];
+    historyHasMore.value = page.length === HISTORY_PAGE_SIZE;
+  } catch (loadError) {
+    toast(formatError(loadError));
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+/** Approval views carry resolved display names; fall back to the id if a user was deleted. */
+function userLabel(request: ApprovalRequest, userId: string): string {
+  return request.user_names?.[userId] || userId;
+}
+
+function stepLabel(step: ApprovalStep, request: ApprovalRequest): string {
   if (step.approver_roles.length === 0 && step.approver_users.length === 0) return t("settings.approvals.stepAnyApprover");
-  return [...step.approver_roles.map((role) => `@${role}`), ...step.approver_users].join(", ");
+  return [...step.approver_roles.map((role) => `@${role}`), ...step.approver_users.map((userId) => userLabel(request, userId))].join(", ");
 }
 
 function stepModeLabel(step: ApprovalStep): string {
   return step.mode === "all" ? t("settings.approvals.stepModeAll") : t("settings.approvals.stepModeAny");
 }
 
+/** An `all` step stays pending after one vote; don't offer that approver a second vote. */
+function hasApprovedCurrentStep(request: ApprovalRequest): boolean {
+  return request.steps.find((step) => step.step_no === request.current_step_no)?.my_decision === "approve";
+}
+
 function executionModeLabel(request: ApprovalRequest): string {
   if (request.execution_mode === "auto") return t("settings.approvals.executionModeAuto");
   if (request.execution_mode === "last_approver") return t("settings.approvals.executionModeLastApprover");
+  return t("settings.approvals.executionModeSubmitter");
+}
+
+function templateModeLabel(mode?: string | null): string {
+  if (!mode) return t("settings.approvals.templateExecutionModeDefault");
+  if (mode === "auto") return t("settings.approvals.executionModeAuto");
+  if (mode === "last_approver") return t("settings.approvals.executionModeLastApprover");
   return t("settings.approvals.executionModeSubmitter");
 }
 
@@ -118,39 +175,24 @@ async function decide(request: ApprovalRequest, decision: "approve" | "reject") 
   }
 }
 
-async function createTemplate() {
-  if (!templateName.value.trim()) {
-    toast(t("settings.approvals.templateNameRequired"));
-    return;
-  }
-  let steps: unknown;
+function openTemplateEditor(template: ApprovalTemplate | null) {
+  editingTemplate.value = template;
+  templateDialogOpen.value = true;
+}
+
+async function onTemplateSaved() {
   try {
-    steps = JSON.parse(templateSteps.value);
-  } catch {
-    toast(t("settings.approvals.templateInvalidJson"));
-    return;
-  }
-  templateBusy.value = true;
-  try {
-    await approvalsApi.createApprovalTemplate({
-      name: templateName.value.trim(),
-      scope_type: templateScopeType.value,
-      scope_id: templateScopeType.value === "connection" ? templateScopeConnection.value : "",
-      steps,
-    });
-    templateName.value = "";
-    await refresh();
-  } catch (createError) {
-    toast(formatError(createError));
-  } finally {
-    templateBusy.value = false;
+    templates.value = await approvalsApi.listApprovalTemplates();
+  } catch (loadError) {
+    toast(formatError(loadError));
   }
 }
 
 async function deleteTemplate(template: ApprovalTemplate) {
   try {
     await approvalsApi.deleteApprovalTemplate(template.id);
-    await refresh();
+    toast(t("settings.approvals.templateDeleted"));
+    await onTemplateSaved();
   } catch (deleteError) {
     toast(formatError(deleteError));
   }
@@ -228,6 +270,40 @@ onMounted(() => {
       >
         {{ t("settings.approvals.pending") }}
       </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        :class="scope === 'history' ? 'bg-muted' : ''"
+        @click="
+          scope = 'history';
+          refresh();
+        "
+      >
+        {{ t("settings.approvals.history") }}
+      </Button>
+    </div>
+
+    <div v-if="scope === 'history'" class="space-y-2 rounded-lg border border-border/60 p-3">
+      <p class="text-xs text-muted-foreground">{{ t("settings.approvals.historyHint") }}</p>
+      <div class="flex flex-wrap items-center gap-2">
+        <select v-model="historyStatus" class="h-8 rounded-md border border-input bg-background px-2 text-sm" @change="refresh">
+          <option value="">{{ t("settings.approvals.historyStatusAll") }}</option>
+          <option v-for="status in ['pending', 'approved', 'executing', 'executed', 'execution_failed', 'rejected']" :key="status" :value="status">{{ status }}</option>
+        </select>
+        <select v-model="historyRange" class="h-8 rounded-md border border-input bg-background px-2 text-sm" @change="refresh">
+          <option value="all">{{ t("settings.approvals.historyRangeAll") }}</option>
+          <option value="24">{{ t("settings.approvals.historyRange24h") }}</option>
+          <option value="168">{{ t("settings.approvals.historyRange7d") }}</option>
+          <option value="720">{{ t("settings.approvals.historyRange30d") }}</option>
+        </select>
+        <Input
+          v-model="historyQuery"
+          class="h-8 min-w-48 flex-1"
+          :placeholder="t('settings.approvals.historySearch')"
+          @keyup.enter="refresh"
+        />
+        <Button variant="outline" size="sm" :disabled="loading" @click="refresh">{{ t("settings.audit.refresh") }}</Button>
+      </div>
     </div>
 
     <p v-if="error" class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -255,52 +331,45 @@ onMounted(() => {
             <div class="truncate">
               <span class="font-medium">{{ template.name }}</span>
               <span class="ml-1 text-xs text-muted-foreground"> · {{ template.scope_type === "global" ? t("settings.identity.scopeGlobal") : template.scope_id }} </span>
+              <span class="ml-1 text-xs text-muted-foreground"> · {{ templateModeLabel(template.execution_mode) }} </span>
             </div>
             <div class="truncate text-xs text-muted-foreground">
               {{ template.steps.map((step) => `${step.mode}: ${[...step.roles.map((role) => `@${role}`), ...step.users].join(", ")}`).join(" → ") }}
             </div>
           </div>
-          <Button size="sm" variant="outline" class="h-7 gap-1 px-1.5 text-xs" @click="deleteTemplate(template)">
-            <Trash2 class="h-3.5 w-3.5" />
-            {{ t("settings.approvals.templateDelete") }}
-          </Button>
-        </div>
-        <div class="space-y-2 rounded-md border border-border/40 p-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <Input v-model="templateName" class="h-8 w-40" :placeholder="t('settings.approvals.templateName')" />
-            <select v-model="templateScopeType" class="h-8 rounded-md border border-input bg-background px-2 text-sm">
-              <option value="global">{{ t("settings.identity.scopeGlobal") }}</option>
-              <option value="connection">{{ t("settings.identity.scopeConnection") }}</option>
-            </select>
-            <select v-if="templateScopeType === 'connection'" v-model="templateScopeConnection" class="h-8 max-w-48 rounded-md border border-input bg-background px-2 text-sm">
-              <option value="">{{ t("settings.identity.scopeSelect") }}</option>
-              <option v-for="connection in connectionStore.connections" :key="connection.id" :value="connection.id">
-                {{ connection.name }}
-              </option>
-            </select>
-          </div>
-          <textarea v-model="templateSteps" spellcheck="false" class="h-32 w-full rounded-md border border-input bg-background p-2 font-mono text-xs" :aria-label="t('settings.approvals.templateSteps')"></textarea>
-          <div class="flex justify-end">
-            <Button size="sm" class="gap-1" :disabled="templateBusy" @click="createTemplate">
-              <Plus class="h-3.5 w-3.5" />
-              {{ t("settings.approvals.templateCreate") }}
+          <div class="flex items-center gap-1">
+            <Button v-if="props.canManageTemplates" size="sm" variant="outline" class="h-7 gap-1 px-1.5 text-xs" @click="openTemplateEditor(template)">
+              <Pencil class="h-3.5 w-3.5" />
+              {{ t("settings.approvals.templateEdit") }}
+            </Button>
+            <Button v-if="props.canManageTemplates" size="sm" variant="outline" class="h-7 gap-1 px-1.5 text-xs text-destructive" @click="deleteTemplate(template)">
+              <Trash2 class="h-3.5 w-3.5" />
+              {{ t("settings.approvals.templateDelete") }}
             </Button>
           </div>
         </div>
+        <div v-if="props.canManageTemplates" class="flex justify-end">
+          <Button size="sm" class="gap-1" @click="openTemplateEditor(null)">
+            <Plus class="h-3.5 w-3.5" />
+            {{ t("settings.approvals.templateCreate") }}
+          </Button>
+        </div>
       </div>
     </div>
+
+    <ApprovalTemplateDialog v-model:open="templateDialogOpen" :template="editingTemplate" @saved="onTemplateSaved" />
 
     <div class="space-y-2">
       <div v-for="request in requests" :key="request.id" :data-approval-request-id="request.id" class="space-y-2 rounded-lg border p-3 transition-shadow" :class="focusedRequestId === request.id ? 'border-primary bg-primary/5 ring-2 ring-primary/40' : 'border-border/60'">
         <div class="flex flex-wrap items-center gap-2">
           <Badge variant="outline" :class="statusClass(request.status)">{{ request.status }}</Badge>
-          <span class="text-xs text-muted-foreground">{{ request.requester_id }}</span>
+          <span class="text-xs text-muted-foreground" :title="request.requester_id">{{ userLabel(request, request.requester_id) }}</span>
           <span class="text-xs text-muted-foreground">· {{ formatTime(request.created_at_ms) }}</span>
           <span class="text-xs text-muted-foreground"> · {{ request.connection_id }}{{ request.database ? ` / ${request.database}` : "" }} </span>
           <Badge v-for="rule in request.rule_ids" :key="rule" variant="outline">{{ rule }}</Badge>
           <Badge variant="outline">{{ executionModeLabel(request) }}</Badge>
-          <span v-if="request.executed_by" class="text-xs text-muted-foreground">
-            {{ t("settings.approvals.executedBy", { user: request.executed_by }) }}
+          <span v-if="request.executed_by" class="text-xs text-muted-foreground" :title="request.executed_by">
+            {{ t("settings.approvals.executedBy", { user: userLabel(request, request.executed_by) }) }}
           </span>
         </div>
         <pre class="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/40 p-2 font-mono text-xs">{{ request.sql_text }}</pre>
@@ -310,28 +379,33 @@ onMounted(() => {
           <span class="text-xs text-muted-foreground">
             {{ t("settings.approvals.stepProgress", { current: request.current_step_no, total: request.step_count }) }}
           </span>
-          <Badge v-for="step in request.steps" :key="step.id" variant="outline" :class="step.status === 'rejected' ? 'text-destructive' : step.status === 'approved' ? 'text-green-600 dark:text-green-400' : ''" :title="stepLabel(step)">
+          <Badge v-for="step in request.steps" :key="step.id" variant="outline" :class="step.status === 'rejected' ? 'text-destructive' : step.status === 'approved' ? 'text-green-600 dark:text-green-400' : ''" :title="stepLabel(step, request)">
             {{ step.step_no }} · {{ stepModeLabel(step) }} · {{ step.status }}
           </Badge>
         </div>
         <div class="space-y-1 text-xs text-muted-foreground">
           <div v-for="step in request.steps" :key="`${step.id}-detail`">
             <span class="font-medium">{{ step.step_no }}.</span>
-            {{ stepLabel(step) }}
+            {{ stepLabel(step, request) }}
             <span v-if="step.required_user_ids.length > (request.status === 'pending' ? 1 : 0)" class="ml-1"> ({{ t("settings.approvals.stepApprovers", { count: step.required_user_ids.length }) }}) </span>
-            <span v-if="step.decided_by" class="ml-1"> · {{ step.decided_by }}{{ step.comment ? `: ${step.comment}` : "" }} </span>
+            <span v-if="step.decided_by" class="ml-1" :title="step.decided_by"> · {{ userLabel(request, step.decided_by) }}{{ step.comment ? `: ${step.comment}` : "" }} </span>
           </div>
         </div>
         <div v-if="request.status === 'pending' && (scope === 'pending' || focusedRequestId === request.id)" class="flex flex-wrap items-center gap-1.5">
-          <Input v-model="comments[request.id]" class="h-7 flex-1 text-xs" :placeholder="t('settings.approvals.commentHint')" />
-          <Button variant="outline" size="sm" class="gap-1" :disabled="busyId === request.id" @click="decide(request, 'approve')">
-            <Check class="h-3.5 w-3.5" />
-            {{ t("settings.approvals.approve") }}
-          </Button>
-          <Button variant="outline" size="sm" class="gap-1 text-destructive" :disabled="busyId === request.id" @click="decide(request, 'reject')">
-            <X class="h-3.5 w-3.5" />
-            {{ t("settings.approvals.reject") }}
-          </Button>
+          <span v-if="hasApprovedCurrentStep(request)" class="text-xs text-muted-foreground">
+            {{ t("settings.approvals.waitingForOtherApprovers") }}
+          </span>
+          <template v-else>
+            <Input v-model="comments[request.id]" class="h-7 flex-1 text-xs" :placeholder="t('settings.approvals.commentHint')" />
+            <Button variant="outline" size="sm" class="gap-1" :disabled="busyId === request.id" @click="decide(request, 'approve')">
+              <Check class="h-3.5 w-3.5" />
+              {{ t("settings.approvals.approve") }}
+            </Button>
+            <Button variant="outline" size="sm" class="gap-1 text-destructive" :disabled="busyId === request.id" @click="decide(request, 'reject')">
+              <X class="h-3.5 w-3.5" />
+              {{ t("settings.approvals.reject") }}
+            </Button>
+          </template>
         </div>
         <div v-if="request.status === 'approved' && (scope === 'mine' || focusedRequestId === request.id)" class="flex justify-end gap-1.5">
           <Button v-if="request.execution_mode === 'submitter'" size="sm" class="gap-1" :disabled="busyId === request.id" @click="execute(request)">
@@ -346,6 +420,11 @@ onMounted(() => {
       </div>
       <div v-if="empty" class="rounded-lg border border-border/60 p-4 text-center text-sm text-muted-foreground">
         {{ t("settings.approvals.empty") }}
+      </div>
+      <div v-if="scope === 'history' && historyHasMore" class="flex justify-center">
+        <Button variant="outline" size="sm" :disabled="historyLoading" @click="loadMoreHistory">
+          {{ historyLoading ? t("common.loading") : t("settings.approvals.loadMore") }}
+        </Button>
       </div>
       <div v-if="loading" class="flex justify-center py-4">
         <LoaderCircle class="h-4 w-4 animate-spin text-muted-foreground" />

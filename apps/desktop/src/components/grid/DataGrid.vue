@@ -3,6 +3,7 @@ import QueryTimingDetails from "./QueryTimingDetails.vue";
 import { applyDdlTextPreferences } from "@/lib/sql/ddlPreferences";
 import { applyDdlSearchMarks } from "@/lib/sql/ddlSearchMarks";
 import { isAiPromptImeCompositionEvent } from "@/lib/ai/aiPromptKeyboard";
+import { buildDataGridAiRequest, dispatchDataGridAiAction, type DataGridAiActionKind } from "@/lib/ai/aiDataGridContext";
 import DdlStorageToggle from "@/components/objects/DdlStorageToggle.vue";
 
 import { useUpdateBlocker } from "@/lib/app/updatePreparation";
@@ -549,6 +550,50 @@ const tableDataPreviewNoticeHidden = ref(readTableDataPreviewNoticeHidden());
 const tableDataPreviewTruncated = computed(() => !!props.tableMeta && (props.result.large_value_cells?.length ?? 0) > 0);
 const showTableDataPreviewNotice = computed(() => tableDataPreviewTruncated.value && !tableDataFullTextMode.value && !tableDataPreviewNoticeHidden.value && !tableDataPreviewNoticeDismissed.value);
 const tableDataFullTextEnabled = computed(() => !!props.tableMeta && tableDataFullTextMode.value);
+
+type GridPolicyNotice = {
+  kind: "mask" | "row_filter";
+  connection_id: string;
+  database?: string | null;
+  schema?: string | null;
+  table: string;
+  columns: string[];
+  policy: string;
+  request_role: string;
+};
+
+const policyNotices = computed<GridPolicyNotice[]>(() => {
+  const notices: GridPolicyNotice[] = [];
+  for (const message of props.result.messages ?? []) {
+    if (message.code !== "DATA_POLICY_MASK" && message.code !== "DATA_POLICY_ROW_FILTER") continue;
+    if (!message.detail) continue;
+    try {
+      const parsed = JSON.parse(message.detail) as GridPolicyNotice;
+      if (parsed.kind && parsed.table && parsed.connection_id) notices.push(parsed);
+    } catch {
+      // A malformed notice must not break the grid.
+    }
+  }
+  return notices;
+});
+
+function requestPolicyAccess(notice: GridPolicyNotice): void {
+  window.dispatchEvent(
+    new CustomEvent("dbx:request-data-access", {
+      detail: {
+        role: notice.request_role,
+        connection_id: notice.connection_id,
+        database_name: notice.database ?? null,
+        schema_name: notice.schema ?? notice.database ?? null,
+        table_name: notice.table,
+        justification:
+          notice.kind === "mask"
+            ? `Request unmask for ${notice.table} (${(notice.columns ?? []).join(", ") || "masked columns"})`
+            : `Request row-filter bypass for ${notice.table}`,
+      },
+    }),
+  );
+}
 const multiRowTranspose = computed(() => settingsStore.editorSettings.dataGridMultiRowTranspose);
 const hideNullColumns = computed(() => settingsStore.editorSettings.dataGridHideNullColumns);
 const hideEmptyColumns = computed(() => settingsStore.editorSettings.dataGridHideEmptyColumns);
@@ -1116,6 +1161,8 @@ const contextCell = ref<{
   rowIndex: number;
   col: number;
 } | null>(null);
+/** Text selected inside the right-clicked cell before native selection is cleared. */
+const contextSelectedText = ref("");
 type ContextFilterTarget = {
   id: number;
   rowId: number;
@@ -1144,6 +1191,7 @@ let contextMenuLifecycle = 0;
 
 function invalidateContextMenuTarget() {
   contextSelectionIsSynthetic.value = false;
+  contextSelectedText.value = "";
   contextCell.value = null;
   contextHeaderColumn.value = null;
   contextHeaderColumnIndex.value = null;
@@ -13094,6 +13142,11 @@ function clearNativeTextSelection() {
 
 function onCellContext(rowId: number, rowIndex: number, colIdx: number, visibleColIdx: number, event?: MouseEvent) {
   event?.preventDefault();
+  const selection = window.getSelection();
+  const selected = selection && !selection.isCollapsed ? selection.toString().trim() : "";
+  const anchor = selection?.anchorNode ?? null;
+  const target = event?.currentTarget as Node | null;
+  contextSelectedText.value = selected && anchor && target?.contains(anchor) ? selected.slice(0, 5000) : "";
   clearNativeTextSelection();
   invalidateContextMenuTarget();
   contextCell.value = { rowId, rowIndex, col: colIdx };
@@ -14659,6 +14712,94 @@ function rowActionLabels() {
   };
 }
 
+function gridAiTableName(): string | undefined {
+  return props.tableMeta?.tableName?.trim() || props.result.sourceLabel?.trim() || undefined;
+}
+
+/** Only a real table can be a composer mention; a free-form result label cannot. */
+function gridAiTableMention(): string | undefined {
+  return props.tableMeta?.tableName?.trim() || undefined;
+}
+
+function gridAiRowValues(): Array<{ column: string; value: string }> {
+  const cell = contextCell.value;
+  const item = cell ? getRowItem(cell.rowId) : undefined;
+  if (!item) return [];
+  return visibleColumns.value.map((column, visibleIdx) => {
+    const actual = visibleColumnIndexes.value[visibleIdx];
+    return { column, value: formatCellCached(item.data[actual], actual) };
+  });
+}
+
+function runGridAiAction(kind: DataGridAiActionKind) {
+  const cell = contextCell.value;
+  if (!cell || !props.connectionId) {
+    toast(t("grid.aiNoConnection"), 4000);
+    return;
+  }
+  const rowItem = getRowItem(cell.rowId);
+  const column = cell.col >= 0 ? props.result.columns[cell.col] : undefined;
+  const value = cell.col >= 0 && rowItem ? formatCellCached(rowItem.data[cell.col], cell.col) : undefined;
+  const request = buildDataGridAiRequest({
+    kind,
+    table: gridAiTableName(),
+    rowNumber: (props.pageOffset ?? 0) + cell.rowIndex + 1,
+    column,
+    value,
+    selectedText: contextSelectedText.value || undefined,
+    rowValues: gridAiRowValues(),
+  });
+  dispatchDataGridAiAction({
+    connectionId: props.connectionId,
+    database: props.executionDatabase || props.database || "",
+    schema: props.schema,
+    table: gridAiTableMention(),
+    label: request.label,
+    context: request.context,
+    instruction: request.instruction,
+  });
+}
+
+function aiMenuItem(labelKey: string, kind: DataGridAiActionKind): ContextMenuItem {
+  return { label: t(labelKey), icon: WandSparkles, action: () => runGridAiAction(kind) };
+}
+
+/** Scheme B: one "AI assistant" submenu, with actions chosen by what was right-clicked. */
+function aiAssistantSubmenu(): ContextMenuItem | null {
+  if (!props.connectionId || !contextCell.value) return null;
+  const children: ContextMenuItem[] = [];
+  if (contextSelectedText.value) {
+    children.push(
+      aiMenuItem("grid.aiExplainText", "text-explain"),
+      aiMenuItem("grid.aiTranslateText", "text-translate"),
+      aiMenuItem("grid.aiExtractText", "text-extract"),
+      aiMenuItem("grid.aiMatchSql", "text-match-sql"),
+    );
+  } else if (contextCell.value.col === -1) {
+    children.push(
+      aiMenuItem("grid.aiExplainRow", "row-explain"),
+      aiMenuItem("grid.aiAnalyzeRow", "row-anomaly"),
+      aiMenuItem("grid.aiGenerateJoinSql", "row-join"),
+      aiMenuItem("grid.aiSummarizeRow", "row-summary"),
+      { label: "", separator: true },
+      aiMenuItem("grid.aiGenerateUpdate", "row-update"),
+    );
+  } else if (contextCell.value.col >= 0) {
+    children.push(
+      aiMenuItem("grid.aiExplainCell", "cell-explain"),
+      aiMenuItem("grid.aiAnalyzeColumn", "cell-column"),
+      aiMenuItem("grid.aiGenerateFilterSql", "cell-filter-sql"),
+      { label: "", separator: true },
+      aiMenuItem("grid.aiCheckQuality", "cell-quality"),
+      aiMenuItem("grid.aiExplainColumn", "cell-schema"),
+      { label: "", separator: true },
+      aiMenuItem("grid.aiGenerateUpdate", "cell-update"),
+    );
+  }
+  if (!children.length) return null;
+  return { label: t("grid.aiAssistant"), icon: WandSparkles, children };
+}
+
 function filterSubmenu(): ContextMenuItem {
   return createDataGridFilterSubmenu({
     label: t("grid.filter"),
@@ -15010,6 +15151,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
   const rowIdsForDelete = isMultiRow.value ? affectedRowIds() : row ? [row.id] : [];
   const deletableContextRowIds = deletableRowIds(rowIdsForDelete);
   const hasEditableSelection = selectionHasEditableCells();
+  const aiMenu = aiAssistantSubmenu();
   const selectedColumnCount = selectedVisibleColumnIndexes().length;
   const gridSnapshotContext = contextHeaderColumn.value && hasColumnSelection.value ? "columns" : contextCell.value?.col === -1 && affectedRowIds().length > 0 ? "rows" : contextCell.value && hasCellSelection.value && selectedCellMatrix.value ? "cells" : null;
   const previewItems: ContextMenuItem[] = [];
@@ -15216,6 +15358,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
         },
       },
     }),
+    aiMenu ? [aiMenu] : [],
     [
       exportSubmenu(),
       ...(isTauriRuntime()
@@ -15313,6 +15456,19 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
     @focusin="onGridFocusIn"
   >
     <p v-if="compatibilityReadOnly" class="shrink-0 border-b px-3 py-1 text-xs text-muted-foreground" :title="t('connection.mysqlDataCharsetReadOnly')">{{ t("connection.mysqlDataCharsetExportHint") }}</p>
+    <div v-if="policyNotices.length > 0" data-grid-policy-notice class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300">
+      <Info class="h-3.5 w-3.5 shrink-0" />
+      <span>{{ t("grid.dataPolicyNotice") }}</span>
+      <button
+        v-for="notice in policyNotices"
+        :key="notice.policy + notice.kind"
+        type="button"
+        class="font-medium underline decoration-dotted underline-offset-2 hover:text-sky-900 dark:hover:text-sky-100"
+        @click="requestPolicyAccess(notice)"
+      >
+        {{ notice.kind === "mask" ? t("grid.requestUnmask") : t("grid.requestRowAccess") }}
+      </button>
+    </div>
     <CustomContextMenu :items="currentGridContextMenuItems" @open="onGridContextMenuOpen" @close="onGridContextMenuClose" v-slot="{ onContextMenu }">
       <div v-if="hasData || canShowWhereSearch" class="flex-1 flex flex-col overflow-hidden" @contextmenu="onContextMenu">
         <!-- Search bar -->

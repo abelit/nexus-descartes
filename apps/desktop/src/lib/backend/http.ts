@@ -61,6 +61,9 @@ import { functionDiffsToWire, functionInfoFromWire, schemaDiffPreparationFromWir
 import type { OracleRoutineSnapshot, OracleRoutineOperation, OracleRoutineOperationObservation, OracleRoutineSaveInput, OracleRoutinePlanInput, OracleRoutinePlan, OracleRoutineReadOptions } from "@/types/schemaDiff";
 
 export function databaseBackupCommand<T = unknown>(command: DatabaseBackupCommand): Promise<T> {
+  // The status poll is read-only; a GET keeps it out of the request-level
+  // audit trail instead of writing one admin event per poll.
+  if (command.action === "snapshot") return get<T>("/api/database-backups/snapshot");
   return post("/api/database-backups", command);
 }
 

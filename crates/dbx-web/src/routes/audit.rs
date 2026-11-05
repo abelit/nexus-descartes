@@ -11,7 +11,7 @@ use dbx_core::audit::{
     Actor, AuditChainHead, AuditChainReport, AuditContext, AuditDecision, AuditEventInsert, AuditOperation,
     AuditOutcome, AuditPage, AuditQuery, AuditSource,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 use crate::state::WebState;
@@ -20,6 +20,58 @@ use crate::state::WebState;
 const ENV_AUDIT_BOOTSTRAP_TOKEN: &str = "DBX_AUDIT_BOOTSTRAP_TOKEN";
 /// Header carrying the bootstrap token.
 const AUDIT_TOKEN_HEADER: &str = "x-dbx-audit-token";
+
+/// Row visibility for one audit request. `actor_id == None` means the caller
+/// may read the whole trail; `Some(id)` restricts list/export/stats/detail to
+/// events produced by that actor.
+#[derive(Clone, Debug)]
+pub struct AuditAccessScope {
+    actor_id: Option<String>,
+}
+
+impl AuditAccessScope {
+    fn unrestricted() -> Self {
+        Self { actor_id: None }
+    }
+
+    fn for_actor(actor: &Actor) -> Self {
+        if dbx_core::identity::can_view_all_audit(&actor.roles) {
+            Self::unrestricted()
+        } else {
+            Self { actor_id: Some(actor.id.clone()) }
+        }
+    }
+
+    fn is_unrestricted(&self) -> bool {
+        self.actor_id.is_none()
+    }
+
+    fn restricted_actor(&self) -> Option<String> {
+        self.actor_id.clone()
+    }
+
+    /// The platform restriction overrides a client-supplied actor filter, so a
+    /// scoped caller cannot ask for someone else's events.
+    fn apply(&self, query: &mut AuditQuery) {
+        if let Some(actor_id) = &self.actor_id {
+            query.actor_id = Some(actor_id.clone());
+        }
+    }
+
+    fn allows(&self, actor_id: &str) -> bool {
+        self.actor_id.as_deref().is_none_or(|restricted| restricted == actor_id)
+    }
+}
+
+fn require_global_scope(scope: &AuditAccessScope) -> Result<(), AppError> {
+    if scope.is_unrestricted() {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "AUDIT_ACCESS_DENIED: the audit chain, retention, and checkpoint APIs require a global audit role",
+        ))
+    }
+}
 
 /// Gate for the audit API.
 ///
@@ -32,14 +84,15 @@ const AUDIT_TOKEN_HEADER: &str = "x-dbx-audit-token";
 /// otherwise the proxy makes the audit log readable to every client.
 pub async fn require_audit_access(
     State(state): State<Arc<WebState>>,
-    req: Request<axum::body::Body>,
+    mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0);
     let required = required_permission(req.uri().path(), req.method());
 
-    if let Some(actor) = req.extensions().get::<Actor>() {
+    if let Some(actor) = req.extensions().get::<Actor>().cloned() {
         if dbx_core::identity::has_permission(&actor.roles, required) {
+            req.extensions_mut().insert(AuditAccessScope::for_actor(&actor));
             record_audit_read(&state, &req);
             return next.run(req).await;
         }
@@ -64,6 +117,7 @@ pub async fn require_audit_access(
         }
     }
 
+    req.extensions_mut().insert(AuditAccessScope::unrestricted());
     record_audit_read(&state, &req);
     next.run(req).await
 }
@@ -78,6 +132,9 @@ fn required_permission(path: &str, method: &axum::http::Method) -> dbx_core::ide
     }
     if path.ends_with("/audit/verify") || path.ends_with("/audit/verify-checkpoint") {
         return Permission::AuditVerify;
+    }
+    if path.ends_with("/audit/retention") {
+        return if *method == axum::http::Method::GET { Permission::AuditRead } else { Permission::AuditVerify };
     }
     if path.ends_with("/audit/retention/prune") {
         return Permission::AuditVerify;
@@ -154,6 +211,8 @@ pub struct AuditEventsQuery {
     pub decision: Option<String>,
     pub outcome: Option<String>,
     pub sql_contains: Option<String>,
+    /// Matches connection, database, schema, or table.
+    pub target_contains: Option<String>,
     pub from_ms: Option<i64>,
     pub to_ms: Option<i64>,
     pub cursor_seq: Option<i64>,
@@ -170,6 +229,7 @@ impl AuditEventsQuery {
             decision: self.decision.as_deref().map(parse_decision).transpose()?,
             outcome: self.outcome.as_deref().map(parse_outcome).transpose()?,
             sql_contains: self.sql_contains.clone(),
+            target_contains: self.target_contains.clone(),
             from_ms: self.from_ms,
             to_ms: self.to_ms,
             cursor_seq: self.cursor_seq,
@@ -201,31 +261,69 @@ pub struct AuditVerifyQuery {
 /// enforces the bootstrap token / loopback gate until Phase B supplies roles.
 pub async fn list_events(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
     Query(query): Query<AuditEventsQuery>,
 ) -> Result<Json<AuditPage>, AppError> {
-    let query = query.into_filter()?;
+    let mut query = query.into_filter()?;
+    scope.apply(&mut query);
     state.app.storage.query_audit_events(query).await.map(Json).map_err(AppError::from)
 }
 
 pub async fn event_detail(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
     axum::extract::Path(event_id): axum::extract::Path<String>,
 ) -> Result<Json<dbx_core::audit::AuditEvent>, AppError> {
-    state
+    let event = state
         .app
         .storage
         .audit_event_by_id(event_id.clone())
         .await
         .map_err(AppError::from)?
-        .map(Json)
-        .ok_or_else(|| AppError::not_found(format!("Audit event '{event_id}' not found")))
+        .ok_or_else(|| AppError::not_found(format!("Audit event '{event_id}' not found")))?;
+    if !scope.allows(&event.event.actor.id) {
+        // 404 rather than 403: a scoped reader must not learn that another
+        // actor's event exists.
+        return Err(AppError::not_found(format!("Audit event '{event_id}' not found")));
+    }
+    Ok(Json(event))
 }
 
 pub async fn stats(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
     Query(query): Query<AuditStatsQuery>,
 ) -> Result<Json<dbx_core::audit::AuditStats>, AppError> {
-    state.app.storage.audit_stats(query.from_ms, query.to_ms).await.map(Json).map_err(AppError::from)
+    state
+        .app
+        .storage
+        .audit_stats(query.from_ms, query.to_ms, scope.restricted_actor())
+        .await
+        .map(Json)
+        .map_err(AppError::from)
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct AuditActorsQuery {
+    pub from_ms: Option<i64>,
+    pub to_ms: Option<i64>,
+    pub limit: Option<usize>,
+}
+
+/// Searchable actor list for the audit filter. Scoped callers only get
+/// themselves; global readers get every actor that appears in range.
+pub async fn list_actors(
+    State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
+    Query(query): Query<AuditActorsQuery>,
+) -> Result<Json<Vec<dbx_core::audit::AuditActorCount>>, AppError> {
+    state
+        .app
+        .storage
+        .audit_actors(query.from_ms, query.to_ms, scope.restricted_actor(), query.limit.unwrap_or(200))
+        .await
+        .map(Json)
+        .map_err(AppError::from)
 }
 
 /// Upper bound for one export; the audit log must not be exfiltrated in a
@@ -235,6 +333,7 @@ const EXPORT_MAX_EVENTS: usize = 500_000;
 
 pub async fn export_events(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
     Query(query): Query<AuditExportQuery>,
 ) -> Result<Response, AppError> {
     let format = match query.format.as_deref().unwrap_or("jsonl") {
@@ -245,6 +344,7 @@ pub async fn export_events(
     let mut filter = query.filter.into_filter()?;
     filter.cursor_seq = None;
     filter.limit = Some(EXPORT_PAGE_SIZE);
+    scope.apply(&mut filter);
 
     let storage = state.app.storage.clone();
     let stream = async_stream::stream! {
@@ -361,19 +461,124 @@ pub struct PruneAuditRequest {
     pub reason: String,
 }
 
+fn default_retention_days() -> i64 {
+    std::env::var("DBX_AUDIT_RETENTION_DAYS").ok().and_then(|value| value.trim().parse::<i64>().ok()).unwrap_or(180)
+}
+
+fn audit_prune_allowed() -> bool {
+    matches!(
+        std::env::var("DBX_AUDIT_ALLOW_PRUNE").ok().as_deref().map(str::trim),
+        Some("1") | Some("true") | Some("yes")
+    )
+}
+
+#[derive(Serialize)]
+pub struct AuditRetentionView {
+    /// Configured retention in days; `0` means keep forever.
+    pub days: i64,
+    /// Deployment default from `DBX_AUDIT_RETENTION_DAYS`.
+    pub default_days: i64,
+    pub oldest_event_ms: Option<i64>,
+    pub oldest_age_days: Option<i64>,
+    pub head_seq: i64,
+    pub latest_checkpoint_seq: Option<i64>,
+    pub exported_seq: i64,
+    pub floor_seq: Option<i64>,
+    /// Highest sequence safe to delete: covered by both a checkpoint and an
+    /// external export, below the live tail.
+    pub prunable_up_to_seq: Option<i64>,
+    pub allow_prune: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAuditRetentionRequest {
+    pub days: i64,
+}
+
+async fn retention_view(state: &WebState) -> Result<AuditRetentionView, AppError> {
+    let days =
+        state.app.storage.audit_retention_days().await.map_err(AppError::from)?.unwrap_or(default_retention_days());
+    let head = state.app.storage.audit_chain_head().await.map_err(AppError::from)?;
+    let checkpoint = state
+        .app
+        .storage
+        .audit_checkpoints(1)
+        .await
+        .map_err(AppError::from)?
+        .into_iter()
+        .next()
+        .map(|checkpoint| checkpoint.seq);
+    let exported_seq = state.app.storage.audit_last_exported_seq().await.map_err(AppError::from)?;
+    let floor_seq = state.app.storage.audit_retention_floor_seq().await.map_err(AppError::from)?;
+    let oldest_event_ms = state.app.storage.audit_oldest_event_ms().await.map_err(AppError::from)?;
+    let oldest_age_days = oldest_event_ms.map(|oldest| (chrono::Utc::now().timestamp_millis() - oldest) / 86_400_000);
+    let prunable_up_to_seq = checkpoint
+        .zip(Some(exported_seq))
+        .map(|(checkpoint, exported)| checkpoint.min(exported))
+        .filter(|seq| *seq > floor_seq.unwrap_or(0) && *seq < head.last_seq);
+    Ok(AuditRetentionView {
+        days,
+        default_days: default_retention_days(),
+        oldest_event_ms,
+        oldest_age_days,
+        head_seq: head.last_seq,
+        latest_checkpoint_seq: checkpoint,
+        exported_seq,
+        floor_seq,
+        prunable_up_to_seq,
+        allow_prune: audit_prune_allowed(),
+    })
+}
+
+pub async fn get_retention(
+    State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
+) -> Result<Json<AuditRetentionView>, AppError> {
+    require_global_scope(&scope)?;
+    retention_view(&state).await.map(Json)
+}
+
+pub async fn update_retention(
+    State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
+    Extension(actor): Extension<Actor>,
+    Json(body): Json<UpdateAuditRetentionRequest>,
+) -> Result<Json<AuditRetentionView>, AppError> {
+    require_global_scope(&scope)?;
+    if !(0..=36500).contains(&body.days) {
+        return Err(AppError::bad_request("retention days must be between 0 and 36500"));
+    }
+    state.app.storage.save_audit_retention_days(body.days).await.map_err(AppError::from)?;
+    let mut event = AuditEventInsert::new(
+        &AuditContext {
+            actor,
+            source: AuditSource::Web,
+            client_ip: None,
+            user_agent: None,
+            request_id: None,
+            execution_id: None,
+        },
+        AuditOperation::Admin,
+        AuditDecision::Allowed,
+        AuditOutcome::Success,
+    );
+    event.resource_type = Some("audit".to_string());
+    event.details_json = Some(serde_json::json!({ "retention_days": body.days }).to_string());
+    state.app.record_audit(event);
+    retention_view(&state).await.map(Json)
+}
+
 /// Removes a retained prefix of the chain. Requires `DBX_AUDIT_ALLOW_PRUNE=1`
 /// and a checkpoint plus an external export covering the range; the deletion
 /// itself is recorded as a maintenance event.
 pub async fn prune_events(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
     Extension(actor): Extension<Actor>,
     Json(body): Json<PruneAuditRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let enabled = matches!(
-        std::env::var("DBX_AUDIT_ALLOW_PRUNE").ok().as_deref().map(str::trim),
-        Some("1") | Some("true") | Some("yes")
-    );
-    if !enabled {
+    require_global_scope(&scope)?;
+    if !audit_prune_allowed() {
         return Err(AppError::forbidden("AUDIT_PRUNE_DISABLED: set DBX_AUDIT_ALLOW_PRUNE=1 to allow pruning"));
     }
     let deleted =
@@ -412,32 +617,44 @@ pub async fn prune_events(
     Ok(Json(serde_json::json!({ "deleted": deleted, "up_to_seq": body.up_to_seq })))
 }
 
-pub async fn chain_head(State(state): State<Arc<WebState>>) -> Result<Json<AuditChainHead>, AppError> {
+pub async fn chain_head(
+    State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
+) -> Result<Json<AuditChainHead>, AppError> {
+    require_global_scope(&scope)?;
     state.app.storage.audit_chain_head().await.map(Json).map_err(AppError::from)
 }
 
 pub async fn checkpoints(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
 ) -> Result<Json<Vec<dbx_core::audit::AuditCheckpoint>>, AppError> {
+    require_global_scope(&scope)?;
     state.app.storage.audit_checkpoints(100).await.map(Json).map_err(AppError::from)
 }
 
 pub async fn create_checkpoint(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
 ) -> Result<Json<dbx_core::audit::AuditCheckpoint>, AppError> {
+    require_global_scope(&scope)?;
     state.app.storage.create_audit_checkpoint().await.map(Json).map_err(AppError::from)
 }
 
 pub async fn verify_from_checkpoint(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
 ) -> Result<Json<dbx_core::audit::AuditCheckpointReport>, AppError> {
+    require_global_scope(&scope)?;
     state.app.storage.verify_audit_chain_from_checkpoint().await.map(Json).map_err(AppError::from)
 }
 
 pub async fn verify_chain(
     State(state): State<Arc<WebState>>,
+    Extension(scope): Extension<AuditAccessScope>,
     Query(query): Query<AuditVerifyQuery>,
 ) -> Result<Json<AuditChainReport>, AppError> {
+    require_global_scope(&scope)?;
     state.app.storage.verify_audit_chain(query.from_seq, query.to_seq).await.map(Json).map_err(AppError::from)
 }
 

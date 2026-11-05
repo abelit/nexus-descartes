@@ -6,7 +6,7 @@ use axum::extract::{Query as AxumQuery, State};
 use axum::Extension;
 use axum::Json;
 use dbx_core::audit::Actor;
-use dbx_core::governance::{CompiledPolicy, PolicyDocument};
+use dbx_core::governance::{CompiledPolicy, PolicyDocument, PolicyEffect};
 use dbx_core::identity::Permission;
 use serde::{Deserialize, Serialize};
 
@@ -95,6 +95,7 @@ pub async fn publish_policy(
     validate_scope(&body.scope_type, &body.scope_id)?;
     let document: PolicyDocument = serde_json::from_value(body.document.clone())
         .map_err(|error| AppError::bad_request(format!("POLICY_DOCUMENT_INVALID: {error}")))?;
+    validate_rule_templates(&state, &body.scope_type, &body.scope_id, &document).await?;
     let document_json = serde_json::to_string(&document).map_err(|error| AppError::internal(error.to_string()))?;
 
     // Compile the document together with every other scope before publishing:
@@ -148,6 +149,16 @@ pub async fn rollback_policy(
 ) -> Result<Json<serde_json::Value>, AppError> {
     require(&actor, Permission::PolicyPublish)?;
     validate_scope(&body.scope_type, &body.scope_id)?;
+    let source = state
+        .app
+        .storage
+        .policy_document_at(body.scope_type.clone(), body.scope_id.clone(), body.version)
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("POLICY_VERSION_NOT_FOUND"))?;
+    let document: PolicyDocument = serde_json::from_str(&source.document_json)
+        .map_err(|error| AppError::bad_request(format!("POLICY_DOCUMENT_INVALID: {error}")))?;
+    validate_rule_templates(&state, &body.scope_type, &body.scope_id, &document).await?;
     let version = state
         .app
         .storage
@@ -177,6 +188,7 @@ pub struct EffectiveRuleView {
     pub scope: dbx_core::governance::RuleScope,
     pub r#match: dbx_core::governance::RuleMatch,
     pub message: String,
+    pub approval_template_id: Option<String>,
     pub builtin: bool,
 }
 
@@ -203,6 +215,7 @@ pub async fn effective_policy(Extension(actor): Extension<Actor>) -> Result<Json
                 scope: rule.scope.clone(),
                 r#match: rule.rule_match.clone(),
                 message: rule.message.clone(),
+                approval_template_id: rule.approval_template_id.clone(),
                 builtin: rule.builtin,
             })
             .collect(),
@@ -236,6 +249,59 @@ fn scope_of(scope_type: &str, scope_id: &str) -> dbx_core::governance::RuleScope
         "database" => dbx_core::governance::RuleScope::Database(scope_id.to_string()),
         _ => dbx_core::governance::RuleScope::Global,
     }
+}
+
+/// Validate `approval_template_id` bindings before a policy document becomes
+/// effective. A bound template must exist, be enabled, and be usable from the
+/// document's scope: global documents may only bind global templates, while
+/// connection/database documents may also bind a template for their own
+/// connection.
+async fn validate_rule_templates(
+    state: &WebState,
+    scope_type: &str,
+    scope_id: &str,
+    document: &PolicyDocument,
+) -> Result<(), AppError> {
+    if !document.rules.iter().any(|rule| rule.approval_template_id.as_deref().is_some_and(|id| !id.trim().is_empty())) {
+        return Ok(());
+    }
+    let templates = state.app.storage.list_approval_templates().await.map_err(AppError::from)?;
+    let connection_id = match scope_type {
+        "connection" => Some(scope_id),
+        "database" => Some(scope_id.split("::").next().unwrap_or(scope_id)),
+        _ => None,
+    };
+    for rule in &document.rules {
+        let Some(template_id) = rule.approval_template_id.as_deref().map(str::trim).filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        if rule.action != PolicyEffect::RequireApproval {
+            return Err(AppError::bad_request(format!(
+                "POLICY_TEMPLATE_NOT_APPLICABLE: rule {} binds an approval template but its action is not require_approval",
+                rule.id
+            )));
+        }
+        let template = templates.iter().find(|template| template.id == template_id).ok_or_else(|| {
+            AppError::bad_request(format!(
+                "POLICY_TEMPLATE_MISSING: rule {} references unknown approval template {template_id}",
+                rule.id
+            ))
+        })?;
+        if !template.enabled {
+            return Err(AppError::bad_request(format!(
+                "POLICY_TEMPLATE_DISABLED: rule {} references disabled approval template {template_id}",
+                rule.id
+            )));
+        }
+        let scope_allows = template.scope_type == "global"
+            || (template.scope_type == "connection" && connection_id == Some(template.scope_id.as_str()));
+        if !scope_allows {
+            return Err(AppError::bad_request(format!(
+                "POLICY_TEMPLATE_SCOPE_MISMATCH: template {template_id} is scoped to another connection"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Latest published document of every scope, as compilation input.

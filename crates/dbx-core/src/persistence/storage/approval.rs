@@ -49,6 +49,7 @@ pub(super) fn ensure_approval_schema_sync(conn: &rusqlite::Connection) -> Result
             scope_id TEXT NOT NULL DEFAULT '',
             steps_json TEXT NOT NULL,
             sla_secs INTEGER,
+            execution_mode TEXT,
             enabled INTEGER NOT NULL DEFAULT 1,
             created_by TEXT NOT NULL DEFAULT '',
             created_at_ms INTEGER NOT NULL,
@@ -97,7 +98,23 @@ pub(super) fn ensure_approval_schema_sync(conn: &rusqlite::Connection) -> Result
         CREATE INDEX IF NOT EXISTS idx_approval_tokens_request ON approval_tokens(request_id);",
     )
     .map_err(|error| format!("APPROVAL_SCHEMA: {error}"))?;
-    ensure_approval_request_columns_sync(conn)
+    ensure_approval_request_columns_sync(conn)?;
+    ensure_approval_template_columns_sync(conn)
+}
+
+/// Older databases predate template execution modes; add the column in place.
+fn ensure_approval_template_columns_sync(conn: &rusqlite::Connection) -> Result<(), String> {
+    let mut columns = HashSet::new();
+    let mut statement = conn.prepare("PRAGMA table_info(approval_templates)").map_err(|error| error.to_string())?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(1)).map_err(|error| error.to_string())?;
+    for row in rows {
+        columns.insert(row.map_err(|error| error.to_string())?);
+    }
+    if !columns.contains("execution_mode") {
+        conn.execute("ALTER TABLE approval_templates ADD COLUMN execution_mode TEXT", [])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 /// Older databases predate multi-step approvals; add the columns in place.
@@ -204,6 +221,7 @@ fn row_to_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalStepDeci
 fn row_to_template(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalTemplate> {
     let steps_json: String = row.get("steps_json")?;
     let enabled: i64 = row.get("enabled")?;
+    let execution_mode: Option<String> = row.get("execution_mode")?;
     Ok(ApprovalTemplate {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -211,6 +229,7 @@ fn row_to_template(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalTemplate
         scope_id: row.get("scope_id")?,
         steps: crate::governance::approval::parse_steps_document(&steps_json).unwrap_or_default(),
         sla_secs: row.get("sla_secs")?,
+        execution_mode: execution_mode.as_deref().and_then(ApprovalExecutionMode::parse),
         enabled: enabled != 0,
         created_by: row.get("created_by")?,
         created_at_ms: row.get("created_at_ms")?,
@@ -228,6 +247,24 @@ fn row_to_decision_token(row: &rusqlite::Row<'_>) -> rusqlite::Result<ApprovalTo
         expires_at_ms: row.get("expires_at_ms")?,
         consumed_at_ms: row.get("consumed_at_ms")?,
     })
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ApprovalRequestQuery {
+    pub requester_id: Option<String>,
+    /// Matches requests the user submitted or voted on. Used for the
+    /// non-privileged approval-history view.
+    pub involved_actor_id: Option<String>,
+    pub status: Option<String>,
+    pub search: Option<String>,
+    pub from_ms: Option<i64>,
+    pub to_ms: Option<i64>,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+fn escape_approval_like(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 impl Storage {
@@ -327,31 +364,82 @@ impl Storage {
 
     /// Lists requests, newest first. `requester_id` narrows to one user;
     /// `status` narrows to one state.
-    pub async fn list_approval_requests(
-        &self,
-        requester_id: Option<String>,
-        status: Option<String>,
-        limit: usize,
-    ) -> Result<Vec<ApprovalRequest>, String> {
-        let limit = limit.clamp(1, 500) as i64;
+    pub async fn list_approval_requests(&self, query: ApprovalRequestQuery) -> Result<Vec<ApprovalRequest>, String> {
+        let limit = query.limit.clamp(1, 500) as i64;
+        let offset = query.offset as i64;
         self.with_conn(move |conn| {
             let mut sql = String::from("SELECT * FROM approval_requests WHERE 1=1");
             let mut values: Vec<rusqlite::types::Value> = Vec::new();
-            if let Some(requester_id) = requester_id {
+            if let Some(requester_id) = query.requester_id {
                 sql.push_str(" AND requester_id = ?");
                 values.push(rusqlite::types::Value::Text(requester_id));
             }
-            if let Some(status) = status {
+            if let Some(actor_id) = query.involved_actor_id {
+                sql.push_str(
+                    " AND (requester_id = ? OR EXISTS ( \
+                     SELECT 1 FROM approval_step_decisions d \
+                     WHERE d.request_id = approval_requests.id AND d.actor_id = ?))",
+                );
+                values.push(rusqlite::types::Value::Text(actor_id.clone()));
+                values.push(rusqlite::types::Value::Text(actor_id));
+            }
+            if let Some(status) = query.status {
                 sql.push_str(" AND status = ?");
                 values.push(rusqlite::types::Value::Text(status));
             }
-            sql.push_str(" ORDER BY created_at_ms DESC LIMIT ?");
+            if let Some(search) = query.search.filter(|value| !value.trim().is_empty()) {
+                let pattern = format!("%{}%", escape_approval_like(search.trim()));
+                sql.push_str(
+                    " AND (sql_text LIKE ? ESCAPE '\\' OR justification LIKE ? ESCAPE '\\' \
+                     OR id LIKE ? ESCAPE '\\' OR requester_id LIKE ? ESCAPE '\\')",
+                );
+                for _ in 0..4 {
+                    values.push(rusqlite::types::Value::Text(pattern.clone()));
+                }
+            }
+            if let Some(from_ms) = query.from_ms {
+                sql.push_str(" AND created_at_ms >= ?");
+                values.push(rusqlite::types::Value::Integer(from_ms));
+            }
+            if let Some(to_ms) = query.to_ms {
+                sql.push_str(" AND created_at_ms <= ?");
+                values.push(rusqlite::types::Value::Integer(to_ms));
+            }
+            sql.push_str(" ORDER BY created_at_ms DESC LIMIT ? OFFSET ?");
             values.push(rusqlite::types::Value::Integer(limit));
+            values.push(rusqlite::types::Value::Integer(offset));
             let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
             let rows = stmt
                 .query_map(super::params_from_iter(values.iter()), row_to_request)
                 .map_err(|error| error.to_string())?;
             rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    /// Finds an unfinished request with the same requester, target, and SQL
+    /// digest. Agent-initiated approvals use this to avoid queueing the same
+    /// statement twice when the model retries or the UI also offers a request.
+    pub async fn find_open_approval_request(
+        &self,
+        requester_id: String,
+        connection_id: String,
+        database: String,
+        schema: Option<String>,
+        sql_digest: String,
+    ) -> Result<Option<ApprovalRequest>, String> {
+        self.with_conn(move |conn| {
+            conn.query_row(
+                "SELECT * FROM approval_requests \
+                 WHERE requester_id = ?1 AND connection_id = ?2 AND database = ?3 \
+                   AND COALESCE(schema_name, '') = ?4 AND sql_digest = ?5 \
+                   AND status IN ('pending', 'approved', 'executing') \
+                 ORDER BY created_at_ms DESC LIMIT 1",
+                params![requester_id, connection_id, database, schema.unwrap_or_default(), sql_digest],
+                row_to_request,
+            )
+            .optional()
+            .map_err(|error| error.to_string())
         })
         .await
     }
@@ -428,6 +516,30 @@ impl Storage {
                 .prepare("SELECT * FROM approval_step_decisions WHERE request_id = ?1 ORDER BY step_no, created_at_ms")
                 .map_err(|error| error.to_string())?;
             let rows = stmt.query_map([request_id], row_to_decision).map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    /// Decisions for several requests in one round trip, ordered by request and
+    /// step. The approval list uses it to tell each viewer which steps they have
+    /// already voted on (an `all` step stays open after one vote).
+    pub async fn approval_step_decisions_for_requests(
+        &self,
+        request_ids: Vec<String>,
+    ) -> Result<Vec<ApprovalStepDecision>, String> {
+        if request_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(move |conn| {
+            let placeholders = vec!["?"; request_ids.len()].join(", ");
+            let sql = format!(
+                "SELECT * FROM approval_step_decisions WHERE request_id IN ({placeholders}) ORDER BY request_id, step_no, created_at_ms"
+            );
+            let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(super::params_from_iter(request_ids.iter()), row_to_decision)
+                .map_err(|error| error.to_string())?;
             rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
         })
         .await
@@ -676,9 +788,9 @@ impl Storage {
             let steps_json = crate::governance::approval::steps_document_json(&template.steps)?;
             tx.execute(
                 "INSERT INTO approval_templates \
-                 (id, name, scope_type, scope_id, steps_json, sla_secs, enabled, created_by, \
+                 (id, name, scope_type, scope_id, steps_json, sla_secs, execution_mode, enabled, created_by, \
                   created_at_ms, updated_at_ms) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     template.id,
                     template.name,
@@ -686,6 +798,7 @@ impl Storage {
                     template.scope_id,
                     steps_json,
                     template.sla_secs,
+                    template.execution_mode.map(|mode| mode.as_str()),
                     i64::from(template.enabled),
                     template.created_by,
                     template.created_at_ms,
@@ -701,22 +814,34 @@ impl Storage {
     pub async fn update_approval_template(&self, template: ApprovalTemplate) -> Result<bool, String> {
         self.with_conn(move |conn| {
             let steps_json = crate::governance::approval::steps_document_json(&template.steps)?;
-            let changed = conn
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            // Keep the one-enabled-template-per-scope invariant when an edit
+            // moves the template to another scope.
+            tx.execute(
+                "DELETE FROM approval_templates WHERE scope_type = ?1 AND scope_id = ?2 AND id <> ?3",
+                params![template.scope_type, template.scope_id, template.id],
+            )
+            .map_err(|error| error.to_string())?;
+            let changed = tx
                 .execute(
                     "UPDATE approval_templates SET name = ?1, scope_type = ?2, scope_id = ?3, steps_json = ?4, \
-                     sla_secs = ?5, enabled = ?6, updated_at_ms = ?7 WHERE id = ?8",
+                     sla_secs = ?5, execution_mode = ?6, enabled = ?7, updated_at_ms = ?8 WHERE id = ?9",
                     params![
                         template.name,
                         template.scope_type,
                         template.scope_id,
                         steps_json,
                         template.sla_secs,
+                        template.execution_mode.map(|mode| mode.as_str()),
                         i64::from(template.enabled),
                         template.updated_at_ms,
                         template.id,
                     ],
                 )
                 .map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
             Ok(changed == 1)
         })
         .await
@@ -1014,6 +1139,10 @@ mod tests {
         assert!(second.step_completed);
         assert_eq!(second.request_status, ApprovalStatus::Approved);
         assert_eq!(storage.approval_step_decisions_for_request("r1".to_string()).await.unwrap().len(), 2);
+        let bulk = storage.approval_step_decisions_for_requests(vec!["r1".to_string()]).await.unwrap();
+        assert_eq!(bulk.len(), 2);
+        assert!(bulk.iter().any(|decision| decision.actor_id == "bob"));
+        assert!(bulk.iter().any(|decision| decision.actor_id == "carol"));
     }
 
     #[tokio::test]
@@ -1110,6 +1239,7 @@ mod tests {
             scope_id: String::new(),
             steps: vec![spec(ApprovalStepMode::Any, &["security_admin"], &[])],
             sla_secs: None,
+            execution_mode: None,
             enabled: true,
             created_by: "admin".to_string(),
             created_at_ms: now,
@@ -1125,6 +1255,7 @@ mod tests {
             scope_id: "conn".to_string(),
             steps: vec![spec(ApprovalStepMode::All, &["dba"], &[])],
             sla_secs: Some(3600),
+            execution_mode: Some(ApprovalExecutionMode::Auto),
             enabled: true,
             created_by: "admin".to_string(),
             created_at_ms: now,
@@ -1134,6 +1265,7 @@ mod tests {
         let resolved = storage.resolve_approval_template("conn".to_string()).await.unwrap().unwrap();
         assert_eq!(resolved.id, "t-conn");
         assert_eq!(resolved.steps[0].mode, ApprovalStepMode::All);
+        assert_eq!(resolved.execution_mode, Some(ApprovalExecutionMode::Auto));
         assert_eq!(storage.list_approval_templates().await.unwrap().len(), 2);
         assert!(storage.delete_approval_template("t-conn".to_string()).await.unwrap());
         assert_eq!(storage.resolve_approval_template("conn".to_string()).await.unwrap().unwrap().id, "t-global");
@@ -1149,6 +1281,7 @@ mod tests {
             scope_id: String::new(),
             steps: vec![spec(ApprovalStepMode::Any, &["dba"], &[])],
             sla_secs: None,
+            execution_mode: None,
             enabled: true,
             created_by: "admin".to_string(),
             created_at_ms: 1,
@@ -1162,6 +1295,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn updating_a_template_into_an_occupied_scope_replaces_the_old_one() {
+        let storage = storage().await;
+        let template = |id: &str, name: &str, scope_type: &str, scope_id: &str| ApprovalTemplate {
+            id: id.to_string(),
+            name: name.to_string(),
+            scope_type: scope_type.to_string(),
+            scope_id: scope_id.to_string(),
+            steps: vec![spec(ApprovalStepMode::Any, &["dba"], &[])],
+            sla_secs: None,
+            execution_mode: None,
+            enabled: true,
+            created_by: "admin".to_string(),
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+        storage.create_approval_template(template("t-global", "global", "global", "")).await.unwrap();
+        storage.create_approval_template(template("t-conn", "conn", "connection", "conn")).await.unwrap();
+
+        let mut moved = template("t-conn", "moved", "global", "");
+        moved.updated_at_ms = 2;
+        assert!(storage.update_approval_template(moved).await.unwrap());
+        let templates = storage.list_approval_templates().await.unwrap();
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0].id, "t-conn");
+        assert_eq!(templates[0].name, "moved");
+    }
+
+    #[tokio::test]
+    async fn find_open_approval_request_matches_target_and_ignores_finished_requests() {
+        let db = storage().await;
+        let pending = request("r1", ApprovalStatus::Pending);
+        let digest = pending.sql_digest.clone();
+        db.create_approval_request(pending).await.unwrap();
+
+        let found = db
+            .find_open_approval_request(
+                "alice".to_string(),
+                "conn".to_string(),
+                "app".to_string(),
+                Some("public".to_string()),
+                digest.clone(),
+            )
+            .await
+            .unwrap()
+            .expect("a pending request for the same target must be found");
+        assert_eq!(found.id, "r1");
+        assert!(
+            db.find_open_approval_request(
+                "alice".to_string(),
+                "conn".to_string(),
+                "app".to_string(),
+                Some("public".to_string()),
+                statements_digest(&["select 1".to_string()]),
+            )
+            .await
+            .unwrap()
+            .is_none(),
+            "a different SQL digest must not match"
+        );
+
+        // A finished request with the same SQL is history, not a dedupe hit.
+        let empty = storage().await;
+        empty.create_approval_request(request("r2", ApprovalStatus::Executed)).await.unwrap();
+        assert!(empty
+            .find_open_approval_request(
+                "alice".to_string(),
+                "conn".to_string(),
+                "app".to_string(),
+                Some("public".to_string()),
+                digest,
+            )
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn listing_filters_by_requester_and_status() {
         let storage = storage().await;
         storage.create_approval_request(request("r1", ApprovalStatus::Pending)).await.unwrap();
@@ -1169,8 +1379,30 @@ mod tests {
         other.requester_id = "bob".to_string();
         storage.create_approval_request(other).await.unwrap();
 
-        assert_eq!(storage.list_approval_requests(Some("alice".to_string()), None, 10).await.unwrap().len(), 1);
-        assert_eq!(storage.list_approval_requests(None, Some("approved".to_string()), 10).await.unwrap()[0].id, "r2");
+        assert_eq!(
+            storage
+                .list_approval_requests(ApprovalRequestQuery {
+                    requester_id: Some("alice".to_string()),
+                    limit: 10,
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            storage
+                .list_approval_requests(ApprovalRequestQuery {
+                    status: Some("approved".to_string()),
+                    limit: 10,
+                    ..Default::default()
+                })
+                .await
+                .unwrap()[0]
+                .id,
+            "r2"
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@
 //! creation, and a rejection closes the request immediately. The requester is
 //! always excluded from their own approval.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use axum::extract::{Path, Query as AxumQuery, State};
@@ -21,12 +21,36 @@ use dbx_core::governance::approval::{
     ApprovalStatus, ApprovalStep, ApprovalStepDecision, ApprovalTemplate, ApprovalToken, ApprovalVote,
 };
 use dbx_core::identity::Permission;
+use dbx_core::models::connection::DatabaseType;
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 use crate::state::WebState;
 
 const TOKEN_TTL_MS: i64 = 5 * 60 * 1000;
+
+/// Split a submitted script with the same dialect rules the executor uses.
+/// Without this, a batch is stored as one statement: policy is checked against
+/// the whole string, `statement_count` is wrong, and PostgreSQL rejects the
+/// request at execution time with "cannot insert multiple commands into a
+/// prepared statement". Callers that already pre-split a batch keep their list.
+fn approval_statements(sql: &str, db_type: DatabaseType, provided: Option<Vec<String>>) -> Vec<String> {
+    if let Some(statements) = provided.filter(|statements| !statements.is_empty()) {
+        return statements;
+    }
+    let plan = dbx_core::query::query_execution_plan(sql, Some(db_type), false);
+    let statements = plan
+        .statements
+        .into_iter()
+        .map(|statement| statement.trim().to_string())
+        .filter(|statement| !statement.is_empty())
+        .collect::<Vec<_>>();
+    if statements.is_empty() {
+        vec![sql.to_string()]
+    } else {
+        statements
+    }
+}
 
 fn require(actor: &Actor, permission: Permission) -> Result<(), AppError> {
     let global = dbx_core::identity::has_permission(&actor.roles, permission);
@@ -50,6 +74,10 @@ pub struct ApprovalStepView {
     pub decided_by: Option<String>,
     pub decided_at_ms: Option<i64>,
     pub comment: String,
+    /// This viewer's vote on this step, if any. An `all` step stays `pending`
+    /// after one approval, so the UI needs this to stop offering Approve to the
+    /// approver who already voted.
+    pub my_decision: Option<String>,
 }
 
 impl From<&ApprovalStep> for ApprovalStepView {
@@ -65,6 +93,7 @@ impl From<&ApprovalStep> for ApprovalStepView {
             decided_by: step.decided_by.clone(),
             decided_at_ms: step.decided_at_ms,
             comment: step.comment.clone(),
+            my_decision: None,
         }
     }
 }
@@ -112,6 +141,10 @@ pub struct ApprovalView {
     pub executed_by: Option<String>,
     pub executed_at_ms: Option<i64>,
     pub steps: Vec<ApprovalStepView>,
+    /// Display names for every user id referenced by this request, so the UI
+    /// never has to show a bare UUID (and non-admin approvers cannot list
+    /// users to resolve ids themselves).
+    pub user_names: HashMap<String, String>,
     pub created_at_ms: i64,
     pub expires_at_ms: Option<i64>,
 }
@@ -139,8 +172,55 @@ impl ApprovalView {
             executed_by: request.executed_by,
             executed_at_ms: request.executed_at_ms,
             steps: steps.iter().map(ApprovalStepView::from).collect(),
+            user_names: HashMap::new(),
             created_at_ms: request.created_at_ms,
             expires_at_ms: request.expires_at_ms,
+        }
+    }
+}
+
+/// Resolve the display names of everyone referenced by `views` (plus any
+/// decision actors in `extra_ids`). A failing lookup leaves ids in place rather
+/// than failing the approval response.
+async fn attach_approval_user_names(state: &WebState, views: &mut [ApprovalView], extra_ids: &[String]) {
+    let mut wanted: HashSet<String> = extra_ids.iter().cloned().collect();
+    for view in views.iter() {
+        wanted.insert(view.requester_id.clone());
+        if let Some(executed_by) = &view.executed_by {
+            wanted.insert(executed_by.clone());
+        }
+        for step in &view.steps {
+            wanted.extend(step.approver_users.iter().cloned());
+            if let Some(decided_by) = &step.decided_by {
+                wanted.insert(decided_by.clone());
+            }
+        }
+    }
+    if wanted.is_empty() {
+        return;
+    }
+    let Ok(users) = state.app.storage.list_users().await else {
+        return;
+    };
+    let names: HashMap<String, String> =
+        users.into_iter().filter(|user| wanted.contains(&user.id)).map(|user| (user.id, user.display_name)).collect();
+    for view in views.iter_mut() {
+        view.user_names = names.clone();
+    }
+}
+
+/// Mark the current viewer's own vote on each step. `all` steps need every
+/// approver, so a step can remain `pending` after this actor has voted.
+fn attach_my_decisions(views: &mut [ApprovalView], decisions: &[ApprovalStepDecision], actor_id: &str) {
+    let by_step: HashMap<(String, i64), String> = decisions
+        .iter()
+        .filter(|decision| decision.actor_id == actor_id)
+        .map(|decision| ((decision.request_id.clone(), decision.step_no), decision.decision.as_str().to_string()))
+        .collect();
+    for view in views.iter_mut() {
+        let request_id = view.id.clone();
+        for step in &mut view.steps {
+            step.my_decision = by_step.get(&(request_id.clone(), step.step_no)).cloned();
         }
     }
 }
@@ -169,11 +249,6 @@ pub struct CreateApprovalRequest {
     /// Overrides the template resolved from the connection scope.
     #[serde(default)]
     pub template_id: Option<String>,
-    /// `submitter` (default), `last_approver`, or `auto`; DMS-style. Modes
-    /// other than `submitter` need a connection whose password is stored
-    /// server-side.
-    #[serde(default)]
-    pub execution_mode: Option<String>,
 }
 
 fn template_document(
@@ -229,8 +304,19 @@ pub async fn create_request(
     Extension(actor): Extension<Actor>,
     Json(body): Json<CreateApprovalRequest>,
 ) -> Result<Json<ApprovalView>, AppError> {
+    Ok(Json(create_request_for_actor(&state, &actor, body).await?))
+}
+
+/// Shared approval creation used by the HTTP handler and the AI
+/// `request_approval` tool. Callers are responsible for feature/permission
+/// gating; this performs the same validation as an HTTP request.
+pub(crate) async fn create_request_for_actor(
+    state: &Arc<WebState>,
+    actor: &Actor,
+    body: CreateApprovalRequest,
+) -> Result<ApprovalView, AppError> {
     // Asking for approval requires the permission the execution itself needs.
-    require(&actor, Permission::QueryWrite)?;
+    require(actor, Permission::QueryWrite)?;
     if body.sql.trim().is_empty() {
         return Err(AppError::bad_request("sql is required"));
     }
@@ -240,15 +326,23 @@ pub async fn create_request(
     }
     .ok_or_else(|| AppError::not_found("connection not found"))?;
 
-    let statements = match body.statements.clone().filter(|statements| !statements.is_empty()) {
-        Some(statements) => statements,
-        None => vec![body.sql.clone()],
-    };
+    let statements = approval_statements(&body.sql, config.db_type, body.statements.clone());
     let digest = statements_digest(&statements);
     let mut rule_ids: Vec<String> = Vec::new();
     let mut policy_bundle_hash: Option<String> = None;
+    let mut bound_template_ids: BTreeSet<String> = BTreeSet::new();
     for sql in &statements {
         let decision = dbx_core::governance::decide(&body.connection_id, &config, &body.database, config.db_type, sql);
+        // Block is terminal: an approval cannot override it, and execution
+        // checks it even when the batch is policy-approved. Refuse the whole
+        // request at creation instead of queueing work that can never run.
+        if decision.effect == dbx_core::governance::PolicyEffect::Block {
+            return Err(AppError::forbidden(format!(
+                "POLICY_DENIED: {} (rule {})",
+                decision.reason,
+                decision.rule_id.as_deref().unwrap_or("unknown")
+            )));
+        }
         policy_bundle_hash = Some(decision.policy_bundle_hash.clone());
         rule_ids.extend(
             decision
@@ -257,23 +351,15 @@ pub async fn create_request(
                 .filter(|hit| hit.effect == dbx_core::governance::PolicyEffect::RequireApproval)
                 .map(|hit| hit.rule_id.clone()),
         );
+        if let Some(template_id) = decision.approval_template_id.filter(|id| !id.trim().is_empty()) {
+            bound_template_ids.insert(template_id);
+        }
     }
     rule_ids.sort();
     rule_ids.dedup();
     if rule_ids.is_empty() {
         return Err(AppError::bad_request(
             "APPROVAL_NOT_REQUIRED: the rules do not require approval for this statement",
-        ));
-    }
-    let execution_mode = match body.execution_mode.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        Some(value) => ApprovalExecutionMode::parse(value).ok_or_else(|| {
-            AppError::bad_request("APPROVAL_EXECUTION_MODE_INVALID: expected `submitter`, `last_approver`, or `auto`")
-        })?,
-        None => ApprovalExecutionMode::from_env_default(),
-    };
-    if execution_mode.requires_saved_credential() && !config.save_password {
-        return Err(AppError::bad_request(
-            "APPROVAL_EXECUTION_MODE_REQUIRES_SAVED_CREDENTIAL: this mode runs without the requester's session, so the connection password must be saved server-side",
         ));
     }
     // Asking for approval still requires access to the target asset. DDL is
@@ -304,7 +390,14 @@ pub async fn create_request(
         rule_ids: &rule_ids,
     });
 
-    let template = match body.template_id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+    if bound_template_ids.len() > 1 {
+        return Err(AppError::conflict(
+            "APPROVAL_TEMPLATE_CONFLICT: the matched rules bind different approval templates",
+        ));
+    }
+    let rule_template_id = bound_template_ids.into_iter().next();
+    let explicit_template_id = body.template_id.as_deref().map(str::trim).filter(|id| !id.is_empty());
+    let template = match explicit_template_id.or(rule_template_id.as_deref()) {
         Some(template_id) => {
             let template = state
                 .app
@@ -312,9 +405,18 @@ pub async fn create_request(
                 .approval_template_by_id(template_id.to_string())
                 .await
                 .map_err(AppError::from)?
-                .ok_or_else(|| AppError::not_found("approval template not found"))?;
+                .ok_or_else(|| {
+                    AppError::bad_request(format!(
+                        "APPROVAL_TEMPLATE_MISSING: approval template {template_id} not found"
+                    ))
+                })?;
             if !template.enabled {
                 return Err(AppError::bad_request("APPROVAL_TEMPLATE_DISABLED: the template is disabled"));
+            }
+            if template.scope_type == "connection" && template.scope_id != body.connection_id {
+                return Err(AppError::bad_request(
+                    "APPROVAL_TEMPLATE_SCOPE_MISMATCH: the template is scoped to another connection",
+                ));
             }
             Some(template)
         }
@@ -322,6 +424,18 @@ pub async fn create_request(
             state.app.storage.resolve_approval_template(body.connection_id.clone()).await.map_err(AppError::from)?
         }
     };
+
+    // The template owns the post-approval execution mode; requesters cannot
+    // override it. Templates without a mode keep the server default.
+    let execution_mode = template
+        .as_ref()
+        .and_then(|template| template.execution_mode)
+        .unwrap_or_else(ApprovalExecutionMode::from_env_default);
+    if execution_mode.requires_saved_credential() && !config.save_password {
+        return Err(AppError::bad_request(
+            "APPROVAL_EXECUTION_MODE_REQUIRES_SAVED_CREDENTIAL: this mode runs without the requester's session, so the connection password must be saved server-side",
+        ));
+    }
 
     let id = uuid::Uuid::new_v4().to_string();
     let steps = match &template {
@@ -370,7 +484,71 @@ pub async fn create_request(
         .await
         .map_err(AppError::from)?;
     notify_approval("approval.created", &request);
-    Ok(Json(ApprovalView::from_parts(request, steps)))
+    let mut view = ApprovalView::from_parts(request, steps);
+    attach_approval_user_names(state, std::slice::from_mut(&mut view), &[]).await;
+    Ok(view)
+}
+
+/// Agent-facing approval creation. It creates a pending request for the run's
+/// bound target, or returns the existing open request for the same digest so a
+/// retrying model cannot duplicate the queue.
+pub(crate) async fn create_approval_for_agent(
+    state: &Arc<WebState>,
+    actor: &Actor,
+    input: dbx_core::ai::agent_tools::GovernanceApprovalInput,
+) -> Result<dbx_core::ai::agent_tools::GovernanceApprovalOutput, String> {
+    require(actor, Permission::QueryWrite).map_err(|error| error.to_string())?;
+    let sql = input.sql.trim().to_string();
+    if sql.is_empty() {
+        return Err("sql is required".to_string());
+    }
+    let db_type = state.app.configs.read().await.get(&input.connection_id).map(|config| config.db_type);
+    let statements =
+        db_type.map(|db_type| approval_statements(&sql, db_type, None)).unwrap_or_else(|| vec![sql.clone()]);
+    let digest = dbx_core::governance::approval::statements_digest(&statements);
+    if let Some(existing) = state
+        .app
+        .storage
+        .find_open_approval_request(
+            actor.id.clone(),
+            input.connection_id.clone(),
+            input.database.clone(),
+            input.schema.clone(),
+            digest,
+        )
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(dbx_core::ai::agent_tools::GovernanceApprovalOutput {
+            approval_id: existing.id,
+            status: existing.status.as_str().to_string(),
+            step_count: existing.step_count,
+            execution_mode: existing.execution_mode.as_str().to_string(),
+            deduplicated: true,
+        });
+    }
+    let view = create_request_for_actor(
+        state,
+        actor,
+        CreateApprovalRequest {
+            connection_id: input.connection_id,
+            database: input.database,
+            schema_name: input.schema,
+            sql,
+            statements: None,
+            justification: input.justification,
+            template_id: None,
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(dbx_core::ai::agent_tools::GovernanceApprovalOutput {
+        approval_id: view.id,
+        status: view.status,
+        step_count: view.step_count,
+        execution_mode: view.execution_mode,
+        deduplicated: false,
+    })
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -382,6 +560,22 @@ pub struct ListApprovalsQuery {
     /// Only requests whose current step this actor may decide.
     #[serde(default)]
     pub assigned: Option<bool>,
+    /// Approval history view. Privileged audit roles see every request;
+    /// everyone else sees their own.
+    #[serde(default)]
+    pub history: Option<bool>,
+    /// Case-insensitive substring match over SQL, justification, request id,
+    /// and requester id.
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub from_ms: Option<i64>,
+    #[serde(default)]
+    pub to_ms: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 pub async fn list_requests(
@@ -390,11 +584,29 @@ pub async fn list_requests(
     AxumQuery(query): AxumQuery<ListApprovalsQuery>,
 ) -> Result<Json<Vec<ApprovalView>>, AppError> {
     require(&actor, Permission::ApprovalRead)?;
+    let can_view_all = dbx_core::identity::can_view_all_audit(&actor.roles);
+    let history = query.history.unwrap_or(false);
     let requester = query.mine.unwrap_or(false).then(|| actor.id.clone());
+    let involved_actor_id = (history && !can_view_all).then(|| actor.id.clone());
     let status = query.status.filter(|value| ApprovalStatus::parse(value).is_some());
-    let mut requests =
-        state.app.storage.list_approval_requests(requester, status, 200).await.map_err(AppError::from)?;
-    if dbx_core::governance::assets::actor_is_managed(&actor) {
+    let limit = query.limit.unwrap_or(if history { 50 } else { 200 }).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0);
+    let mut requests = state
+        .app
+        .storage
+        .list_approval_requests(dbx_core::storage::ApprovalRequestQuery {
+            requester_id: requester,
+            involved_actor_id,
+            status,
+            search: query.q,
+            from_ms: query.from_ms,
+            to_ms: query.to_ms,
+            limit,
+            offset,
+        })
+        .await
+        .map_err(AppError::from)?;
+    if !can_view_all && dbx_core::governance::assets::actor_is_managed(&actor) {
         let snapshot =
             dbx_core::governance::assets::load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
         requests.retain(|request| {
@@ -402,7 +614,8 @@ pub async fn list_requests(
         });
     }
     let ids: Vec<String> = requests.iter().map(|request| request.id.clone()).collect();
-    let steps = state.app.storage.approval_steps_for_requests(ids).await.map_err(AppError::from)?;
+    let steps = state.app.storage.approval_steps_for_requests(ids.clone()).await.map_err(AppError::from)?;
+    let decisions = state.app.storage.approval_step_decisions_for_requests(ids).await.map_err(AppError::from)?;
     let mut by_request: HashMap<String, Vec<ApprovalStep>> = HashMap::new();
     for step in steps {
         by_request.entry(step.request_id.clone()).or_default().push(step);
@@ -424,6 +637,8 @@ pub async fn list_requests(
         }
         views.push(ApprovalView::from_parts(request, steps));
     }
+    attach_my_decisions(&mut views, &decisions, &actor.id);
+    attach_approval_user_names(state.as_ref(), &mut views, &[]).await;
     Ok(Json(views))
 }
 
@@ -446,6 +661,7 @@ pub async fn get_request(
         true
     };
     let can_view = request.requester_id == actor.id
+        || dbx_core::identity::can_view_all_audit(&actor.roles)
         || dbx_core::identity::has_permission(&actor.roles, Permission::AdminSettings)
         || asset_visible
         || steps.iter().any(|step| step.allows(&actor.id, &actor.roles));
@@ -454,8 +670,12 @@ pub async fn get_request(
     }
     let decisions =
         state.app.storage.approval_step_decisions_for_request(request.id.clone()).await.map_err(AppError::from)?;
+    let decision_actor_ids: Vec<String> = decisions.iter().map(|decision| decision.actor_id.clone()).collect();
+    let mut view = ApprovalView::from_parts(request, steps);
+    attach_my_decisions(std::slice::from_mut(&mut view), &decisions, &actor.id);
+    attach_approval_user_names(state.as_ref(), std::slice::from_mut(&mut view), &decision_actor_ids).await;
     Ok(Json(ApprovalDetailView {
-        request: ApprovalView::from_parts(request, steps),
+        request: view,
         decisions: decisions.iter().map(ApprovalDecisionView::from).collect(),
     }))
 }
@@ -588,7 +808,17 @@ async fn run_approved_request(
         policy_bundle_hash: policy_bundle_hash.as_deref(),
         rule_ids: &rule_ids,
     });
-    if current_hash != request.request_hash {
+    // Tickets created before the stable-identity hash must still be executable.
+    let legacy_hash = request_hash(&ApprovalBinding {
+        connection_id: &request.connection_id,
+        connection_config_hash: &dbx_core::governance::approval::legacy_connection_config_hash(&config),
+        database: &request.database,
+        schema: request.schema_name.as_deref(),
+        statements_digest: &request.sql_digest,
+        policy_bundle_hash: policy_bundle_hash.as_deref(),
+        rule_ids: &rule_ids,
+    });
+    if current_hash != request.request_hash && legacy_hash != request.request_hash {
         let error = "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval";
         fail_approval_request(state, &request, &executor.id, error.to_string()).await;
         return Err(AppError::conflict(error));
@@ -735,7 +965,9 @@ pub async fn execute_request(
     }
     let refreshed = run_approved_request(&state, request, &actor, ExecutionTrigger::Submitter).await?;
     let steps = state.app.storage.approval_steps_for_request(refreshed.id.clone()).await.map_err(AppError::from)?;
-    Ok(Json(ApprovalView::from_parts(refreshed, steps)))
+    let mut view = ApprovalView::from_parts(refreshed, steps);
+    attach_approval_user_names(state.as_ref(), std::slice::from_mut(&mut view), &[]).await;
+    Ok(Json(view))
 }
 
 #[derive(Debug, Deserialize)]
@@ -840,7 +1072,12 @@ async fn decide(
             spawn_approval_execution(state.clone(), refreshed.clone(), actor.clone(), trigger);
         }
     }
-    Ok(ApprovalView::from_parts(refreshed, steps))
+    let decisions =
+        state.app.storage.approval_step_decisions_for_request(refreshed.id.clone()).await.unwrap_or_default();
+    let mut view = ApprovalView::from_parts(refreshed, steps);
+    attach_my_decisions(std::slice::from_mut(&mut view), &decisions, &actor.id);
+    attach_approval_user_names(state, std::slice::from_mut(&mut view), &[]).await;
+    Ok(view)
 }
 
 /// Fire-and-forget fan-out over the configured webhook and chat bots. The SQL
@@ -938,6 +1175,7 @@ pub struct TemplateView {
     pub scope_id: String,
     pub steps: Vec<dbx_core::governance::approval::ApprovalStepSpec>,
     pub sla_secs: Option<i64>,
+    pub execution_mode: Option<String>,
     pub enabled: bool,
     pub created_by: String,
     pub created_at_ms: i64,
@@ -953,6 +1191,7 @@ impl From<ApprovalTemplate> for TemplateView {
             scope_id: template.scope_id,
             steps: template.steps,
             sla_secs: template.sla_secs,
+            execution_mode: template.execution_mode.map(|mode| mode.as_str().to_string()),
             enabled: template.enabled,
             created_by: template.created_by,
             created_at_ms: template.created_at_ms,
@@ -970,6 +1209,9 @@ pub struct TemplateRequest {
     pub scope_id: Option<String>,
     #[serde(default)]
     pub sla_secs: Option<i64>,
+    /// `submitter`, `last_approver`, `auto`, or absent to use the server default.
+    #[serde(default)]
+    pub execution_mode: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
     /// Either a bare `[{...}]` step array or `{"steps": [...]}`.
@@ -987,6 +1229,17 @@ fn template_scope(scope_type: Option<&str>, scope_id: Option<&str>) -> Result<(S
             Err(AppError::bad_request("APPROVAL_TEMPLATE_INVALID: a connection template needs a connection id"))
         }
         _ => Err(AppError::bad_request("APPROVAL_TEMPLATE_INVALID: scope_type must be `global` or `connection`")),
+    }
+}
+
+fn template_execution_mode(value: Option<&str>) -> Result<Option<ApprovalExecutionMode>, AppError> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some(value) => ApprovalExecutionMode::parse(value).map(Some).ok_or_else(|| {
+            AppError::bad_request(
+                "APPROVAL_TEMPLATE_INVALID: execution_mode must be `submitter`, `last_approver`, or `auto`",
+            )
+        }),
     }
 }
 
@@ -1010,6 +1263,7 @@ pub async fn create_template(
     }
     let steps = template_document(&body.steps)?;
     let (scope_type, scope_id) = template_scope(body.scope_type.as_deref(), body.scope_id.as_deref())?;
+    let execution_mode = template_execution_mode(body.execution_mode.as_deref())?;
     let now = chrono::Utc::now().timestamp_millis();
     let template = ApprovalTemplate {
         id: uuid::Uuid::new_v4().to_string(),
@@ -1018,6 +1272,7 @@ pub async fn create_template(
         scope_id,
         steps,
         sla_secs: body.sla_secs,
+        execution_mode,
         enabled: body.enabled.unwrap_or(true),
         created_by: actor.id.clone(),
         created_at_ms: now,
@@ -1046,6 +1301,7 @@ pub async fn update_template(
     }
     let steps = template_document(&body.steps)?;
     let (scope_type, scope_id) = template_scope(body.scope_type.as_deref(), body.scope_id.as_deref())?;
+    let execution_mode = template_execution_mode(body.execution_mode.as_deref())?;
     let template = ApprovalTemplate {
         id: existing.id,
         name: body.name.trim().to_string(),
@@ -1053,6 +1309,7 @@ pub async fn update_template(
         scope_id,
         steps,
         sla_secs: body.sla_secs,
+        execution_mode,
         enabled: body.enabled.unwrap_or(true),
         created_by: existing.created_by,
         created_at_ms: existing.created_at_ms,
@@ -1070,8 +1327,48 @@ pub async fn delete_template(
     Path(template_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require(&actor, Permission::PolicyPublish)?;
+    let in_use = dbx_core::governance::policy::current_policy()
+        .rules()
+        .iter()
+        .any(|rule| rule.approval_template_id.as_deref() == Some(template_id.as_str()));
+    if in_use {
+        return Err(AppError::conflict(
+            "APPROVAL_TEMPLATE_IN_USE: remove the policy rule binding before deleting this template",
+        ));
+    }
     if !state.app.storage.delete_approval_template(template_id).await.map_err(AppError::from)? {
         return Err(AppError::not_found("approval template not found"));
     }
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approval_statements;
+    use dbx_core::models::connection::DatabaseType;
+
+    #[test]
+    fn approval_statements_splits_a_batch_with_the_executor_rules() {
+        let statements = approval_statements(
+            "CREATE TABLE product_test(id int); INSERT INTO product_test VALUES (1);",
+            DatabaseType::Postgres,
+            None,
+        );
+        assert_eq!(statements.len(), 2, "{statements:?}");
+        assert!(statements[0].starts_with("CREATE TABLE"));
+        assert!(statements[1].starts_with("INSERT INTO"));
+    }
+
+    #[test]
+    fn approval_statements_keeps_a_routine_body_intact() {
+        let sql = "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1; $$";
+        assert_eq!(approval_statements(sql, DatabaseType::Postgres, None), vec![sql.to_string()]);
+    }
+
+    #[test]
+    fn approval_statements_prefers_an_explicit_batch_and_falls_back_for_empty_sql() {
+        let provided = vec!["SELECT 1".to_string(), "SELECT 2".to_string()];
+        assert_eq!(approval_statements("ignored", DatabaseType::Postgres, Some(provided.clone())), provided);
+        assert_eq!(approval_statements("", DatabaseType::Postgres, None), vec![String::new()]);
+    }
 }

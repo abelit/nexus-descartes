@@ -736,6 +736,7 @@ async fn serve() -> Result<(), String> {
         .route("/migration/retry", post(routes::migration::retry))
         .route("/migration/cleanup-backups", post(routes::migration::cleanup_backups))
         .route("/database-backups", post(routes::scheduled_backup::command))
+        .route("/database-backups/snapshot", get(routes::scheduled_backup::snapshot))
         .route("/database-backups/{id}/files/{index}", get(routes::scheduled_backup::download))
         .route("/database-backups/{id}/files/{index}/restore", post(routes::scheduled_backup::prepare_restore))
         // Auth
@@ -1700,7 +1701,41 @@ async fn serve() -> Result<(), String> {
         .route("/users/{user_id}", patch(routes::users::update_user))
         .route("/users/{user_id}/password", post(routes::users::reset_user_password))
         .route("/users/{user_id}/bindings", get(routes::users::list_bindings).post(routes::users::create_binding))
-        .route("/users/{user_id}/bindings/{binding_id}", delete(routes::users::delete_binding))
+        .route(
+            "/users/{user_id}/bindings/{binding_id}",
+            delete(routes::users::delete_binding).patch(routes::users::update_binding),
+        )
+        .route("/users/{user_id}/effective-access", get(routes::users::effective_access))
+        .route("/asset-grants", get(routes::users::list_asset_grant_inventory))
+        .route("/asset-groups", get(routes::users::list_asset_groups).post(routes::users::create_asset_group))
+        .route(
+            "/asset-groups/{group_id}",
+            get(routes::users::get_asset_group)
+                .patch(routes::users::update_asset_group)
+                .delete(routes::users::delete_asset_group),
+        )
+        .route("/asset-groups/{group_id}/members", post(routes::users::add_asset_group_member))
+        .route("/asset-groups/{group_id}/members/{user_id}", delete(routes::users::remove_asset_group_member))
+        .route("/asset-groups/{group_id}/bindings", post(routes::users::create_group_binding))
+        .route(
+            "/asset-groups/{group_id}/bindings/{binding_id}",
+            delete(routes::users::delete_group_binding).patch(routes::users::update_group_binding),
+        )
+        .route("/my-tasks", get(routes::my_tasks::my_tasks))
+        .route("/access-requests/options", get(routes::users::access_request_options))
+        .route("/access-requests", get(routes::users::list_access_requests).post(routes::users::create_access_request))
+        .route("/access-requests/{request_id}/cancel", post(routes::users::cancel_access_request))
+        .route("/access-requests/{request_id}/approve", post(routes::users::approve_access_request))
+        .route("/access-requests/{request_id}/reject", post(routes::users::reject_access_request))
+        .route(
+            "/data-policies",
+            get(routes::data_policies::list_data_policies).post(routes::data_policies::create_data_policy),
+        )
+        .route(
+            "/data-policies/{policy_id}",
+            axum::routing::patch(routes::data_policies::update_data_policy)
+                .delete(routes::data_policies::delete_data_policy),
+        )
         .route("/users/{user_id}/sessions", get(routes::users::list_user_sessions))
         .route("/users/{user_id}/sessions/revoke", post(routes::users::revoke_user_sessions))
         .route("/users/{user_id}/sessions/{session_id}", delete(routes::users::revoke_user_session))
@@ -1737,10 +1772,12 @@ async fn serve() -> Result<(), String> {
             .route("/audit/events/{event_id}", get(routes::audit::event_detail))
             .route("/audit/export", get(routes::audit::export_events))
             .route("/audit/stats", get(routes::audit::stats))
+            .route("/audit/actors", get(routes::audit::list_actors))
             .route("/audit/chain-head", get(routes::audit::chain_head))
             .route("/audit/checkpoints", get(routes::audit::checkpoints).post(routes::audit::create_checkpoint))
             .route("/audit/verify", get(routes::audit::verify_chain))
             .route("/audit/verify-checkpoint", get(routes::audit::verify_from_checkpoint))
+            .route("/audit/retention", get(routes::audit::get_retention).put(routes::audit::update_retention))
             .route("/audit/retention/prune", post(routes::audit::prune_events))
             .route_layer(middleware::from_fn_with_state(web_state.clone(), routes::audit::require_audit_access))
             .layer(middleware::from_fn_with_state(web_state.clone(), migration_gate))
@@ -1917,34 +1954,43 @@ async fn serve() -> Result<(), String> {
     if audit_enabled_from_env() {
         let retention_storage = web_state.app.storage.clone();
         let retention_shutdown = server_shutdown.clone();
-        let retention_days = std::env::var("DBX_AUDIT_RETENTION_DAYS")
+        let default_retention_days = std::env::var("DBX_AUDIT_RETENTION_DAYS")
             .ok()
             .and_then(|value| value.trim().parse::<i64>().ok())
             .unwrap_or(180);
-        if retention_days > 0 {
-            tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                loop {
-                    tokio::select! {
-                        _ = ticker.tick() => {
-                            let Ok(Some(oldest)) = retention_storage.audit_oldest_event_ms().await else {
-                                continue;
-                            };
-                            let age_days = (chrono::Utc::now().timestamp_millis() - oldest) / 86_400_000;
-                            if age_days > retention_days {
-                                tracing::warn!(
-                                    "Audit retention exceeded: the oldest event is {age_days} days old \
-                                     (DBX_AUDIT_RETENTION_DAYS={retention_days}). Export and archive it, \
-                                     then remove the segment manually; automatic deletion is disabled."
-                                );
-                            }
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        // The persisted setting wins over the startup default,
+                        // so a retention change applies without a restart.
+                        let retention_days = retention_storage
+                            .audit_retention_days()
+                            .await
+                            .ok()
+                            .flatten()
+                            .unwrap_or(default_retention_days);
+                        if retention_days <= 0 {
+                            continue;
                         }
-                        _ = retention_shutdown.cancelled() => break,
+                        let Ok(Some(oldest)) = retention_storage.audit_oldest_event_ms().await else {
+                            continue;
+                        };
+                        let age_days = (chrono::Utc::now().timestamp_millis() - oldest) / 86_400_000;
+                        if age_days > retention_days {
+                            tracing::warn!(
+                                "Audit retention exceeded: the oldest event is {age_days} days old \
+                                 (configured retention: {retention_days} days). Export and archive it, \
+                                 then prune manually from the audit view; automatic deletion is disabled."
+                            );
+                        }
                     }
+                    _ = retention_shutdown.cancelled() => break,
                 }
-            });
-        }
+            }
+        });
     }
     tokio::spawn(async move {
         #[cfg(unix)]
