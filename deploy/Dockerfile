@@ -5,7 +5,7 @@
 # the FROM images with accelerated copies.
 
 # Stage 1: Build frontend (native, no emulation)
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS frontend
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS frontend
 WORKDIR /app
 # Alibaba Cloud npm mirror for both npm and pnpm.
 RUN npm config set registry https://registry.npmmirror.com \
@@ -26,10 +26,12 @@ COPY crates/dbx-core/assets/database-drivers.manifest.json crates/dbx-core/asset
 RUN pnpm build
 
 # Stage 2: Cross-compile Rust backend for the requested platform (native, no emulation)
-FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b AS backend
+FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:7085845219c18e7c5b1f34ed9ce89b84f822f2e3d54a02774cedc996ac0f304f AS backend
 ARG TARGETARCH
 WORKDIR /app
-RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
         [ -f "$f" ] && sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
             -e 's|security.debian.org|mirrors.aliyun.com|g' "$f"; \
     done; \
@@ -38,17 +40,35 @@ RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
     build-essential cmake pkg-config perl python3-pip gcc-aarch64-linux-gnu \
     libfontconfig-dev:arm64 libfreetype-dev:arm64 \
     && pip3 install --break-system-packages -i https://mirrors.aliyun.com/pypi/simple/ ziglang \
-    && mkdir -p /root/.cargo \
+    # Seven transitive deps come from four GitHub repos (mysql_async,
+    # tokio-postgres-gaussdb, rust_mysql_common, libsqlite3-hotbundle). Direct
+    # github.com access from the build network stalls, so rewrite git origins
+    # through a proxy. Revisions stay pinned in Cargo.lock, and git verifies
+    # the fetched commit SHA, so the proxy cannot substitute content.
+    && git config --system url."https://ghfast.top/https://github.com/".insteadOf "https://github.com/" \
+    && mkdir -p "${CARGO_HOME:-/root/.cargo}" \
+    # Cargo reads $CARGO_HOME/config.toml. The rust image sets
+    # CARGO_HOME=/usr/local/cargo, so writing /root/.cargo made the mirror
+    # config below a no-op. The [net] section forces the git CLI backend:
+    # cargo's default gix backend picks a broken IPv6 route to github.com and
+    # the git deps (mysql_async, tokio-postgres-gaussdb, ...) time out.
     && printf '%s\n' \
         '[source.crates-io]' \
         'replace-with = "aliyun"' \
         '' \
         '[source.aliyun]' \
         'registry = "sparse+https://mirrors.aliyun.com/crates.io-index/"' \
-        > /root/.cargo/config.toml \
+        '' \
+        '[net]' \
+        'git-fetch-with-cli = true' \
+        > "${CARGO_HOME:-/root/.cargo}/config.toml" \
     && cargo install cargo-zigbuild \
-    && RUSTUP_DIST_SERVER=https://mirrors.aliyun.com/rustup \
-       RUSTUP_UPDATE_ROOT=https://mirrors.aliyun.com/rustup/rustup \
+    # Aliyun's rustup mirror lags behind the toolchain baked into the base
+    # image (it still served the 2026-05-28 stable manifest while the image
+    # ships rustc 1.99.1 from 2026-10-15), so rustup target add 404s for any
+    # target it has to download. USTC mirrors the concrete dist directory.
+    && RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static \
+       RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup \
        rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
 
@@ -101,7 +121,10 @@ RUN mkdir -p crates/dbx-core/src && echo '' > crates/dbx-core/src/lib.rs \
 COPY src-tauri/build.rs src-tauri/
 COPY src-tauri/tauri.conf.json src-tauri/
 
-RUN case "$TARGETARCH" in \
+RUN --mount=type=cache,target=/app/target,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    case "$TARGETARCH" in \
       amd64) rust_target=x86_64-unknown-linux-gnu; lib_arch=x86_64-linux-gnu ;; \
       arm64) rust_target=aarch64-unknown-linux-gnu; lib_arch=aarch64-linux-gnu ;; \
       *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
@@ -125,7 +148,10 @@ COPY plugins/connection-types/ plugins/connection-types/
 # source change and recompiles instead of reusing the dummy binary.
 RUN find crates/ -name '*.rs' -exec touch {} +
 
-RUN case "$TARGETARCH" in \
+RUN --mount=type=cache,target=/app/target,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    case "$TARGETARCH" in \
       amd64) rust_target=x86_64-unknown-linux-gnu; lib_arch=x86_64-linux-gnu ;; \
       arm64) rust_target=aarch64-unknown-linux-gnu; lib_arch=aarch64-linux-gnu ;; \
       *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
@@ -139,7 +165,7 @@ RUN case "$TARGETARCH" in \
     cp "/app/target/$rust_target/release/dbx-web" "/out/linux/$TARGETARCH/"
 
 # Stage 3: Final image
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 ARG TARGETPLATFORM
 RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
         [ -f "$f" ] && sed -i -e 's|deb.debian.org|mirrors.aliyun.com|g' \
