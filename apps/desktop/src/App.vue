@@ -522,6 +522,8 @@ const governanceActive = ref(false);
 type GovernanceTab = "approvals" | "audit" | "users" | "policies";
 const governanceInitialTab = ref<GovernanceTab>("approvals");
 const governanceFocusApprovalId = ref<string | undefined>(undefined);
+/** Increments on every deep link so re-clicking the same ticket still focuses it. */
+const governanceFocusNonce = ref(0);
 const pendingApprovalCount = ref(0);
 const settingsReturnSurface = ref<"query" | "driverStore" | "pluginCenter" | "governance" | "welcome">("welcome");
 const immediateSyncing = ref(false);
@@ -1566,6 +1568,7 @@ function openGovernancePage(tab?: GovernanceTab, approvalId?: string, category: 
   const selected = tab && governanceTabAllowed(tab) ? tab : defaultGovernanceTab();
   governanceInitialTab.value = selected;
   governanceFocusApprovalId.value = approvalId;
+  governanceFocusNonce.value += 1;
   governanceTabOpen.value = true;
   activateMainContentSurface("governance");
   void refreshPendingApprovalCount();
@@ -5822,10 +5825,11 @@ onUnmounted(() => {
                   :can-manage-users="canManageUsers"
                   :can-read-policies="canReadPolicies"
                   :focus-approval-id="governanceFocusApprovalId"
+                  :focus-nonce="governanceFocusNonce"
                   :pending-approval-count="pendingApprovalCount"
-          :approval-tasks-enabled="!isDesktop"
-          :current-user-name="authActor?.display_name"
-          :current-user-roles="authActor?.roles"
+                  :approval-tasks-enabled="!isDesktop"
+                  :current-user-name="authActor?.display_name"
+                  :current-user-roles="authActor?.roles"
                   :actor-permissions="[...effectivePermissions]"
                   :actor-roles="authActor?.roles"
                   :actor-id="authActor?.id"
@@ -6403,12 +6407,7 @@ onUnmounted(() => {
           }
         "
       />
-      <AccessRequestDialog
-        v-if="!isDetachedWindowContext"
-        v-model:open="showAccessRequestDialog"
-        :initial-role="accessRequestInitialRole"
-        :prefill="accessRequestPrefill"
-      />
+      <AccessRequestDialog v-if="!isDetachedWindowContext" v-model:open="showAccessRequestDialog" :initial-role="accessRequestInitialRole" :prefill="accessRequestPrefill" />
       <QueryEditorObjectSourceDialog
         v-if="queryEditorObjectSourceTarget"
         v-model:open="showQueryEditorObjectSourceDialog"

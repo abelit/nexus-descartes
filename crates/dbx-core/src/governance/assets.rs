@@ -227,6 +227,8 @@ pub enum AccessRequestStatus {
     Approved,
     Rejected,
     Cancelled,
+    /// The grant created by this approval was removed before its expiry.
+    Revoked,
 }
 
 impl AccessRequestStatus {
@@ -236,6 +238,7 @@ impl AccessRequestStatus {
             Self::Approved => "approved",
             Self::Rejected => "rejected",
             Self::Cancelled => "cancelled",
+            Self::Revoked => "revoked",
         }
     }
 
@@ -245,6 +248,7 @@ impl AccessRequestStatus {
             "approved" => Some(Self::Approved),
             "rejected" => Some(Self::Rejected),
             "cancelled" => Some(Self::Cancelled),
+            "revoked" => Some(Self::Revoked),
             _ => None,
         }
     }

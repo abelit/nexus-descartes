@@ -40,6 +40,7 @@ const loading = ref(false);
 const submitting = ref(false);
 const error = ref("");
 const formError = ref("");
+const stackingConflict = ref(false);
 
 const databases = ref<string[]>([]);
 const schemas = ref<string[]>([]);
@@ -60,9 +61,7 @@ const form = reactive({
 
 const DURATIONS = [1, 4, 8, 24, 72, 168, 720];
 
-const selectedConnection = computed(() =>
-  options.value?.connections.find((connection) => connection.id === form.connection_id),
-);
+const selectedConnection = computed(() => options.value?.connections.find((connection) => connection.id === form.connection_id));
 const isMongo = computed(() => selectedConnection.value?.db_type === "mongodb");
 const needsDatabase = computed(() => ["database", "schema", "table"].includes(form.target_kind));
 const needsSchema = computed(() => ["schema", "table"].includes(form.target_kind) && !isMongo.value);
@@ -81,11 +80,7 @@ const canSubmit = computed(() => {
 
 function resetForm() {
   const preferred = props.initialRole?.trim();
-  form.role_code =
-    (preferred && options.value?.roles.some((role) => role.code === preferred) ? preferred : undefined) ??
-    options.value?.roles.find((role) => role.code === "viewer")?.code ??
-    options.value?.roles[0]?.code ??
-    "";
+  form.role_code = (preferred && options.value?.roles.some((role) => role.code === preferred) ? preferred : undefined) ?? options.value?.roles.find((role) => role.code === "viewer")?.code ?? options.value?.roles[0]?.code ?? "";
   form.target_kind = "connection";
   form.connection_group_id = "";
   form.connection_id = "";
@@ -95,6 +90,7 @@ function resetForm() {
   form.name_pattern = false;
   form.duration_hours = 24;
   form.justification = "";
+  stackingConflict.value = false;
   databases.value = [];
   schemas.value = [];
   tables.value = [];
@@ -125,11 +121,20 @@ function requestTargetLabel(request: AccessRequest): string {
   return `${base} / ${request.schema_name ?? ""} / ${table}`;
 }
 
-function statusClass(status: AccessRequest["status"], expired: boolean): string {
-  if (expired && status === "approved") return "border-amber-500/50 text-amber-600 dark:text-amber-400";
-  switch (status) {
+function effectiveStatus(status: AccessRequest["status"], expired: boolean, grantStatus?: AccessRequest["grant_status"]): AccessRequest["status"] | "expired" {
+  if (status === "revoked" || grantStatus === "revoked" || grantStatus === "missing") return "revoked";
+  if (status === "approved" && (expired || grantStatus === "expired")) return "expired";
+  return status;
+}
+
+function statusClass(status: AccessRequest["status"], expired: boolean, grantStatus?: AccessRequest["grant_status"]): string {
+  switch (effectiveStatus(status, expired, grantStatus)) {
     case "approved":
       return "border-green-500/40 text-green-600 dark:text-green-400";
+    case "revoked":
+      return "border-destructive/50 text-destructive";
+    case "expired":
+      return "border-amber-500/50 text-amber-600 dark:text-amber-400";
     case "rejected":
       return "border-destructive/50 text-destructive";
     case "cancelled":
@@ -139,9 +144,10 @@ function statusClass(status: AccessRequest["status"], expired: boolean): string 
   }
 }
 
-function statusLabel(status: AccessRequest["status"], expired: boolean): string {
-  if (expired && status === "approved") return t("settings.accessRequests.statusExpired");
-  return t(`settings.accessRequests.status_${status}`);
+function statusLabel(status: AccessRequest["status"], expired: boolean, grantStatus?: AccessRequest["grant_status"]): string {
+  const effective = effectiveStatus(status, expired, grantStatus);
+  if (effective === "expired") return t("settings.accessRequests.statusExpired");
+  return t(`settings.accessRequests.status_${effective}`);
 }
 
 function formatDate(value?: string | null): string {
@@ -189,9 +195,7 @@ async function onConnectionChange() {
   tables.value = [];
   if (!form.connection_id) return;
   try {
-    const names = isMongo.value
-      ? await api.mongoListDatabases(form.connection_id)
-      : (await api.listDatabases(form.connection_id)).map((database) => database.name);
+    const names = isMongo.value ? await api.mongoListDatabases(form.connection_id) : (await api.listDatabases(form.connection_id)).map((database) => database.name);
     databases.value = [...new Set(names)].sort((left, right) => left.localeCompare(right));
   } catch {
     // The requester may not have metadata access yet; manual entry still works.
@@ -205,9 +209,7 @@ async function onDatabaseChange() {
   tables.value = [];
   if (!form.connection_id || !form.database_name || isMongo.value) return;
   try {
-    schemas.value = (await api.listSchemas(form.connection_id, form.database_name)).sort((left, right) =>
-      left.localeCompare(right),
-    );
+    schemas.value = (await api.listSchemas(form.connection_id, form.database_name)).sort((left, right) => left.localeCompare(right));
   } catch {
     // Manual entry fallback.
   }
@@ -219,19 +221,18 @@ async function onSchemaChange() {
   if (!form.connection_id || !form.database_name) return;
   if (!isMongo.value && !form.schema_name) return;
   try {
-    const names = isMongo.value
-      ? (await api.mongoListCollections(form.connection_id, form.database_name)).map((collection) => collection.name)
-      : (await api.listTables(form.connection_id, form.database_name, form.schema_name)).map((table) => table.name);
+    const names = isMongo.value ? (await api.mongoListCollections(form.connection_id, form.database_name)).map((collection) => collection.name) : (await api.listTables(form.connection_id, form.database_name, form.schema_name)).map((table) => table.name);
     tables.value = [...new Set(names)].sort((left, right) => left.localeCompare(right));
   } catch {
     // Manual entry fallback.
   }
 }
 
-async function submit() {
+async function submit(force = false) {
   if (!canSubmit.value) return;
   submitting.value = true;
   formError.value = "";
+  if (!force) stackingConflict.value = false;
   try {
     await usersApi.createAccessRequest({
       role_code: form.role_code,
@@ -244,12 +245,15 @@ async function submit() {
       name_pattern: needsTable.value ? form.name_pattern : false,
       duration_hours: form.duration_hours,
       justification: form.justification.trim(),
+      ...(force ? { force: true } : {}),
     });
     toast(t("settings.accessRequests.created"));
     resetForm();
     await loadMine();
   } catch (submitError) {
-    formError.value = formatError(submitError);
+    const message = formatError(submitError);
+    stackingConflict.value = message.includes("ACCESS_ALREADY_GRANTED");
+    formError.value = message;
   } finally {
     submitting.value = false;
   }
@@ -358,19 +362,20 @@ watch(
           </label>
           <label class="block space-y-1 text-xs">
             <span class="text-muted-foreground">{{ t("settings.accessRequests.justification") }}</span>
-            <textarea
-              v-model="form.justification"
-              rows="3"
-              class="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-              :placeholder="t('settings.accessRequests.justificationPlaceholder')"
-            />
+            <textarea v-model="form.justification" rows="3" class="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm" :placeholder="t('settings.accessRequests.justificationPlaceholder')" />
           </label>
           <div v-if="selectedRole" class="text-[11px] text-muted-foreground">
             {{ t("settings.accessRequests.roleHint", { permissions: selectedRole.permissions.join(", ") }) }}
           </div>
           <p v-if="formError" class="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{{ formError }}</p>
+          <div v-if="stackingConflict" class="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+            <p>{{ t("settings.accessRequests.alreadyGrantedHint") }}</p>
+            <Button size="sm" variant="outline" class="h-7" :disabled="submitting" @click="submit(true)">
+              {{ t("settings.accessRequests.submitAnyway") }}
+            </Button>
+          </div>
           <div class="flex justify-end">
-            <Button size="sm" :disabled="submitting || !canSubmit" @click="submit">
+            <Button size="sm" :disabled="submitting || !canSubmit" @click="submit()">
               <LoaderCircle v-if="submitting" class="mr-1 h-3.5 w-3.5 animate-spin" />
               <Send v-else class="mr-1 h-3.5 w-3.5" />
               {{ t("settings.accessRequests.submit") }}
@@ -386,7 +391,7 @@ watch(
           <p v-if="myRequests.length === 0" class="text-xs text-muted-foreground">{{ t("settings.accessRequests.mineEmpty") }}</p>
           <div v-for="request in myRequests" :key="request.id" class="space-y-1 rounded-md border border-border/40 px-2 py-2 text-xs">
             <div class="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" :class="statusClass(request.status, request.expired)">{{ statusLabel(request.status, request.expired) }}</Badge>
+              <Badge variant="outline" :class="statusClass(request.status, request.expired, request.grant_status)">{{ statusLabel(request.status, request.expired, request.grant_status) }}</Badge>
               <Badge variant="outline">{{ request.role_name }}</Badge>
               <span class="min-w-0 flex-1 truncate font-medium" :title="requestTargetLabel(request)">{{ requestTargetLabel(request) }}</span>
               <span class="flex items-center gap-1 text-muted-foreground">
@@ -398,22 +403,14 @@ watch(
                 {{ t("settings.accessRequests.cancel") }}
               </Button>
             </div>
-            <div class="text-muted-foreground">
-              {{ t("settings.accessRequests.validUntil") }}: {{ formatDate(request.expires_at) }}
-            </div>
+            <div class="text-muted-foreground">{{ t("settings.accessRequests.validUntil") }}: {{ formatDate(request.expires_at) }}</div>
             <div v-if="request.justification" class="truncate text-muted-foreground" :title="request.justification">{{ request.justification }}</div>
             <div v-if="request.status === 'pending'" class="text-muted-foreground">
-              <template v-if="request.approver_names?.length">
-                {{ t("settings.accessRequests.approver") }}: {{ request.approver_names.join(", ") }}
-              </template>
+              <template v-if="request.approver_names?.length"> {{ t("settings.accessRequests.approver") }}: {{ request.approver_names.join(", ") }} </template>
               <template v-else>{{ t("settings.accessRequests.noApprover") }}</template>
             </div>
-            <div v-else-if="request.decided_by_name" class="text-muted-foreground">
-              {{ t("settings.accessRequests.approver") }}: {{ request.decided_by_name }}
-            </div>
-            <div v-if="request.decision_note" class="text-muted-foreground">
-              {{ t("settings.accessRequests.decisionNote") }}: {{ request.decision_note }}
-            </div>
+            <div v-else-if="request.decided_by_name" class="text-muted-foreground">{{ t("settings.accessRequests.approver") }}: {{ request.decided_by_name }}</div>
+            <div v-if="request.decision_note" class="text-muted-foreground">{{ t("settings.accessRequests.decisionNote") }}: {{ request.decision_note }}</div>
           </div>
         </section>
       </div>

@@ -388,6 +388,26 @@ pub type GovernanceApprovalCreator = Arc<
         + Sync,
 >;
 
+/// Web-owned read-only governance tools (self context, approvals, audit log,
+/// users/roles, policies). The definitions are filtered by the caller's own
+/// permissions before they reach the model, and the executor re-checks them on
+/// every call. Desktop and non-web runtimes leave this unset, so none of these
+/// tools exist there.
+pub type GovernanceToolExecutor =
+    Arc<dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct GovernanceToolset {
+    pub definitions: Vec<ToolDefinition>,
+    pub executor: GovernanceToolExecutor,
+}
+
+impl GovernanceToolset {
+    pub fn owns(&self, name: &str) -> bool {
+        self.definitions.iter().any(|definition| definition.name.as_ref() == name)
+    }
+}
+
 /// Get read-only tool definitions for the given database type.
 /// Returns vector tools for vector DBs, SQL tools otherwise.
 pub fn read_only_tools(db_type: DatabaseType) -> Vec<ToolDefinition> {

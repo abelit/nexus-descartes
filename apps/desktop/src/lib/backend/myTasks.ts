@@ -37,7 +37,7 @@ export interface MyTaskAccessRequest {
   schema_name?: string | null;
   table_name?: string | null;
   name_pattern: boolean;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  status: "pending" | "approved" | "rejected" | "cancelled" | "revoked";
   current_approver_names: string[];
   duration_hours: number;
   expires_at: string;
@@ -47,6 +47,7 @@ export interface MyTaskAccessRequest {
   decision_note: string;
   decided_by_name?: string | null;
   grant_id?: string | null;
+  grant_status?: "active" | "expired" | "revoked" | "missing" | null;
   expired: boolean;
 }
 

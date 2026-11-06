@@ -1726,6 +1726,7 @@ async fn serve() -> Result<(), String> {
             "/users/{user_id}/bindings/{binding_id}",
             delete(routes::users::delete_binding).patch(routes::users::update_binding),
         )
+        .route("/users/{user_id}/bindings/{binding_id}/coverage", get(routes::users::grant_coverage_preview))
         .route("/users/{user_id}/effective-access", get(routes::users::effective_access))
         .route("/asset-grants", get(routes::users::list_asset_grant_inventory))
         .route("/asset-groups", get(routes::users::list_asset_groups).post(routes::users::create_asset_group))

@@ -10,14 +10,7 @@ import { useToast } from "@/composables/useToast";
 import * as api from "@/lib/backend/api";
 import { formatError } from "@/lib/backend/errorUtils";
 import * as usersApi from "@/lib/backend/users";
-import type {
-  AssetGrant,
-  ConnectionGroup,
-  EffectiveAccess,
-  LocalRole,
-  LocalUser,
-  UserSession,
-} from "@/lib/backend/users";
+import type { AssetGrant, ConnectionGroup, EffectiveAccess, GrantCoverage, LocalRole, LocalUser, UserSession } from "@/lib/backend/users";
 
 export interface AccessConnectionOption {
   id: string;
@@ -44,16 +37,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const { toast } = useToast();
 
-const ASSET_PERMISSIONS = new Set([
-  "connection:read",
-  "query:read",
-  "query:write",
-  "query:ddl",
-  "export:data",
-  "import:data",
-  "unmask:data",
-  "row_filter:bypass",
-]);
+const ASSET_PERMISSIONS = new Set(["connection:read", "query:read", "query:write", "query:ddl", "export:data", "import:data", "unmask:data", "row_filter:bypass"]);
 
 const CAPABILITY_LABELS: Record<string, string> = {
   "connection:read": "Browse",
@@ -116,20 +100,28 @@ const savingEdit = ref(false);
 
 const deleteTarget = ref<AssetGrant | null>(null);
 const deleting = ref(false);
+const deleteCoverage = ref<GrantCoverage | null>(null);
+const loadingDeleteCoverage = ref(false);
+
+watch(deleteTarget, async (grant) => {
+  deleteCoverage.value = null;
+  if (!grant || !props.user) return;
+  loadingDeleteCoverage.value = true;
+  try {
+    deleteCoverage.value = await usersApi.getGrantCoverage(props.user.id, grant.id);
+  } catch {
+    // A coverage preview failure must not block the revoke dialog.
+  } finally {
+    loadingDeleteCoverage.value = false;
+  }
+});
 
 const effective = ref<EffectiveAccess | null>(null);
 const checkingAccess = ref(false);
 const accessError = ref("");
 const lastAccessQuery = ref<{ connection_id: string; database?: string; schema?: string; table?: string } | null>(null);
 
-const assetRoles = computed(() =>
-  props.roles.filter(
-    (role) =>
-      role.code !== "admin" &&
-      !role.permissions.some((permission) => permission.startsWith("admin:")) &&
-      role.permissions.some((permission) => ASSET_PERMISSIONS.has(permission)),
-  ),
-);
+const assetRoles = computed(() => props.roles.filter((role) => role.code !== "admin" && !role.permissions.some((permission) => permission.startsWith("admin:")) && role.permissions.some((permission) => ASSET_PERMISSIONS.has(permission))));
 
 function defaultAssetRole(): string {
   return assetRoles.value.find((role) => role.code === "viewer")?.code ?? assetRoles.value[0]?.code ?? "";
@@ -214,9 +206,7 @@ const filteredGrants = computed(() => {
     .filter((grant) => statusFilter.value === "all" || grantStatus(grant) === statusFilter.value)
     .filter((grant) => {
       if (!query) return true;
-      return [grantTargetLabel(grant), grant.role_code, grant.reason, grant.granted_by].some((value) =>
-        (value ?? "").toLowerCase().includes(query),
-      );
+      return [grantTargetLabel(grant), grant.role_code, grant.reason, grant.granted_by].some((value) => (value ?? "").toLowerCase().includes(query));
     })
     .sort((left, right) => statusRank(left) - statusRank(right) || grantTargetLabel(left).localeCompare(grantTargetLabel(right)));
 });
@@ -242,13 +232,7 @@ const canSubmitGrant = computed(() => {
 function capabilitiesFor(roleCode: string): string[] {
   const role = props.roles.find((candidate) => candidate.code === roleCode);
   if (!role) return [];
-  return [
-    ...new Set(
-      role.permissions
-        .filter((permission) => ASSET_PERMISSIONS.has(permission))
-        .map((permission) => CAPABILITY_LABELS[permission] ?? permission),
-    ),
-  ];
+  return [...new Set(role.permissions.filter((permission) => ASSET_PERMISSIONS.has(permission)).map((permission) => CAPABILITY_LABELS[permission] ?? permission))];
 }
 
 function statusRank(grant: AssetGrant): number {
@@ -322,7 +306,10 @@ function editExpiry(): { keep?: true; value?: string | null } {
 }
 
 function wildcardMatch(pattern: string, value: string): boolean {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
   try {
     return new RegExp(`^${escaped}$`, "i").test(value);
   } catch {
@@ -393,9 +380,7 @@ async function loadDatabases() {
   if (!addForm.connection_id || !selectedConnection.value) return;
   metaLoading.databases = true;
   try {
-    const names = isMongo.value
-      ? await api.mongoListDatabases(addForm.connection_id)
-      : (await api.listDatabases(addForm.connection_id)).map((database) => database.name);
+    const names = isMongo.value ? await api.mongoListDatabases(addForm.connection_id) : (await api.listDatabases(addForm.connection_id)).map((database) => database.name);
     databases.value = [...new Set(names)].sort((left, right) => left.localeCompare(right));
   } catch (error) {
     metaError.value = formatError(error);
@@ -432,9 +417,7 @@ async function loadTables() {
   metaLoading.tables = true;
   metaError.value = "";
   try {
-    const names = isMongo.value
-      ? (await api.mongoListCollections(addForm.connection_id, addForm.database_name)).map((collection) => collection.name)
-      : (await api.listTables(addForm.connection_id, addForm.database_name, addForm.schema_name)).map((table) => table.name);
+    const names = isMongo.value ? (await api.mongoListCollections(addForm.connection_id, addForm.database_name)).map((collection) => collection.name) : (await api.listTables(addForm.connection_id, addForm.database_name, addForm.schema_name)).map((table) => table.name);
     tables.value = [...new Set(names)].sort((left, right) => left.localeCompare(right));
   } catch (error) {
     metaError.value = formatError(error);
@@ -531,9 +514,10 @@ async function confirmDelete() {
   if (!props.user || !deleteTarget.value) return;
   deleting.value = true;
   try {
-    await usersApi.deleteAssetGrant(props.user.id, deleteTarget.value.id);
+    const result = await usersApi.deleteAssetGrant(props.user.id, deleteTarget.value.id);
     deleteTarget.value = null;
-    toast(t("settings.identity.grantRemoved"));
+    deleteCoverage.value = null;
+    toast(result.coverage?.still_covered ? t("settings.identity.grantRemovedStillCovered") : t("settings.identity.grantRemoved"));
     await reloadAfterMutation();
   } catch (error) {
     actionError.value = formatError(error);
@@ -729,9 +713,7 @@ watch(
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div class="text-sm font-medium">{{ t("settings.identity.assetGrantsTitle") }}</div>
-              <p class="text-xs text-muted-foreground">
-                {{ grantCounts.active }} {{ t("settings.identity.grantStatusActive") }} · {{ grantCounts.expiring }} {{ t("settings.identity.grantStatusExpiring") }} · {{ grantCounts.expired }} {{ t("settings.identity.grantStatusExpired") }}
-              </p>
+              <p class="text-xs text-muted-foreground">{{ grantCounts.active }} {{ t("settings.identity.grantStatusActive") }} · {{ grantCounts.expiring }} {{ t("settings.identity.grantStatusExpiring") }} · {{ grantCounts.expired }} {{ t("settings.identity.grantStatusExpired") }}</p>
             </div>
             <LoaderCircle v-if="grantsLoading" class="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
@@ -935,6 +917,30 @@ watch(
       <DialogTitle>{{ t("settings.identity.deleteGrantTitle") }}</DialogTitle>
       <p class="text-sm text-muted-foreground">{{ t("settings.identity.deleteGrantConfirm", { name: user?.display_name || user?.email || "" }) }}</p>
       <p class="text-xs text-muted-foreground">{{ t("settings.identity.deleteGrantImpact") }}</p>
+
+      <div v-if="loadingDeleteCoverage" class="flex items-center gap-2 rounded-md border border-border/60 p-2 text-xs text-muted-foreground">
+        <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
+        {{ t("settings.identity.coverageChecking") }}
+      </div>
+      <div v-else-if="deleteCoverage" class="space-y-1.5 rounded-md border border-border/60 p-2 text-xs">
+        <p :class="deleteCoverage.still_covered ? 'font-medium text-amber-600 dark:text-amber-400' : 'font-medium text-green-600 dark:text-green-400'">
+          {{ deleteCoverage.still_covered ? t("settings.identity.coverageStillCovered") : t("settings.identity.coverageNoLonger") }}
+        </p>
+        <p v-if="deleteCoverage.via_global_roles" class="text-muted-foreground">{{ t("settings.identity.coverageGlobalRole") }}</p>
+        <ul v-if="deleteCoverage.remaining_grants.length > 0" class="space-y-0.5 text-muted-foreground">
+          <li v-for="grant in deleteCoverage.remaining_grants.slice(0, 5)" :key="grant.id" class="truncate" :title="`${grant.role_code} · ${grantTargetLabel(grant)}`">
+            {{ grant.role_code }} · {{ grantTargetLabel(grant) }}
+            <span v-if="grant.expires_at"> · {{ t("settings.identity.coverageExpires", { time: grant.expires_at }) }}</span>
+          </li>
+          <li v-if="deleteCoverage.remaining_grants.length > 5" class="text-muted-foreground">
+            {{ t("settings.identity.coverageMoreGrants", { count: deleteCoverage.remaining_grants.length - 5 }) }}
+          </li>
+        </ul>
+        <p v-if="deleteCoverage.access_request_ids.length > 0" class="text-muted-foreground">
+          {{ t("settings.identity.coverageRevokesRequests", { count: deleteCoverage.access_request_ids.length }) }}
+        </p>
+      </div>
+
       <div class="flex justify-end gap-2">
         <Button variant="outline" size="sm" @click="deleteTarget = null">{{ t("settings.identity.cancel") }}</Button>
         <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">

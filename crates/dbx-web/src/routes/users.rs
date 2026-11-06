@@ -212,6 +212,18 @@ fn asset_permissions_for_role(role_code: &str) -> Result<Vec<Permission>, AppErr
         .collect())
 }
 
+/// Whether two grants protect the same natural target for the same role.
+fn same_grant_target(left: &AssetGrant, right: &AssetGrant) -> bool {
+    left.role_code == right.role_code
+        && left.target_kind == right.target_kind
+        && left.connection_group_id == right.connection_group_id
+        && left.connection_id == right.connection_id
+        && left.database_name == right.database_name
+        && left.schema_name == right.schema_name
+        && left.table_name == right.table_name
+        && left.name_pattern == right.name_pattern
+}
+
 /// A self-service request may only name a data role: every permission the role
 /// carries must be satisfiable inside an asset target. Administrator and DBA
 /// also carry global-only permissions, so they cannot be requested; an
@@ -316,7 +328,12 @@ pub async fn list_roles(
     State(state): State<Arc<WebState>>,
     Extension(actor): Extension<Actor>,
 ) -> Result<Json<Vec<RoleView>>, AppError> {
-    require(&actor, Permission::AdminUsers)?;
+    build_role_views(&state, &actor).await.map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools.
+pub(crate) async fn build_role_views(state: &WebState, actor: &Actor) -> Result<Vec<RoleView>, AppError> {
+    require(actor, Permission::AdminUsers)?;
     let overrides = state.app.storage.list_builtin_role_overrides().await.map_err(AppError::from)?;
     let mut roles: Vec<RoleView> = BuiltinRole::ALL
         .iter()
@@ -345,7 +362,7 @@ pub async fn list_roles(
             builtin: false,
         });
     }
-    Ok(Json(roles))
+    Ok(roles)
 }
 
 fn validate_permissions(permissions: &[String]) -> Result<Vec<String>, AppError> {
@@ -512,7 +529,12 @@ pub async fn list_users(
     State(state): State<Arc<WebState>>,
     Extension(actor): Extension<Actor>,
 ) -> Result<Json<Vec<UserView>>, AppError> {
-    require(&actor, Permission::AdminUsers)?;
+    build_user_views(&state, &actor).await.map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools.
+pub(crate) async fn build_user_views(state: &WebState, actor: &Actor) -> Result<Vec<UserView>, AppError> {
+    require(actor, Permission::AdminUsers)?;
     let users = state.app.storage.list_users().await.map_err(AppError::from)?;
     let mut views = Vec::with_capacity(users.len());
     for user in users {
@@ -549,7 +571,7 @@ pub async fn list_users(
             roles,
         });
     }
-    Ok(Json(views))
+    Ok(views)
 }
 
 #[derive(Deserialize)]
@@ -1131,6 +1153,16 @@ async fn validate_grant(
 }
 
 fn record_grant_audit(state: &WebState, actor: &Actor, action: &str, grant: &AssetGrant) {
+    record_grant_audit_with_details(state, actor, action, grant, serde_json::json!({}));
+}
+
+fn record_grant_audit_with_details(
+    state: &WebState,
+    actor: &Actor,
+    action: &str,
+    grant: &AssetGrant,
+    extra: serde_json::Value,
+) {
     let context = dbx_core::audit::current_audit_context().unwrap_or_else(|| AuditContext {
         actor: actor.clone(),
         source: AuditSource::Web,
@@ -1143,20 +1175,23 @@ fn record_grant_audit(state: &WebState, actor: &Actor, action: &str, grant: &Ass
         AuditEventInsert::new(&context, AuditOperation::Admin, AuditDecision::Allowed, AuditOutcome::Success);
     event.resource_type = Some("asset_grant".to_string());
     event.resource_id = Some(grant.id.clone());
-    event.details_json = Some(
-        serde_json::json!({
-            "action": action,
-            "principal_type": grant.principal_type,
-            "principal_id": grant.principal_id,
-            "role_code": grant.role_code,
-            "target_kind": grant.target_kind.as_str(),
-            "connection_id": grant.connection_id,
-            "database_name": grant.database_name,
-            "schema_name": grant.schema_name,
-            "table_name": grant.table_name,
-        })
-        .to_string(),
-    );
+    let mut details = serde_json::json!({
+        "action": action,
+        "principal_type": grant.principal_type,
+        "principal_id": grant.principal_id,
+        "role_code": grant.role_code,
+        "target_kind": grant.target_kind.as_str(),
+        "connection_id": grant.connection_id,
+        "database_name": grant.database_name,
+        "schema_name": grant.schema_name,
+        "table_name": grant.table_name,
+    });
+    if let (Some(target), Some(extra)) = (details.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    event.details_json = Some(details.to_string());
     state.app.record_audit(event);
 }
 
@@ -1287,12 +1322,46 @@ pub async fn delete_binding(
     if grant.principal_type != "user" || grant.principal_id != user_id {
         return Err(AppError::not_found("binding not found"));
     }
-    if !state.app.storage.delete_asset_grant(binding_id, user_id.clone()).await.map_err(AppError::from)? {
+    // Compute coverage while the grant still exists so the dialog/response can
+    // tell the administrator what remains; the grant itself is excluded.
+    let coverage = grant_coverage_without(&state, &grant).await?;
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    if !state.app.storage.delete_asset_grant(binding_id.clone(), user_id.clone()).await.map_err(AppError::from)? {
         return Err(AppError::not_found("binding not found"));
     }
+    let revoked_requests =
+        state.app.storage.revoke_access_requests_for_grant(binding_id.clone(), now).await.map_err(AppError::from)?;
     state.refresh_user_authorization(&grant.principal_id).await;
-    record_grant_audit(&state, &actor, "deleted", &grant);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    record_grant_audit_with_details(
+        &state,
+        &actor,
+        "deleted",
+        &grant,
+        serde_json::json!({
+            "access_request_ids": coverage.access_request_ids.clone(),
+            "still_covered": coverage.still_covered,
+            "remaining_grant_ids": coverage.remaining_grants.iter().map(|grant| grant.id.clone()).collect::<Vec<_>>(),
+        }),
+    );
+    for request in &revoked_requests {
+        record_access_request_audit(
+            &state,
+            &actor,
+            "revoked",
+            request,
+            AuditOutcome::Success,
+            serde_json::json!({
+                "grant_id": binding_id,
+                "still_covered": coverage.still_covered,
+            }),
+        );
+    }
+    let revoked_request_ids: Vec<String> = revoked_requests.iter().map(|request| request.id.clone()).collect();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "coverage": coverage,
+        "revoked_access_request_ids": revoked_request_ids,
+    })))
 }
 
 // ---------------------------------------------------------------------------
@@ -1687,6 +1756,11 @@ pub struct CreateAccessRequestInput {
     pub duration_hours: i64,
     #[serde(default)]
     pub justification: String,
+    /// Submit even when an active grant already covers the same access. The
+    /// first submission is refused with ACCESS_ALREADY_GRANTED so the client can
+    /// warn that the new window will stack on top of the existing one.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1731,6 +1805,10 @@ pub struct AccessRequestView {
     pub decided_at: Option<String>,
     pub decision_note: String,
     pub grant_id: Option<String>,
+    /// Current state of the grant created by this approval: active, expired,
+    /// revoked (the request status is revoked), or missing (the grant row was
+    /// removed before this status existed). None when no grant was created.
+    pub grant_status: Option<String>,
     /// Administrators who can actually decide this pending request (they hold
     /// `admin:users` and cover the requested role at its target). Empty for
     /// decided requests.
@@ -1752,6 +1830,7 @@ struct AccessRequestLookup {
     connection_names: HashMap<String, String>,
     group_names: HashMap<String, String>,
     role_names: HashMap<String, String>,
+    grants_by_id: HashMap<String, AssetGrant>,
     approvers: Vec<ApproverCandidate>,
 }
 
@@ -1786,12 +1865,99 @@ async fn access_request_lookup(state: &WebState) -> Result<AccessRequestLookup, 
     for role in state.app.storage.list_custom_roles().await.map_err(AppError::from)? {
         lookup.role_names.insert(role.code, role.name);
     }
+    for grant in state.app.storage.list_all_asset_grants().await.map_err(AppError::from)? {
+        lookup.grants_by_id.insert(grant.id.clone(), grant);
+    }
     Ok(lookup)
+}
+
+fn grant_status_for(request: &AccessRequest, lookup: &AccessRequestLookup, now: &str) -> Option<String> {
+    if request.status == AccessRequestStatus::Revoked {
+        return Some("revoked".to_string());
+    }
+    let grant_id = request.grant_id.as_deref()?;
+    match lookup.grants_by_id.get(grant_id) {
+        None => Some("missing".to_string()),
+        Some(grant) => Some(if grant.expires_at.as_deref().is_some_and(|expires| expires <= now) {
+            "expired".to_string()
+        } else {
+            "active".to_string()
+        }),
+    }
+}
+
+/// What remains after a grant is removed. Computed against the user's snapshot
+/// with the grant filtered out, so the preview and the post-delete result agree.
+#[derive(Debug, Serialize)]
+pub struct GrantCoverageView {
+    pub grant_id: String,
+    pub still_covered: bool,
+    pub missing_permissions: Vec<String>,
+    pub via_global_roles: bool,
+    pub remaining_grants: Vec<AssetGrantView>,
+    /// Approved access requests backed by this grant.
+    pub access_request_ids: Vec<String>,
+}
+
+async fn grant_coverage_without(state: &WebState, grant: &AssetGrant) -> Result<GrantCoverageView, AppError> {
+    let mut snapshot = load_asset_snapshot(&state.app, &grant.principal_id).await.map_err(AppError::from)?;
+    snapshot.grants.retain(|candidate| candidate.id != grant.id);
+    let required = asset_permissions_for_role(&grant.role_code).unwrap_or_else(|_| Vec::new());
+    let missing_permissions: Vec<String> = required
+        .iter()
+        .filter(|permission| !actor_covers_grant(&snapshot, grant, **permission))
+        .map(|permission| permission.as_str().to_string())
+        .collect();
+    let via_global_roles =
+        !required.is_empty() && required.iter().all(|permission| snapshot.has_global_permission(permission.as_str()));
+    let remaining_grants: Vec<AssetGrantView> = snapshot
+        .grants
+        .iter()
+        .filter(|candidate| required.iter().any(|permission| role_grants_permission(&candidate.role_code, *permission)))
+        .cloned()
+        .map(AssetGrantView::from)
+        .collect();
+    let requests = state.app.storage.access_requests_for_grant(grant.id.clone()).await.map_err(AppError::from)?;
+    let access_request_ids = requests
+        .iter()
+        .filter(|request| request.status == AccessRequestStatus::Approved)
+        .map(|request| request.id.clone())
+        .collect();
+    Ok(GrantCoverageView {
+        grant_id: grant.id.clone(),
+        still_covered: !required.is_empty() && missing_permissions.is_empty(),
+        missing_permissions,
+        via_global_roles,
+        remaining_grants,
+        access_request_ids,
+    })
+}
+
+/// Preview used by the revoke confirmation dialog: "what will the user still
+/// be able to do through other grants or global roles?"
+pub async fn grant_coverage_preview(
+    State(state): State<Arc<WebState>>,
+    Extension(actor): Extension<Actor>,
+    Path((user_id, binding_id)): Path<(String, String)>,
+) -> Result<Json<GrantCoverageView>, AppError> {
+    require(&actor, Permission::AdminUsers)?;
+    let grant = state
+        .app
+        .storage
+        .asset_grant_by_id(binding_id)
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("binding not found"))?;
+    if grant.principal_type != "user" || grant.principal_id != user_id {
+        return Err(AppError::not_found("binding not found"));
+    }
+    Ok(Json(grant_coverage_without(&state, &grant).await?))
 }
 
 fn access_request_view(request: AccessRequest, lookup: &AccessRequestLookup) -> AccessRequestView {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let approver_names = pending_approver_names(&request, lookup);
+    let grant_status = grant_status_for(&request, lookup, &now);
     AccessRequestView {
         id: request.id,
         requester_name: lookup
@@ -1822,6 +1988,7 @@ fn access_request_view(request: AccessRequest, lookup: &AccessRequestLookup) -> 
         decided_at: request.decided_at,
         decision_note: request.decision_note,
         grant_id: request.grant_id,
+        grant_status,
         approver_names,
         created_at: request.created_at,
     }
@@ -1988,6 +2155,28 @@ pub async fn create_access_request(
             "ROLE_NOT_REQUESTABLE: role '{}' contains permissions that cannot be granted per asset",
             grant.role_code
         )));
+    }
+    if !body.force {
+        let snapshot = load_asset_snapshot(&state.app, &actor.id).await.map_err(AppError::from)?;
+        let required = asset_permissions_for_role(&grant.role_code)?;
+        let already_covered = !required.is_empty()
+            && required.iter().all(|permission| actor_covers_grant(&snapshot, &grant, *permission));
+        if already_covered {
+            let existing = snapshot
+                .grants
+                .iter()
+                .filter(|candidate| same_grant_target(candidate, &grant))
+                .max_by(|left, right| left.expires_at.cmp(&right.expires_at));
+            let source = match existing {
+                Some(existing) => {
+                    format!("until {} (grant {})", existing.expires_at.as_deref().unwrap_or("no expiry"), existing.id)
+                }
+                None => "through a global role".to_string(),
+            };
+            return Err(AppError::conflict(format!(
+                "ACCESS_ALREADY_GRANTED: this role is already effective for the requested target {source}; resubmit with force=true to request an additional window"
+            )));
+        }
     }
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let request = AccessRequest {

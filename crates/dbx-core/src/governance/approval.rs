@@ -336,18 +336,41 @@ pub struct ApprovalBinding<'a> {
 /// issued approvals. Used by both the approval API and the execution funnel so
 /// the two sides can never disagree.
 pub fn connection_config_hash(config: &crate::models::connection::ConnectionConfig) -> String {
-    // Credentials and client navigation state are runtime data, not connection
-    // identity: `connect` replaces the in-memory config with the client's copy
-    // (including the password), and the client also refreshes `database_info`
-    // and its selected database/schema. Hashing those made already-approved
-    // requests fail with APPROVAL_BINDING_MISMATCH after an approver connected.
+    // Hash only the connection identity that determines where approved SQL
+    // runs. The full sanitized config still carried client/runtime fields
+    // (init script, url parameters, external config, selected database, ...)
+    // that `connect` can legitimately refresh, which caused in-flight approvals
+    // to fail with APPROVAL_BINDING_MISMATCH after an approver connected.
+    let identity = serde_json::json!({
+        "v": 2,
+        "id": config.id,
+        "db_type": config.db_type,
+        "driver_profile": config.driver_profile,
+        "host": config.host,
+        "port": config.port,
+        "username": config.username,
+        "ssl": config.ssl,
+        "sysdba": config.sysdba,
+        // Mongo/JDBC may define the endpoint through the connection string
+        // instead of host/port; keep it for those kinds only.
+        "connection_string": if matches!(config.db_type, crate::models::connection::DatabaseType::MongoDb)
+            || config.driver_profile.as_deref().is_some_and(|profile| profile.to_ascii_lowercase().contains("jdbc"))
+        {
+            config.connection_string.clone()
+        } else {
+            None
+        },
+    });
+    return sha256_hex(identity.to_string().as_bytes());
+}
+
+/// The previous sanitized-config hash. Kept so approvals created before the
+/// minimal identity hash can still execute.
+pub fn stable_connection_config_hash(config: &crate::models::connection::ConnectionConfig) -> String {
     let mut stable = crate::persistence::storage::sanitized_connection_config(config);
-    // Sanitization drops a few values that still define where/how statements
-    // run; keep them so changing them does invalidate an approval.
     stable.init_script = config.init_script.clone();
     stable.connection_string = config.connection_string.clone();
     stable.url_params = config.url_params.clone();
-    // Navigation and display preferences.
     stable.database_info = None;
     stable.database = None;
     stable.default_schema = None;
@@ -626,6 +649,10 @@ mod tests {
         runtime.note = "edited note".to_string();
         runtime.color = Some("#fff".to_string());
         runtime.visible_databases = Some(vec!["app".to_string()]);
+        // CLI-only fields a desktop client may send on `/connection/connect`;
+        // they must not break a pending approval.
+        runtime.url_params = Some("application_name=qa9".to_string());
+        runtime.init_script = Some("-- qa9 approver session".to_string());
         assert_eq!(connection_config_hash(&config), connection_config_hash(&runtime));
         let mut edited = config.clone();
         edited.host = "db-2".to_string();

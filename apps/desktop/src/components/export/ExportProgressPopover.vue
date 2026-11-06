@@ -28,12 +28,13 @@ const visiblePendingApprovals = computed(() => myTasks.pendingApprovals.value.sl
 const visiblePendingAccess = computed(() => myTasks.pendingAccessRequests.value.slice(0, 5));
 const combinedActiveCount = computed(() => activeCount.value + myTasks.activeCount.value + myTasks.pendingCount.value);
 const combinedFailedCount = computed(() => myTasks.failedCount.value + tasks.value.filter((task) => task.status === "Error").length);
-const hasCombinedActive = computed(() => hasActive.value || myTasks.activeCount.value > 0);
+const hasCombinedActive = computed(() => hasActive.value || myTasks.activeCount.value > 0 || myTasks.pendingCount.value > 0);
 const ACCESS_STATUS_KEYS: Record<string, string> = {
   pending: "taskCenter.accessStatusPending",
   approved: "taskCenter.accessStatusApproved",
   rejected: "taskCenter.accessStatusRejected",
   cancelled: "taskCenter.accessStatusCancelled",
+  revoked: "taskCenter.accessStatusRevoked",
   expired: "taskCenter.accessStatusExpired",
 };
 const recoveryOpen = ref(false);
@@ -134,8 +135,7 @@ function formatTaskDuration(start: number | string | null | undefined, end?: num
   return `${seconds}s`;
 }
 
-const isApprovalTerminal = (status: string) =>
-  ["executed", "execution_failed", "rejected", "expired", "cancelled"].includes(status);
+const isApprovalTerminal = (status: string) => ["executed", "execution_failed", "rejected", "expired", "cancelled"].includes(status);
 
 const isAccessTerminal = (task: MyTaskAccessRequest) => task.status !== "pending";
 
@@ -146,20 +146,42 @@ function approverSummary(names: string[] | undefined): string {
 const approvalTitle = (task: MyTaskApproval) => task.sql.trim().split("\n")[0] || task.database;
 const approvalConnectionLabel = (task: MyTaskApproval) => task.connection_name || task.connection_id;
 const approvalStepText = (task: MyTaskApproval) => t("settings.approvals.stepProgress", { current: task.current_step_no, total: task.step_count });
-const accessStatusLabel = (task: MyTaskAccessRequest) =>
-  t(task.expired && task.status === "approved" ? "taskCenter.accessStatusExpired" : (ACCESS_STATUS_KEYS[task.status] ?? "taskCenter.accessStatusPending"));
+function accessEffectiveStatus(task: MyTaskAccessRequest): string {
+  if (task.status === "revoked" || task.grant_status === "revoked" || task.grant_status === "missing") return "revoked";
+  if (task.status === "approved" && (task.expired || task.grant_status === "expired")) return "expired";
+  return task.status;
+}
+const accessStatusLabel = (task: MyTaskAccessRequest) => t(ACCESS_STATUS_KEYS[accessEffectiveStatus(task)] ?? "taskCenter.accessStatusPending");
 const accessStatusColor = (task: MyTaskAccessRequest) => {
-  if (task.expired && task.status === "approved") return "text-amber-600 dark:text-amber-400";
-  if (task.status === "approved") return "text-green-600 dark:text-green-400";
-  if (task.status === "rejected") return "text-destructive";
-  if (task.status === "cancelled") return "text-muted-foreground";
-  return "text-sky-600 dark:text-sky-400";
+  switch (accessEffectiveStatus(task)) {
+    case "expired":
+      return "text-amber-600 dark:text-amber-400";
+    case "revoked":
+      return "text-destructive";
+    case "approved":
+      return "text-green-600 dark:text-green-400";
+    case "rejected":
+      return "text-destructive";
+    case "cancelled":
+      return "text-muted-foreground";
+    default:
+      return "text-sky-600 dark:text-sky-400";
+  }
 };
 const accessStatusIcon = (task: MyTaskAccessRequest) => {
-  if (task.status === "pending") return Clock;
-  if (task.status === "approved" && !task.expired) return CheckCircle2;
-  if (task.status === "rejected" || task.status === "cancelled" || task.expired) return XCircle;
-  return AlertCircle;
+  switch (accessEffectiveStatus(task)) {
+    case "pending":
+      return Clock;
+    case "approved":
+      return CheckCircle2;
+    case "revoked":
+    case "rejected":
+    case "cancelled":
+    case "expired":
+      return XCircle;
+    default:
+      return AlertCircle;
+  }
 };
 const accessTargetLabel = (task: MyTaskAccessRequest) => {
   if (task.target_kind === "connection_group") return task.group_name || task.connection_group_id || t("settings.identity.targetGroup");
@@ -483,7 +505,7 @@ function openTask(task: ExportTask): void {
 </script>
 
 <template>
-  <Popover v-if="tasks.length > 0 || visibleApprovalTasks.length > 0 || visibleAccessTasks.length > 0" v-model:open="open">
+  <Popover v-if="approvalTasksEnabled || tasks.length > 0" v-model:open="open">
     <PopoverTrigger as-child>
       <Button variant="ghost" size="icon" class="relative h-8 w-8" :title="triggerTitle" :class="{ 'bg-destructive/10 text-destructive hover:bg-destructive/15': combinedFailedCount > 0, 'bg-accent text-primary': combinedFailedCount === 0 && hasCombinedActive }">
         <ListChecks class="h-4 w-4" />
@@ -500,6 +522,9 @@ function openTask(task: ExportTask): void {
       </div>
 
       <div class="max-h-96 overflow-y-auto">
+        <div v-if="tasks.length === 0 && visibleApprovalTasks.length === 0 && visibleAccessTasks.length === 0 && visiblePendingApprovals.length === 0 && visiblePendingAccess.length === 0" class="px-4 py-6 text-center text-xs text-muted-foreground">
+          {{ t("taskCenter.empty") }}
+        </div>
         <div v-if="visiblePendingApprovals.length > 0 || visiblePendingAccess.length > 0" class="border-b">
           <div class="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{{ t("taskCenter.pendingMyApproval") }}</div>
           <div v-for="task in visiblePendingApprovals" :key="'p-' + task.id" class="flex items-start gap-3 px-4 py-3 text-xs">
@@ -511,7 +536,8 @@ function openTask(task: ExportTask): void {
               </div>
               <div class="min-w-0 truncate text-muted-foreground">{{ task.requester_name }} · {{ approvalConnectionLabel(task) }} · {{ approvalStepText(task) }}</div>
               <div class="min-w-0 truncate text-muted-foreground">
-                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at_ms) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at_ms, task.executed_at_ms ?? (isApprovalTerminal(task.status) ? task.updated_at_ms : undefined)) }} · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}
+                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at_ms) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at_ms, task.executed_at_ms ?? (isApprovalTerminal(task.status) ? task.updated_at_ms : undefined)) }} · {{ t("taskCenter.currentApprover") }}:
+                {{ approverSummary(task.current_approver_names) }}
               </div>
             </div>
             <div class="flex shrink-0 pt-0.5">
@@ -551,7 +577,8 @@ function openTask(task: ExportTask): void {
               </div>
               <div class="min-w-0 truncate text-muted-foreground">{{ approvalConnectionLabel(task) }} · {{ task.database }} · {{ approvalStepText(task) }}</div>
               <div class="min-w-0 truncate text-muted-foreground">
-                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at_ms) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at_ms, task.executed_at_ms ?? (isApprovalTerminal(task.status) ? task.updated_at_ms : undefined)) }}<span v-if="task.status === 'pending'"> · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}</span>
+                {{ t("taskCenter.started") }}: {{ formatTaskTime(task.created_at_ms) }} · {{ t("taskCenter.duration") }}: {{ formatTaskDuration(task.created_at_ms, task.executed_at_ms ?? (isApprovalTerminal(task.status) ? task.updated_at_ms : undefined))
+                }}<span v-if="task.status === 'pending'"> · {{ t("taskCenter.currentApprover") }}: {{ approverSummary(task.current_approver_names) }}</span>
               </div>
               <div v-if="task.execution_error" class="whitespace-normal break-words text-destructive">{{ task.execution_error }}</div>
             </div>

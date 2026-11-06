@@ -32,9 +32,7 @@ export function useMyTasks(enabled: Ref<boolean>) {
   let disposed = false;
   let loading = false;
 
-  const activeApprovalCount = computed(
-    () => approvals.value.filter((task) => ACTIVE_APPROVAL_STATUSES.has(task.status)).length,
-  );
+  const activeApprovalCount = computed(() => approvals.value.filter((task) => ACTIVE_APPROVAL_STATUSES.has(task.status)).length);
   const pendingAccessCount = computed(() => accessRequests.value.filter((task) => task.status === "pending").length);
   const activeCount = computed(() => activeApprovalCount.value + pendingAccessCount.value);
   const pendingCount = computed(() => pendingApprovals.value.length + pendingAccessRequests.value.length);
@@ -58,10 +56,7 @@ export function useMyTasks(enabled: Ref<boolean>) {
   }
 
   function notifyAccessRequest(task: MyTaskAccessRequest): void {
-    const message =
-      task.status === "approved"
-        ? t("taskCenter.accessApproved", { role: task.role_name })
-        : t("taskCenter.accessRejected", { role: task.role_name });
+    const message = task.status === "approved" ? t("taskCenter.accessApproved", { role: task.role_name }) : t("taskCenter.accessRejected", { role: task.role_name });
     toast(message, 6000, { label: t("taskCenter.view"), onClick: () => openAccessRequest(task.id) });
   }
 
@@ -80,7 +75,7 @@ export function useMyTasks(enabled: Ref<boolean>) {
     return requests
       .filter((request) => {
         if (request.status === "pending") return true;
-        const finishedAt = request.decided_at ? Date.parse(request.decided_at) : Date.parse(request.created_at);
+        const finishedAt = Date.parse(request.updated_at || request.decided_at || request.created_at);
         return !Number.isNaN(finishedAt) && finishedAt > now - ACCESS_TERMINAL_RETENTION_MS;
       })
       .slice(0, MAX_TASKS);

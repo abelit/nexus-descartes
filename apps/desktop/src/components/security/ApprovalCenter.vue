@@ -13,7 +13,13 @@ import * as approvalsApi from "@/lib/backend/approvals";
 import type { ApprovalStep, ApprovalRequest, ApprovalTemplate } from "@/lib/backend/approvals";
 
 const props = withDefaults(
-  defineProps<{ focusRequestId?: string; initialScope?: "mine" | "pending"; canManageTemplates?: boolean }>(),
+  defineProps<{
+    focusRequestId?: string;
+    /** Bumped on every deep link so clicking the same ticket refocuses it. */
+    focusNonce?: number;
+    initialScope?: "mine" | "pending";
+    canManageTemplates?: boolean;
+  }>(),
   { canManageTemplates: true },
 );
 
@@ -42,17 +48,24 @@ const editingTemplate = ref<ApprovalTemplate | null>(null);
 
 const empty = computed(() => !loading.value && requests.value.length === 0);
 
-watch(
-  () => props.focusRequestId,
-  (requestId) => {
-    if (!requestId) return;
-    focusedRequestId.value = requestId;
-    if (!requests.value.some((request) => request.id === requestId)) {
-      scope.value = "pending";
-      void refresh();
-    }
-  },
-);
+async function scrollToFocusedRequest() {
+  if (!focusedRequestId.value) return;
+  await nextTick();
+  document.querySelector<HTMLElement>(`[data-approval-request-id="${focusedRequestId.value}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+watch([() => props.focusRequestId, () => props.focusNonce], async ([requestId]) => {
+  if (!requestId) return;
+  focusedRequestId.value = requestId;
+  if (!requests.value.some((request) => request.id === requestId)) {
+    scope.value = "pending";
+    await refresh();
+  } else {
+    // The ticket is already in the list: still bring it into view, including
+    // when the same task-progress entry is clicked again.
+    await scrollToFocusedRequest();
+  }
+});
 
 function historyParams(offset: number) {
   const hours = historyRange.value === "all" ? undefined : Number(historyRange.value);
@@ -70,13 +83,7 @@ async function refresh() {
   loading.value = true;
   error.value = "";
   try {
-    requests.value = await approvalsApi.listApprovals(
-      scope.value === "history"
-        ? historyParams(0)
-        : scope.value === "mine"
-          ? { mine: true }
-          : { status: "pending", assigned: true },
-    );
+    requests.value = await approvalsApi.listApprovals(scope.value === "history" ? historyParams(0) : scope.value === "mine" ? { mine: true } : { status: "pending", assigned: true });
     historyHasMore.value = scope.value === "history" && requests.value.length === HISTORY_PAGE_SIZE;
     if (focusedRequestId.value && !requests.value.some((request) => request.id === focusedRequestId.value)) {
       try {
@@ -87,10 +94,7 @@ async function refresh() {
       }
     }
     templates.value = await approvalsApi.listApprovalTemplates();
-    await nextTick();
-    if (focusedRequestId.value) {
-      document.querySelector<HTMLElement>(`[data-approval-request-id="${focusedRequestId.value}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
+    await scrollToFocusedRequest();
   } catch (loadError) {
     error.value = formatError(loadError);
     requests.value = [];
@@ -296,12 +300,7 @@ onMounted(() => {
           <option value="168">{{ t("settings.approvals.historyRange7d") }}</option>
           <option value="720">{{ t("settings.approvals.historyRange30d") }}</option>
         </select>
-        <Input
-          v-model="historyQuery"
-          class="h-8 min-w-48 flex-1"
-          :placeholder="t('settings.approvals.historySearch')"
-          @keyup.enter="refresh"
-        />
+        <Input v-model="historyQuery" class="h-8 min-w-48 flex-1" :placeholder="t('settings.approvals.historySearch')" @keyup.enter="refresh" />
         <Button variant="outline" size="sm" :disabled="loading" @click="refresh">{{ t("settings.audit.refresh") }}</Button>
       </div>
     </div>
