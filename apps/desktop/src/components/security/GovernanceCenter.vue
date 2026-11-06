@@ -17,6 +17,8 @@ const props = defineProps<{
   initialTab: GovernanceTab;
   approvalCategory?: "sql" | "access";
   focusApprovalId?: string;
+  /** Bumped for every deep link, including a repeat click on the same ticket. */
+  focusNonce?: number;
   canApprovals: boolean;
   canAudit: boolean;
   canManageUsers: boolean;
@@ -31,13 +33,9 @@ const { t } = useI18n();
 const connectionStore = useConnectionStore();
 const activeTab = ref<GovernanceTab>(props.initialTab);
 const policyView = ref<"rules" | "data">(props.canReadPolicies ? "rules" : "data");
-const approvalView = ref<"sql" | "access">(
-  props.canApprovals ? (props.approvalCategory ?? "sql") : "access",
-);
+const approvalView = ref<"sql" | "access">(props.canApprovals ? (props.approvalCategory ?? "sql") : "access");
 
-const canViewAllAudit = computed(() =>
-  (props.actorRoles ?? []).some((role) => role === "admin" || role === "security_admin" || role === "auditor"),
-);
+const canViewAllAudit = computed(() => (props.actorRoles ?? []).some((role) => role === "admin" || role === "security_admin" || role === "auditor"));
 const canExportAudit = computed(() => props.actorPermissions?.includes("audit:export") ?? false);
 const canVerifyAudit = computed(() => props.actorPermissions?.includes("audit:verify") ?? false);
 const canManageApprovalTemplates = computed(() => props.actorPermissions?.includes("policy:publish") ?? false);
@@ -56,16 +54,24 @@ watch(
   },
 );
 
+// Deep links must win even when the same category/ticket was already selected
+// or the user manually switched sub-tabs. The nonce changes on every click.
+watch(
+  () => props.focusNonce,
+  () => {
+    activeTab.value = props.initialTab;
+    if (props.initialTab === "approvals") {
+      approvalView.value = props.canApprovals ? (props.approvalCategory ?? "sql") : "access";
+    }
+  },
+);
+
 const tabs = computed(() =>
   [
-    props.canApprovals || props.canManageUsers
-      ? { value: "approvals" as const, label: t("governance.approvals"), icon: ShieldCheck }
-      : null,
+    props.canApprovals || props.canManageUsers ? { value: "approvals" as const, label: t("governance.approvals"), icon: ShieldCheck } : null,
     props.canAudit ? { value: "audit" as const, label: t("governance.audit"), icon: ScrollText } : null,
     props.canManageUsers ? { value: "users" as const, label: t("governance.users"), icon: Users } : null,
-    props.canReadPolicies || props.canManageUsers
-      ? { value: "policies" as const, label: t("governance.policies"), icon: Scale }
-      : null,
+    props.canReadPolicies || props.canManageUsers ? { value: "policies" as const, label: t("governance.policies"), icon: Scale } : null,
   ].filter((tab): tab is NonNullable<typeof tab> => tab !== null),
 );
 
@@ -111,76 +117,30 @@ watch(
     </div>
 
     <div v-if="activeTab === 'approvals'" class="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 sm:px-5">
-      <button
-        v-if="canApprovals"
-        type="button"
-        class="border-b-2 px-3 py-2 text-sm transition-colors"
-        :class="approvalView === 'sql' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="approvalView = 'sql'"
-      >
+      <button v-if="canApprovals" type="button" class="border-b-2 px-3 py-2 text-sm transition-colors" :class="approvalView === 'sql' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="approvalView = 'sql'">
         {{ t("governance.sqlApprovals") }}
       </button>
-      <button
-        v-if="canManageUsers"
-        type="button"
-        class="border-b-2 px-3 py-2 text-sm transition-colors"
-        :class="approvalView === 'access' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="approvalView = 'access'"
-      >
+      <button v-if="canManageUsers" type="button" class="border-b-2 px-3 py-2 text-sm transition-colors" :class="approvalView === 'access' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="approvalView = 'access'">
         {{ t("governance.accessApprovals") }}
       </button>
     </div>
 
     <div v-if="activeTab === 'policies'" class="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 sm:px-5">
-      <button
-        v-if="canReadPolicies"
-        type="button"
-        class="border-b-2 px-3 py-2 text-sm transition-colors"
-        :class="policyView === 'rules' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="policyView = 'rules'"
-      >
+      <button v-if="canReadPolicies" type="button" class="border-b-2 px-3 py-2 text-sm transition-colors" :class="policyView === 'rules' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="policyView = 'rules'">
         {{ t("governance.rulePolicies") }}
       </button>
-      <button
-        v-if="canManageUsers"
-        type="button"
-        class="border-b-2 px-3 py-2 text-sm transition-colors"
-        :class="policyView === 'data' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="policyView = 'data'"
-      >
+      <button v-if="canManageUsers" type="button" class="border-b-2 px-3 py-2 text-sm transition-colors" :class="policyView === 'data' ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'" @click="policyView = 'data'">
         {{ t("governance.dataPolicyPolicies") }}
       </button>
     </div>
 
     <div class="min-h-0 flex-1 overflow-auto px-3 py-4 sm:px-5">
-      <ApprovalCenter
-        v-if="activeTab === 'approvals' && approvalView === 'sql' && canApprovals"
-        :focus-request-id="focusApprovalId"
-        :initial-scope="pendingApprovalCount > 0 ? 'pending' : 'mine'"
-        :can-manage-templates="canManageApprovalTemplates"
-      />
-      <AccessRequestsAdmin
-        v-else-if="activeTab === 'approvals' && approvalView === 'access' && canManageUsers"
-        :actor-id="actorId"
-      />
-      <AuditLog
-        v-else-if="activeTab === 'audit' && canAudit"
-        session-authorized
-        :can-view-all="canViewAllAudit"
-        :can-export="canExportAudit"
-        :can-verify="canVerifyAudit"
-      />
-      <UsersRoles
-        v-else-if="activeTab === 'users' && canManageUsers"
-        :actor-permissions="actorPermissions"
-        :actor-roles="actorRoles"
-        :actor-id="actorId"
-      />
+      <ApprovalCenter v-if="activeTab === 'approvals' && approvalView === 'sql' && canApprovals" :focus-request-id="focusApprovalId" :focus-nonce="focusNonce" :initial-scope="pendingApprovalCount > 0 ? 'pending' : 'mine'" :can-manage-templates="canManageApprovalTemplates" />
+      <AccessRequestsAdmin v-else-if="activeTab === 'approvals' && approvalView === 'access' && canManageUsers" :actor-id="actorId" />
+      <AuditLog v-else-if="activeTab === 'audit' && canAudit" session-authorized :can-view-all="canViewAllAudit" :can-export="canExportAudit" :can-verify="canVerifyAudit" />
+      <UsersRoles v-else-if="activeTab === 'users' && canManageUsers" :actor-permissions="actorPermissions" :actor-roles="actorRoles" :actor-id="actorId" />
       <PolicyEditor v-else-if="activeTab === 'policies' && policyView === 'rules' && canReadPolicies" />
-      <DataPolicies
-        v-else-if="activeTab === 'policies' && policyView === 'data' && canManageUsers"
-        :connections="connectionStore.connections"
-      />
+      <DataPolicies v-else-if="activeTab === 'policies' && policyView === 'data' && canManageUsers" :connections="connectionStore.connections" />
       <p v-else class="text-sm text-muted-foreground">{{ t("governance.noPermission") }}</p>
     </div>
   </div>

@@ -14,7 +14,7 @@ use axum::Extension;
 use axum::Json;
 use dbx_core::audit::Actor;
 use dbx_core::governance::approval::ApprovalStep;
-use dbx_core::governance::assets::{load_asset_snapshot, AccessRequest};
+use dbx_core::governance::assets::{load_asset_snapshot, AccessRequest, AccessRequestStatus, AssetGrant};
 use dbx_core::identity::{has_permission, BuiltinRole, Permission};
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +90,8 @@ pub struct MyAccessRequestTaskView {
     pub decided_by_name: Option<String>,
     pub decision_note: String,
     pub grant_id: Option<String>,
+    /// active / expired / revoked / missing, mirroring the access-request view.
+    pub grant_status: Option<String>,
     pub expired: bool,
 }
 
@@ -116,6 +118,12 @@ pub async fn my_tasks(
     Query(query): Query<MyTasksQuery>,
 ) -> Result<Json<MyTasksView>, AppError> {
     let limit = query.limit.unwrap_or(20).clamp(1, 50);
+    build_my_tasks(&state, &actor, limit).await.map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools so both surfaces use
+/// the same self-scoping and pending-approver rules.
+pub(crate) async fn build_my_tasks(state: &WebState, actor: &Actor, limit: usize) -> Result<MyTasksView, AppError> {
     let connection_names: HashMap<String, String> = state
         .app
         .storage
@@ -135,6 +143,15 @@ pub async fn my_tasks(
         .map(|group| (group.id, group.name))
         .collect();
     let users = state.app.storage.list_users().await.map_err(AppError::from)?;
+    let grants_by_id: HashMap<String, AssetGrant> = state
+        .app
+        .storage
+        .list_all_asset_grants()
+        .await
+        .map_err(AppError::from)?
+        .into_iter()
+        .map(|grant| (grant.id.clone(), grant))
+        .collect();
     let user_names: HashMap<String, String> =
         users.iter().map(|user| (user.id.clone(), user.display_name.clone())).collect();
     let mut role_names: HashMap<String, String> =
@@ -261,32 +278,52 @@ pub async fn my_tasks(
             expires_at_ms: request.expires_at_ms,
         }
     };
-    let to_access = |request: AccessRequest| MyAccessRequestTaskView {
-        current_approver_names: access_approver_names(&request),
-        requester_name: user_names.get(&request.requester_id).cloned().unwrap_or_else(|| request.requester_id.clone()),
-        requester_id: request.requester_id,
-        role_name: role_names.get(&request.role_code).cloned().unwrap_or_else(|| request.role_code.clone()),
-        role_code: request.role_code,
-        target_kind: request.target_kind.as_str().to_string(),
-        connection_name: request.connection_id.as_ref().and_then(|id| connection_names.get(id).cloned()),
-        group_name: request.connection_group_id.as_ref().and_then(|id| group_names.get(id).cloned()),
-        connection_group_id: request.connection_group_id,
-        connection_id: request.connection_id,
-        database_name: request.database_name,
-        schema_name: request.schema_name,
-        table_name: request.table_name,
-        name_pattern: request.name_pattern,
-        status: request.status.as_str().to_string(),
-        duration_hours: request.duration_hours,
-        expired: request.expires_at <= now,
-        expires_at: request.expires_at,
-        created_at: request.created_at,
-        updated_at: request.updated_at,
-        decided_by_name: request.decided_by.as_ref().and_then(|id| user_names.get(id).cloned()),
-        decided_at: request.decided_at,
-        decision_note: request.decision_note,
-        grant_id: request.grant_id,
-        id: request.id,
+    let to_access = |request: AccessRequest| {
+        let grant_status = if request.status == AccessRequestStatus::Revoked {
+            Some("revoked".to_string())
+        } else {
+            request.grant_id.as_deref().map(|grant_id| {
+                match grants_by_id.get(grant_id) {
+                    None => "missing",
+                    Some(grant) if grant.expires_at.as_deref().is_some_and(|expires| expires <= now.as_str()) => {
+                        "expired"
+                    }
+                    Some(_) => "active",
+                }
+                .to_string()
+            })
+        };
+        MyAccessRequestTaskView {
+            current_approver_names: access_approver_names(&request),
+            requester_name: user_names
+                .get(&request.requester_id)
+                .cloned()
+                .unwrap_or_else(|| request.requester_id.clone()),
+            requester_id: request.requester_id,
+            role_name: role_names.get(&request.role_code).cloned().unwrap_or_else(|| request.role_code.clone()),
+            role_code: request.role_code,
+            target_kind: request.target_kind.as_str().to_string(),
+            connection_name: request.connection_id.as_ref().and_then(|id| connection_names.get(id).cloned()),
+            group_name: request.connection_group_id.as_ref().and_then(|id| group_names.get(id).cloned()),
+            connection_group_id: request.connection_group_id,
+            connection_id: request.connection_id,
+            database_name: request.database_name,
+            schema_name: request.schema_name,
+            table_name: request.table_name,
+            name_pattern: request.name_pattern,
+            status: request.status.as_str().to_string(),
+            duration_hours: request.duration_hours,
+            expired: request.expires_at <= now,
+            expires_at: request.expires_at,
+            created_at: request.created_at,
+            updated_at: request.updated_at,
+            decided_by_name: request.decided_by.as_ref().and_then(|id| user_names.get(id).cloned()),
+            decided_at: request.decided_at,
+            decision_note: request.decision_note,
+            grant_id: request.grant_id,
+            grant_status,
+            id: request.id,
+        }
     };
 
     let approvals: Vec<MyApprovalTaskView> =
@@ -334,11 +371,11 @@ pub async fn my_tasks(
         }
     }
 
-    Ok(Json(MyTasksView {
+    Ok(MyTasksView {
         approvals,
         access_requests,
         pending_approvals,
         pending_access_requests,
         generated_at_ms: chrono::Utc::now().timestamp_millis(),
-    }))
+    })
 }

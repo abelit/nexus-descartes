@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod ai;
+pub mod ai_governance;
 pub mod app_settings;
 pub mod approvals;
 #[cfg(feature = "enterprise-audit")]

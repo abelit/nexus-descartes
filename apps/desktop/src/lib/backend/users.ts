@@ -205,10 +205,28 @@ export function createAssetGrant(userId: string, input: CreateAssetGrantInput): 
   });
 }
 
-export function deleteAssetGrant(userId: string, grantId: string): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}/bindings/${encodeURIComponent(grantId)}`, {
-    method: "DELETE",
-  });
+export function deleteAssetGrant(userId: string, grantId: string): Promise<RevokeGrantResult> {
+  return request<RevokeGrantResult>(`/api/users/${encodeURIComponent(userId)}/bindings/${encodeURIComponent(grantId)}`, { method: "DELETE" });
+}
+
+/** What the user will still be able to do after this grant is removed. */
+export interface GrantCoverage {
+  grant_id: string;
+  still_covered: boolean;
+  missing_permissions: string[];
+  via_global_roles: boolean;
+  remaining_grants: AssetGrant[];
+  access_request_ids: string[];
+}
+
+export interface RevokeGrantResult {
+  ok: boolean;
+  coverage: GrantCoverage;
+  revoked_access_request_ids: string[];
+}
+
+export function getGrantCoverage(userId: string, grantId: string): Promise<GrantCoverage> {
+  return request<GrantCoverage>(`/api/users/${encodeURIComponent(userId)}/bindings/${encodeURIComponent(grantId)}/coverage`);
 }
 
 export interface UpdateAssetGrantInput {
@@ -294,10 +312,7 @@ export function addAssetGroupMember(groupId: string, userId: string): Promise<{ 
 }
 
 export function removeAssetGroupMember(groupId: string, userId: string): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(
-    `/api/asset-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
-    { method: "DELETE" },
-  );
+  return request<{ ok: boolean }>(`/api/asset-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
 
 export function createGroupAssetGrant(groupId: string, input: CreateAssetGrantInput): Promise<AssetGrant> {
@@ -308,29 +323,20 @@ export function createGroupAssetGrant(groupId: string, input: CreateAssetGrantIn
   });
 }
 
-export function updateGroupAssetGrant(
-  groupId: string,
-  grantId: string,
-  input: UpdateAssetGrantInput,
-): Promise<AssetGrant> {
-  return request<AssetGrant>(
-    `/api/asset-groups/${encodeURIComponent(groupId)}/bindings/${encodeURIComponent(grantId)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    },
-  );
+export function updateGroupAssetGrant(groupId: string, grantId: string, input: UpdateAssetGrantInput): Promise<AssetGrant> {
+  return request<AssetGrant>(`/api/asset-groups/${encodeURIComponent(groupId)}/bindings/${encodeURIComponent(grantId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
 export function deleteGroupAssetGrant(groupId: string, grantId: string): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(
-    `/api/asset-groups/${encodeURIComponent(groupId)}/bindings/${encodeURIComponent(grantId)}`,
-    { method: "DELETE" },
-  );
+  return request<{ ok: boolean }>(`/api/asset-groups/${encodeURIComponent(groupId)}/bindings/${encodeURIComponent(grantId)}`, { method: "DELETE" });
 }
 
-export interface EffectivePermission {  permission: string;
+export interface EffectivePermission {
+  permission: string;
   allowed: boolean;
   broad: boolean;
   grant_ids: string[];
@@ -352,10 +358,7 @@ export interface EffectiveAccess {
   can_navigate_schema: boolean;
 }
 
-export function effectiveAccess(
-  userId: string,
-  query: { connection_id: string; database?: string; schema?: string; table?: string },
-): Promise<EffectiveAccess> {
+export function effectiveAccess(userId: string, query: { connection_id: string; database?: string; schema?: string; table?: string }): Promise<EffectiveAccess> {
   const params = new URLSearchParams();
   params.set("connection_id", query.connection_id);
   if (query.database?.trim()) params.set("database", query.database.trim());
@@ -413,7 +416,9 @@ export function listAssetGrantInventory(query: AssetGrantInventoryQuery = {}): P
   return request<AssetGrantInventoryItem[]>(`/api/asset-grants${suffix ? `?${suffix}` : ""}`);
 }
 
-export type AccessRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+export type AccessRequestStatus = "pending" | "approved" | "rejected" | "cancelled" | "revoked";
+
+export type AccessGrantStatus = "active" | "expired" | "revoked" | "missing";
 
 export interface AccessRequest {
   id: string;
@@ -440,6 +445,7 @@ export interface AccessRequest {
   decided_at?: string | null;
   decision_note: string;
   grant_id?: string | null;
+  grant_status?: AccessGrantStatus | null;
   approver_names: string[];
   created_at: string;
   expired: boolean;
@@ -456,6 +462,8 @@ export interface AccessRequestInput {
   name_pattern?: boolean;
   duration_hours: number;
   justification: string;
+  /** Submit again after ACCESS_ALREADY_GRANTED to stack a new time window. */
+  force?: boolean;
 }
 
 export interface AccessRequestRoleOption {

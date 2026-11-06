@@ -544,6 +544,10 @@ pub async fn ai_agent_stream(
         // A future caller cannot opt in by adding a JSON key.
         allow_skills: false,
         approval_creator,
+        // Read-only platform tools (self context, approvals, audit, users,
+        // roles, policies). They run as the signed-in actor and re-check the
+        // same permissions as the HTTP API.
+        governance_tools: Some(crate::routes::ai_governance::governance_toolset(state.clone(), actor.clone())),
     };
 
     let sid = session_id.clone();

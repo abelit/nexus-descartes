@@ -237,6 +237,53 @@ impl Storage {
         })
         .await
     }
+
+    /// Requests whose approved grant is `grant_id`. Used by the coverage
+    /// preview and by grant revocation.
+    pub async fn access_requests_for_grant(&self, grant_id: String) -> Result<Vec<AccessRequest>, String> {
+        self.with_conn(move |conn| {
+            let mut stmt = conn
+                .prepare("SELECT * FROM access_requests WHERE grant_id = ?1 ORDER BY created_at DESC")
+                .map_err(|error| error.to_string())?;
+            let rows = stmt.query_map([grant_id], row_to_access_request).map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    /// Marks every approved request backed by `grant_id` as revoked and returns
+    /// those requests for the audit trail. A grant can back at most one request
+    /// today (approval inserts a fresh grant), but the query is list-shaped so a
+    /// future merge/extension cannot silently orphan history.
+    pub async fn revoke_access_requests_for_grant(
+        &self,
+        grant_id: String,
+        revoked_at: String,
+    ) -> Result<Vec<AccessRequest>, String> {
+        self.with_conn(move |conn| {
+            let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+            let affected = {
+                let mut stmt = tx
+                    .prepare(
+                        "SELECT * FROM access_requests WHERE grant_id = ?1 AND status = 'approved' \
+                         ORDER BY created_at DESC",
+                    )
+                    .map_err(|error| error.to_string())?;
+                let rows =
+                    stmt.query_map([grant_id.as_str()], row_to_access_request).map_err(|error| error.to_string())?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?
+            };
+            tx.execute(
+                "UPDATE access_requests SET status = 'revoked', updated_at = ?1 \
+                 WHERE grant_id = ?2 AND status = 'approved'",
+                params![revoked_at, grant_id],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok(affected)
+        })
+        .await
+    }
 }
 
 #[cfg(all(test, feature = "enterprise-audit"))]
@@ -324,6 +371,36 @@ mod tests {
             .await
             .unwrap());
         assert!(!storage.pending_access_request_exists(request).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn revoking_a_grant_marks_linked_requests_revoked() {
+        let path = std::env::temp_dir().join(format!("dbx-access-request-{}.db", uuid::Uuid::new_v4()));
+        let storage = crate::persistence::test_storage::open(&path).await.unwrap();
+        let request = request("req-revoke", "user-1");
+        storage.create_access_request(request.clone()).await.unwrap();
+        let grant = grant(&request);
+        let now = super::super::identity::now_rfc3339();
+        assert!(storage
+            .approve_access_request(
+                request.id.clone(),
+                "approver".to_string(),
+                "ok".to_string(),
+                now.clone(),
+                grant.clone()
+            )
+            .await
+            .unwrap());
+        assert!(storage.delete_asset_grant(grant.id.clone(), "user-1".to_string()).await.unwrap());
+
+        let revoked = storage.revoke_access_requests_for_grant(grant.id.clone(), now.clone()).await.unwrap();
+        assert_eq!(revoked.len(), 1);
+        assert_eq!(revoked[0].id, request.id);
+        let stored = storage.access_request_by_id(request.id.clone()).await.unwrap().unwrap();
+        assert_eq!(stored.status, AccessRequestStatus::Revoked);
+        assert_eq!(stored.grant_id.as_deref(), Some(grant.id.as_str()));
+        // A second revoke is a no-op, not a second audit row.
+        assert!(storage.revoke_access_requests_for_grant(grant.id, now).await.unwrap().is_empty());
     }
 
     #[tokio::test]

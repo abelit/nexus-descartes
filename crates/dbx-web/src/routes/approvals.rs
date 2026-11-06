@@ -583,7 +583,17 @@ pub async fn list_requests(
     Extension(actor): Extension<Actor>,
     AxumQuery(query): AxumQuery<ListApprovalsQuery>,
 ) -> Result<Json<Vec<ApprovalView>>, AppError> {
-    require(&actor, Permission::ApprovalRead)?;
+    build_approval_list(&state, &actor, query).await.map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools. Visibility is
+/// enforced here, so both surfaces return exactly the same rows.
+pub(crate) async fn build_approval_list(
+    state: &WebState,
+    actor: &Actor,
+    query: ListApprovalsQuery,
+) -> Result<Vec<ApprovalView>, AppError> {
+    require(actor, Permission::ApprovalRead)?;
     let can_view_all = dbx_core::identity::can_view_all_audit(&actor.roles);
     let history = query.history.unwrap_or(false);
     let requester = query.mine.unwrap_or(false).then(|| actor.id.clone());
@@ -638,8 +648,8 @@ pub async fn list_requests(
         views.push(ApprovalView::from_parts(request, steps));
     }
     attach_my_decisions(&mut views, &decisions, &actor.id);
-    attach_approval_user_names(state.as_ref(), &mut views, &[]).await;
-    Ok(Json(views))
+    attach_approval_user_names(state, &mut views, &[]).await;
+    Ok(views)
 }
 
 pub async fn get_request(
@@ -647,8 +657,18 @@ pub async fn get_request(
     Extension(actor): Extension<Actor>,
     Path(request_id): Path<String>,
 ) -> Result<Json<ApprovalDetailView>, AppError> {
-    require(&actor, Permission::ApprovalRead)?;
-    let request = load_request(&state, &request_id).await?;
+    build_approval_detail(&state, &actor, &request_id).await.map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools. Keeps the same
+/// requester/approver/asset visibility rules.
+pub(crate) async fn build_approval_detail(
+    state: &WebState,
+    actor: &Actor,
+    request_id: &str,
+) -> Result<ApprovalDetailView, AppError> {
+    require(actor, Permission::ApprovalRead)?;
+    let request = load_request(state, request_id).await?;
     let steps = state.app.storage.approval_steps_for_request(request.id.clone()).await.map_err(AppError::from)?;
     // The requester, an administrator, and anyone who may decide a step can
     // see the full timeline.
@@ -673,11 +693,8 @@ pub async fn get_request(
     let decision_actor_ids: Vec<String> = decisions.iter().map(|decision| decision.actor_id.clone()).collect();
     let mut view = ApprovalView::from_parts(request, steps);
     attach_my_decisions(std::slice::from_mut(&mut view), &decisions, &actor.id);
-    attach_approval_user_names(state.as_ref(), std::slice::from_mut(&mut view), &decision_actor_ids).await;
-    Ok(Json(ApprovalDetailView {
-        request: view,
-        decisions: decisions.iter().map(ApprovalDecisionView::from).collect(),
-    }))
+    attach_approval_user_names(state, std::slice::from_mut(&mut view), &decision_actor_ids).await;
+    Ok(ApprovalDetailView { request: view, decisions: decisions.iter().map(ApprovalDecisionView::from).collect() })
 }
 
 async fn load_request(state: &WebState, request_id: &str) -> Result<ApprovalRequest, AppError> {
@@ -808,7 +825,18 @@ async fn run_approved_request(
         policy_bundle_hash: policy_bundle_hash.as_deref(),
         rule_ids: &rule_ids,
     });
-    // Tickets created before the stable-identity hash must still be executable.
+    // Tickets created before the minimal-identity hash use either the previous
+    // sanitized-config hash or the original legacy hash; accept all so
+    // in-flight approvals survive an upgrade.
+    let stable_hash = request_hash(&ApprovalBinding {
+        connection_id: &request.connection_id,
+        connection_config_hash: &dbx_core::governance::approval::stable_connection_config_hash(&config),
+        database: &request.database,
+        schema: request.schema_name.as_deref(),
+        statements_digest: &request.sql_digest,
+        policy_bundle_hash: policy_bundle_hash.as_deref(),
+        rule_ids: &rule_ids,
+    });
     let legacy_hash = request_hash(&ApprovalBinding {
         connection_id: &request.connection_id,
         connection_config_hash: &dbx_core::governance::approval::legacy_connection_config_hash(&config),
@@ -818,7 +846,21 @@ async fn run_approved_request(
         policy_bundle_hash: policy_bundle_hash.as_deref(),
         rule_ids: &rule_ids,
     });
-    if current_hash != request.request_hash && legacy_hash != request.request_hash {
+    if current_hash != request.request_hash
+        && stable_hash != request.request_hash
+        && legacy_hash != request.request_hash
+    {
+        log::warn!(
+            "[approval] binding mismatch id={} stored={} current={} stable={} legacy={} connection={} database={} schema={:?}",
+            request.id,
+            request.request_hash,
+            current_hash,
+            stable_hash,
+            legacy_hash,
+            request.connection_id,
+            request.database,
+            request.schema_name
+        );
         let error = "APPROVAL_BINDING_MISMATCH: the connection, database, policy, or rules changed since approval";
         fail_approval_request(state, &request, &executor.id, error.to_string()).await;
         return Err(AppError::conflict(error));
@@ -1247,9 +1289,14 @@ pub async fn list_templates(
     State(state): State<Arc<WebState>>,
     Extension(actor): Extension<Actor>,
 ) -> Result<Json<Vec<TemplateView>>, AppError> {
-    require(&actor, Permission::ApprovalRead)?;
+    build_template_views(&state, &actor).await.map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools.
+pub(crate) async fn build_template_views(state: &WebState, actor: &Actor) -> Result<Vec<TemplateView>, AppError> {
+    require(actor, Permission::ApprovalRead)?;
     let templates = state.app.storage.list_approval_templates().await.map_err(AppError::from)?;
-    Ok(Json(templates.into_iter().map(TemplateView::from).collect()))
+    Ok(templates.into_iter().map(TemplateView::from).collect())
 }
 
 pub async fn create_template(

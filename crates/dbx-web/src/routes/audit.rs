@@ -42,6 +42,12 @@ impl AuditAccessScope {
         }
     }
 
+    /// Shared with the AI governance tools so a scoped caller cannot widen its
+    /// own view by asking the assistant.
+    pub(crate) fn for_actor_shared(actor: &Actor) -> Self {
+        Self::for_actor(actor)
+    }
+
     fn is_unrestricted(&self) -> bool {
         self.actor_id.is_none()
     }
@@ -267,6 +273,22 @@ pub async fn list_events(
     let mut query = query.into_filter()?;
     scope.apply(&mut query);
     state.app.storage.query_audit_events(query).await.map(Json).map_err(AppError::from)
+}
+
+/// Actor-scoped audit query for the AI governance tools. The AI must never use
+/// the loopback/bootstrap fallback, so it needs `audit:read` explicitly and
+/// gets the same self-only restriction as the HTTP API.
+pub(crate) async fn query_events_for_actor(
+    state: &WebState,
+    actor: &Actor,
+    query: AuditEventsQuery,
+) -> Result<AuditPage, AppError> {
+    if !dbx_core::identity::has_permission(&actor.roles, dbx_core::identity::Permission::AuditRead) {
+        return Err(AppError::forbidden("PERMISSION_DENIED: audit:read"));
+    }
+    let mut query = query.into_filter()?;
+    AuditAccessScope::for_actor_shared(actor).apply(&mut query);
+    state.app.storage.query_audit_events(query).await.map_err(AppError::from)
 }
 
 pub async fn event_detail(

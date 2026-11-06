@@ -200,9 +200,14 @@ pub struct EffectivePolicyView {
 }
 
 pub async fn effective_policy(Extension(actor): Extension<Actor>) -> Result<Json<EffectivePolicyView>, AppError> {
-    require(&actor, Permission::PolicyRead)?;
+    build_effective_policy(&actor).map(Json)
+}
+
+/// Shared by the HTTP handler and the AI governance tools.
+pub(crate) fn build_effective_policy(actor: &Actor) -> Result<EffectivePolicyView, AppError> {
+    require(actor, Permission::PolicyRead)?;
     let policy = dbx_core::governance::policy::current_policy();
-    Ok(Json(EffectivePolicyView {
+    Ok(EffectivePolicyView {
         policy_bundle_hash: policy.bundle_hash().to_string(),
         rules: policy
             .rules()
@@ -230,7 +235,7 @@ pub async fn effective_policy(Extension(actor): Extension<Actor>) -> Result<Json
                 })
             })
             .collect(),
-    }))
+    })
 }
 
 fn validate_scope(scope_type: &str, scope_id: &str) -> Result<(), AppError> {
