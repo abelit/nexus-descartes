@@ -1,7 +1,7 @@
 # Fork 分支维护说明
 
 > 本文记录 `abelit/nexus-descartes` 相对上游 `t8y2/dbx` 的分支模型与上游同步流程。  
-> 最后更新：2026-11-05
+> 最后更新：2026-11-12
 
 ## 1. 仓库关系
 
@@ -48,7 +48,7 @@ main（主目录，发布/集成快照）
 
 - **用途**：企业治理方向的二开（服务端审计、RBAC、资产级授权、高风险规则、审批中心、DMS 式执行等）。
 - **基点**：`fork-base`（`e6b1a478b`）。
-- **上游合并**：2026-11-05 已合并 `upstream/main`（最新 `ecdeb8b60`），merge commit `b04842140`；此前一次为 `dc41ee213` → `6bb196c1f`。
+- **上游合并**：2026-11-12 已合并 `upstream/main`（最新 `29c48300e`，113 个上游提交），merge commit `9a62c5ff9`；此前一次为 `ecdeb8b60` → `b04842140`，更早为 `dc41ee213` → `6bb196c1f`。
 - **worktree 路径**：`.claude/worktrees/feat+enterprise-audit-p0`（目录名沿用旧名，分支名是 `enterprise-dev`）。
 - **推送状态**：与 `origin/enterprise-dev` 同步。
 
@@ -102,6 +102,19 @@ git push origin main
 
 另外补上了 `/access-requests` 和 `/my-tasks` 的路由权限分类，修复了 WIP 遗留的覆盖测试失败。
 
+### 第二次合并记录（2026-11-12）
+
+合并 `upstream/main`（`29c48300e`，113 个上游提交）时产生 **2 个冲突**，均为“两边都保留”：
+
+| 文件 | 处理 |
+|---|---|
+| `apps/desktop/src/composables/useSqlExecution.ts` | 保留本地 `approvalRequiredDetail` + 上游新增 `resultExecutionTimeMs` |
+| `crates/dbx-core/src/persistence/storage.rs` | `Storage` 同时保留本地 `audit_db` 与上游 `desktop_credential_recovery` / `credential_reset_confirmation` |
+
+另修复一处合并前已存在的桌面端编译错误：`src-tauri/src/commands/ai.rs` 的 `AgentLoopContext` 初始化补上 `governance_tools: None`（桌面端没有 Web 治理工具）。
+
+验证：`cargo check -p dbx-core --features enterprise-audit`、`cargo check -p dbx-web --features enterprise-audit --bin dbx-web`、`cargo check -p dbx`、`pnpm typecheck`、`cargo test -p dbx-core --features enterprise-audit --lib governance`（44 通过）、`cargo test -p dbx-web --features enterprise-audit --bin dbx-web route_permissions`（11 通过）、`node scripts/check-governed-sql.mjs` 全部通过。
+
 ## 7. 注意事项
 
 - `upstream-main` 只做上游镜像，不要在上面提交；`main` 只从 `enterprise-dev` 更新，不直接合并上游。
@@ -117,3 +130,4 @@ git push origin main
 - **2026-11-05**：WIP 提交 `961fa6305`；合并 `upstream/main`（`dc41ee213`）为 `6bb196c1f`；解决 11 个冲突并通过编译与类型检查。
 - **2026-11-05**：`main` 重置为 `upstream/main` 并 force-push；本说明与 `.playwright-mcp/` 忽略规则提交到 `enterprise-dev`。
 - **2026-11-05**：切换为 `upstream-main → enterprise-dev → main` 模型；合并最新 `upstream/main`（`ecdeb8b60`）无冲突，merge commit `b04842140`；`main` 快进到 `enterprise-dev`。
+- **2026-11-12**：合并 `upstream/main`（`29c48300e`，113 个上游提交）为 `9a62c5ff9`；解决 2 个冲突并补齐桌面端 `governance_tools` 字段；编译、类型检查、治理与路由权限测试、governed-SQL 守卫全部通过。

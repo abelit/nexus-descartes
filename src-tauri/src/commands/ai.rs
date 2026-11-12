@@ -447,6 +447,8 @@ pub async fn ai_agent_stream(
         allow_skills: allow_skills.unwrap_or(false),
         // Desktop has no web governance approval API.
         approval_creator: None,
+        // Desktop has no web-owned governance tools.
+        governance_tools: None,
     };
     let is_agent_mode = mode.as_deref() == Some("agent");
 
