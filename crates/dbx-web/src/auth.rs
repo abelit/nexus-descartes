@@ -195,15 +195,8 @@ pub async fn captcha(State(state): State<Arc<WebState>>) -> Response {
     // never does, so the form decides from this response whether to show the
     // field at all. Login throttling is per client+account, so the endpoint
     // uses the highest outstanding failure count as its signal.
-    let failed_attempts = state
-        .login_rate_limit
-        .lock()
-        .await
-        .attempts
-        .values()
-        .map(|attempt| attempt.fail_count)
-        .max()
-        .unwrap_or(0);
+    let failed_attempts =
+        state.login_rate_limit.lock().await.attempts.values().map(|attempt| attempt.fail_count).max().unwrap_or(0);
     let mode = *state.captcha_mode.read().await;
     if !mode.requires_challenge(failed_attempts) {
         return StatusCode::NO_CONTENT.into_response();
@@ -247,14 +240,8 @@ pub async fn login(
     // be able to spend our hashing CPU without solving an image first. `verify`
     // consumes the challenge either way, so the same image can never be
     // replayed.
-    let failed_attempts = state
-        .login_rate_limit
-        .lock()
-        .await
-        .attempts
-        .get(&rate_key)
-        .map(|attempt| attempt.fail_count)
-        .unwrap_or(0);
+    let failed_attempts =
+        state.login_rate_limit.lock().await.attempts.get(&rate_key).map(|attempt| attempt.fail_count).unwrap_or(0);
     if state.captcha_mode.read().await.requires_challenge(failed_attempts) {
         let captcha_ok = state
             .captchas
